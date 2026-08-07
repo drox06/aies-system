@@ -1,0 +1,12 @@
+// Split schema (specs/00-foundation.md §2). Each module owns its own `<module>.prisma` file in
+// this folder (spec §3.6: "A module owns its Prisma models"). This file holds only the
+// datasource/generator config — do not add models here.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
