@@ -19,6 +19,7 @@ const eslintConfig = [
       "prisma/schema/**/*.prisma",
       "playwright-report/**",
       "test-results/**",
+      "next-env.d.ts",
     ],
   },
 ];
