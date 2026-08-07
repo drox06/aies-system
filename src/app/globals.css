@@ -1,0 +1,21 @@
+/*
+ * Placeholder reset. Replaced by the brand token system and shadcn/ui base styles
+ * in module 00 session 5 (specs/00-foundation.md §8) — do not build on this.
+ */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
