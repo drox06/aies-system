@@ -1,31 +1,54 @@
 # Build Progress
 
 Last updated: 2026-08-08
-Current module: 00 — Foundation (session 1 of 5)
+Current module: 00 — Foundation (session 1 of 5 complete)
 Status: in progress
 
 ## Done
 - [x] Spec pack organized into repo layout (Spec.md, docs/, specs/, brand/)
-- [x] Git repo initialized
+- [x] Git repo initialized, `main` branch
+- [x] Module 00 session 1 — bootstrap, Prisma, CI, module manifest system:
+  - [x] Next.js 15 App Router, TypeScript `strict: true`, ESLint flat config + Prettier + Husky
+        pre-commit (lint-staged)
+  - [x] Prisma split schema (`prisma/schema/`, config via `prisma.config.ts`) — datasource/
+        generator only, zero models yet (see docs/DECISIONS.md #3)
+  - [x] `src/lib/db.ts` Prisma client singleton
+  - [x] `docker/docker-compose.dev.yml` for local Postgres (not yet run — see docs/DECISIONS.md #1)
+  - [x] Module manifest system: `src/server/core/module-registry.ts` (`ModuleManifest`,
+        `defineManifest`, `buildModuleRegistry` — permission/event collision validation, nav tree
+        assembly, disabled-module handling) + `src/server/core/manifests.ts` boot aggregator
+  - [x] Vitest set up, 7 unit tests on the module registry, all passing
+  - [x] Playwright set up, one e2e smoke test (home page + `/api/health`), passing
+  - [x] `.github/workflows/ci.yml` — lint/typecheck/test/build + Postgres service container +
+        `prisma migrate deploy` + drift check on PR; migrate-deploy-to-production job scaffolded
+        but inert until Supabase secrets exist
+  - [x] `.env.example`, `docs/DECISIONS.md` started
 
 ## In progress
-- [ ] Module 00 session 1: bootstrap, Prisma, CI, module manifest system
-      Next concrete step: scaffold package.json, tsconfig, ESLint/Prettier, Husky (Next.js 15 App
-      Router, TypeScript strict) per specs/00-foundation.md §2.
+- [ ] Module 00 session 2: Auth + TOTP + RBAC + seeded roles + approval fallback
+      Next concrete step: add `prisma/schema/auth.prisma` with `User`, `Role`, `Permission`,
+      `UserRole`, `RolePermission`, `UserPermissionOverride` (specs/00-foundation.md §4.2), run
+      the first real `prisma migrate dev` (this needs a live Postgres — either install Docker
+      Desktop now or point `DATABASE_URL`/`DIRECT_URL` at a reachable Postgres instance first),
+      then wire Auth.js v5 with credentials (argon2id) + mandatory TOTP per §4.1.
 
 ## Not started
-- [ ] Module 00 session 2: Auth + TOTP + RBAC + seeded roles + approval fallback
 - [ ] Module 00 session 3: Audit log, event outbox, job queue, numbering
 - [ ] Module 00 session 4: Storage, notify, approvals, customFields, comments, search
 - [ ] Module 00 session 5: Design system (brand extraction first), app shell, DataTable,
-      deployment artifacts
+      deployment artifacts (docs/DEPLOYMENT.md, docker-compose self-host fallback)
 - [ ] Modules 01–10
 
 ## Decisions made this module
-- (none yet — see docs/DECISIONS.md once created)
+- See docs/DECISIONS.md entries #1–#3 (local DB deferred, prisma.config.ts over
+  package.json#prisma, no migration yet since no models exist).
 
 ## Known issues / to revisit
-- Node.js was not installed on the build machine; installed Node LTS via winget during this
-  session. The harness's shell processes inherit a stale PATH from before the install, so `node`/
-  `npm` must be invoked with an explicit PATH prepend (`C:\Program Files\nodejs`) in every shell
-  command until the machine-level PATH propagates to new processes naturally (e.g. after reboot).
+- Node.js was not installed on the build machine; installed Node 24 LTS via winget during this
+  session. Docker was deliberately not installed (docs/DECISIONS.md #1) — needed before session 2
+  can run a real migration.
+- The harness's shell processes inherit a stale PATH from before the Node install, so `node`/
+  `npm`/`npx` must be invoked with an explicit PATH prepend (`C:\Program Files\nodejs`) in Bash,
+  or `$env:Path` refreshed in PowerShell, until this is no longer observed (e.g. after a reboot).
+- No GitHub remote configured yet — `.github/workflows/ci.yml` has never actually run. Verify it
+  once the repo is pushed.
