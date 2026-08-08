@@ -4,9 +4,19 @@ import { auth } from "@/auth";
 import { checkRateLimit } from "@/server/core/rate-limit";
 import type { AuthedUser } from "@/server/core/rbac/types";
 
-export async function createTRPCContext() {
+export async function createTRPCContext(opts: { headers: Headers }) {
   const session = await auth();
-  return { session };
+
+  // Consumed by src/server/core/audit/audit.ts writes (specs/00-foundation.md §5's `ip`,
+  // `userAgent`, `requestId` fields) — never trust these for security decisions, only logging.
+  const ip =
+    opts.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    opts.headers.get("x-real-ip") ??
+    null;
+  const userAgent = opts.headers.get("user-agent");
+  const requestId = opts.headers.get("x-request-id") ?? crypto.randomUUID();
+
+  return { session, ip, userAgent, requestId };
 }
 
 export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
