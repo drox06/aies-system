@@ -73,7 +73,7 @@ export function ActivityFeed({ entityType, entityId }: { entityType: string; ent
               key={`comment-${entry.id}`}
               style={{ borderBottom: "1px solid #DCE3EB", padding: "8px 0" }}
             >
-              <strong>{entry.authorId}</strong>{" "}
+              <strong>{entry.authorLabel}</strong>{" "}
               <span style={{ color: "#5A6B7D", fontSize: 13 }}>
                 {new Date(entry.at).toLocaleString()}
                 {entry.editedAt && " (edited)"}

@@ -268,3 +268,23 @@ Advancing a multi-step workflow to its next step doesn't emit an event — only 
 matching the spec's literal list. `listMyApprovalInbox()` is pulled on demand rather than pushed,
 so nothing is actually missed; an intermediate `approval.step_advanced` event can be added later
 once a real multi-step workflow needs to notify a second step's approvers proactively.
+
+## 14. `ActivityFeed` comments now resolve `authorId` to a display name
+
+**Module:** 00, session 4
+**Found during manual browser verification:** posting a comment on `/admin/users` rendered the
+raw `Comment.authorId` cuid (e.g. `cmsjmsdl4000gup3w75a7btnz`) as the author, while audit entries
+in the same feed already show a friendly `actorLabel`. Since specs/00-foundation.md §7.6 calls
+`ActivityFeed` "the heart of the replace-external-chat-apps requirement," showing a raw id where a
+name belongs is a real usability defect, not cosmetic.
+**Fix:** `getActivityFeed()` (`src/server/core/comments/activity-feed.ts`) now looks up the
+distinct `authorId`s for a feed's comments against `User` and attaches a resolved `authorLabel`,
+same field name and shape as the audit side. `Comment.authorId` deliberately stays a plain string
+(no Prisma relation added) — same decoupled-from-`User` convention already used by
+`AuditLog.actorId` and `EventOutbox.actorId` — so the lookup is a small second query, not a schema
+relation. Falls back to the raw id if the user record is gone, rather than throwing.
+**Note:** unlike `AuditLog.actorLabel` (a snapshot captured once, at write time, so a renamed user
+doesn't rewrite history), this is a live lookup — resolved fresh on every read, so a renamed user's
+older comments show their current name. That's the intentionally different choice here: a comment
+thread is closer to a chat log (where every UI, e.g. Slack, shows the current display name) than to
+a compliance audit trail (where "what was true at the time" is the point).

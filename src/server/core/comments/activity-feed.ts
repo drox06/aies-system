@@ -6,6 +6,7 @@ export type ActivityEntry =
       id: string;
       at: Date;
       authorId: string;
+      authorLabel: string;
       body: string;
       editedAt: Date | null;
       parentId: string | null;
@@ -29,12 +30,22 @@ export async function getActivityFeed(
     db.auditLog.findMany({ where: { entityType, entityId }, orderBy: { at: "asc" } }),
   ]);
 
+  // Comment.authorId is a plain id (same decoupled-from-User convention as AuditLog.actorId /
+  // EventOutbox.actorId), so authors are resolved here rather than via a schema relation.
+  const authorIds = [...new Set(comments.map((c) => c.authorId))];
+  const authors = await db.user.findMany({
+    where: { id: { in: authorIds } },
+    select: { id: true, name: true },
+  });
+  const authorLabelById = new Map(authors.map((a) => [a.id, a.name]));
+
   const entries: ActivityEntry[] = [
     ...comments.map((c): ActivityEntry => ({
       kind: "comment",
       id: c.id,
       at: c.createdAt,
       authorId: c.authorId,
+      authorLabel: authorLabelById.get(c.authorId) ?? c.authorId,
       body: c.body,
       editedAt: c.editedAt,
       parentId: c.parentId,

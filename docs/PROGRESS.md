@@ -1,7 +1,7 @@
 # Build Progress
 
 Last updated: 2026-08-08
-Current module: 00 — Foundation (session 3 of 5 complete)
+Current module: 00 — Foundation (session 4 of 5 complete)
 Status: in progress
 
 ## Done
@@ -51,20 +51,61 @@ Status: in progress
         browser to `https://localhost` and broke all further local navigation until a fresh
         browser context was opened
 
-## In progress
-- [ ] Module 00 session 4: Storage, notify, approvals, customFields, comments, search
-      Next concrete step: `src/server/core/storage/` — Supabase Storage client wrapper with the
-      `{entityType}/{yyyy}/{mm}/{entityId}/{uuid}-{sanitized-filename}` path scheme
-      (specs/00-foundation.md §7.2), a `FileObject` Prisma model (size/mime/sha256/uploader/
-      entity link, dedup by sha256 within an entity), and `/api/files/[id]` that checks
-      permission server-side before issuing a short-lived signed URL. Needs a real Supabase
-      Storage bucket created in the `aies-platform-dev` project first — the Supabase project
-      itself already exists (docs/DECISIONS.md #1 addendum) but no storage bucket has been
-      created in it yet.
+- [x] Module 00 session 4 — Storage, customFields, notify, approvals, comments, search:
+  - [x] Storage: real Supabase Storage bucket (`aies-files`) created via `scripts/ensure-
+        storage-bucket.ts`; `FileObject` model (dedup by sha256 within an entity);
+        `{entityType}/{yyyy}/{mm}/{entityId}/{uuid}-{sanitized-filename}` key scheme
+        (specs/00-foundation.md §7.2); executable/oversize rejection, pluggable scan hook
+        (no-op by default), sharp-generated web derivative for images; `POST /api/files` and
+        `GET /api/files/[id]` (permission-checked via a per-entityType-registered
+        `FileAccessChecker`, then redirect to a short-lived signed URL)
+  - [x] customFields: `CustomFieldDef` model, runtime Zod schema built from active defs
+        (`buildCustomFieldsSchema`), admin-only CRUD router gated on a new
+        `admin.manage_custom_fields` permission (president-only by default)
+  - [x] notify: `Notification` + `NotificationPreference` models, per-type channel defaults
+        with per-user override, in-app coalescing within a type's time window (increments an
+        existing unread notification's `count` instead of spawning duplicates), email channel
+        enqueues to a deliberately handler-less `notify_email` queue (docs/DECISIONS.md #10)
+  - [x] approvals: generic `ApprovalWorkflow`/`ApprovalRequest`/`ApprovalAction` engine with
+        per-step eligibility as a predicate (role/permission/specific-user, or a real
+        `ApprovalRule` + the session-2 fallback resolver via `approvalRuleKey`); "parallel"
+        (first eligible decision resolves the step) is the only supported step mode
+        (docs/DECISIONS.md #12); reusable `<ApprovalPanel>` + a global "Awaiting my approval"
+        inbox at `/approvals`; verified end-to-end against the real seeded
+        `cash_advance.approve` rule (VP eligible immediately, President eligible immediately
+        too and stamped as a fallback decision)
+  - [x] comments: threaded `Comment` model (15-minute author-only edit window measured from
+        creation, edit history via `CommentEdit`, soft delete), `@mention` notifications
+        (5-minute coalesce window), `<ActivityFeed>` merging comments with audit-log entries
+        into one chronological stream — mounted on `/admin/users` in place of the session-3
+        `<AuditTrail>` (superset)
+  - [x] search: `SearchIndex` model, Postgres full-text (`tsvector`/`plainto_tsquery`) primary
+        path with a `pg_trgm` fuzzy fallback for typo tolerance (extension enabled via a
+        tracked migration, not a one-off script — confirmed *not* enabled by default on a
+        fresh Supabase Postgres), merged with live results from session 1's previously-unused
+        `SearchProvider` registry, deduped by `entityType:entityId`; Cmd/Ctrl+K
+        `<GlobalSearch>` modal mounted app-wide (only when authenticated)
+  - [x] 160 automated tests total (34 files), all passing; `typecheck`, `lint`, and
+        `next build` all clean
+  - [x] **Manually verified end-to-end in a real browser** (signed in as EA/president):
+        Ctrl+K opens the global search modal, a query round-trips through `search.query` (200
+        OK, "No results." renders cleanly since no business entities exist to index yet in
+        module 00); posted a comment on `/admin/users`' `<ActivityFeed>` and confirmed it
+        appears immediately with correct timestamp and Edit/Delete controls
+  - [x] Found and fixed one real bug during that manual pass (docs/DECISIONS.md #14):
+        `<ActivityFeed>` rendered a comment's raw `authorId` cuid instead of a name — audit
+        entries in the same feed already showed a resolved `actorLabel`, so the inconsistency
+        was visibly wrong the moment a real comment was posted. Fixed by resolving
+        `authorId` → `User.name` in `getActivityFeed()` (live lookup, not a write-time
+        snapshot like audit's `actorLabel` — deliberately different, see #14 for why)
 
-## Not started
+## In progress
 - [ ] Module 00 session 5: Design system (brand extraction first), app shell, DataTable,
       deployment artifacts (docs/DEPLOYMENT.md, docker-compose self-host fallback)
+      Next concrete step: brand extraction from `brand/` assets into design tokens, per
+      specs/00-foundation.md's session 5 breakdown — not yet started.
+
+## Not started
 - [ ] Modules 01–10
 
 ## Decisions made this module
@@ -75,6 +116,11 @@ Status: in progress
   `fileParallelism: false` for Supabase pooler connection limits).
 - docs/DECISIONS.md #8-#9: session 3 (`totpCode` must be `""` not `undefined` in `signIn()` calls;
   `Strict-Transport-Security` only sent in production, never over local HTTP).
+- docs/DECISIONS.md #10-#14: session 4 (`notify`'s email channel intentionally has no consumer
+  yet; only the Supabase storage driver is implemented, no local filesystem driver; approval step
+  `mode` only supports "parallel"; approval engine emits only the three spec-named events;
+  `ActivityFeed` resolves comment `authorId` to a live `authorLabel`, unlike audit's write-time
+  snapshot).
 
 ## Known issues / to revisit
 - No per-device "revoke this session" / session list UI yet (docs/DECISIONS.md #4).
@@ -93,3 +139,13 @@ Status: in progress
 - Vercel Cron isn't actually configured yet (no real Vercel project exists) — `POST /api/cron/
   drain` is built and tested but has never been invoked by a real cron scheduler. That's a
   session 5 deployment-artifacts concern.
+- `notify_email` queue has no registered handler by design (docs/DECISIONS.md #10) — it will
+  dead-letter every enqueued job until a real email provider is wired up (later module/session).
+- No local filesystem storage driver (docs/DECISIONS.md #11) — `StorageDriver` is an interface,
+  only the Supabase implementation exists.
+- Approval workflows only support `mode: "parallel"` steps (docs/DECISIONS.md #12) — saving a
+  `"sequential"` step throws at workflow-save time rather than being silently mistreated.
+- `GlobalSearch`/`SearchIndex` has nothing to find yet — no session-4-or-earlier entity type
+  calls `indexEntity()` on create/update, since module 00 has no business entities of its own.
+  Verified the plumbing (search request round-trips, renders "No results." cleanly) but real
+  end-to-end fuzzy/full-text search UX is unverified until module 01+ starts indexing records.
