@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { registry } from "@/server/core/manifests";
@@ -91,8 +93,37 @@ describe("crm manifest", () => {
   it("shows accounts but not accreditations to a plain CRM user", () => {
     const hrefs = visibleNavFor(new Set(["crm.view"])).map((e) => e.href);
     expect(hrefs).toContain("/crm/accounts");
-    expect(hrefs).toContain("/crm/inquiries");
     expect(hrefs).not.toContain("/crm/accreditations");
+  });
+});
+
+describe("navigation integrity", () => {
+  /**
+   * Every nav entry must point at a route that exists.
+   *
+   * This module's first manifest listed all four CRM sections before any of their pages were
+   * built, so the sidebar offered Inquiries, Accreditations and Principals and all three 404'd.
+   * In dev that presents as a long pause while Next compiles the not-found page rather than as an
+   * obvious error, which is exactly how it survived review — it was reported as "empty pages load
+   * slowly". A nav entry is a promise that the route works, so the promise is now checked.
+   */
+  it("every registered nav href resolves to an app route", () => {
+    const appDir = join(process.cwd(), "src", "app");
+
+    for (const entry of registry.nav) {
+      const segments = entry.href.split("/").filter(Boolean);
+      const candidates = [
+        join(appDir, ...segments, "page.tsx"),
+        // Route groups and dynamic segments would need a real route resolver; nothing uses them
+        // yet, so a miss here means the page genuinely does not exist.
+        join(appDir, ...segments, "page.ts"),
+      ];
+      expect(
+        candidates.some((c) => existsSync(c)),
+        `Nav entry "${entry.label}" points at ${entry.href}, but no page exists for it. ` +
+          `Either build the page or remove the nav entry until you do.`,
+      ).toBe(true);
+    }
   });
 });
 

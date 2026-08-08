@@ -114,6 +114,19 @@ export const crmManifest = defineManifest({
   // to this module, not that one.
   consumes: [],
 
+  /**
+   * Only routes that actually exist.
+   *
+   * The first version of this manifest listed all four CRM sections before any of their pages were
+   * built, so the sidebar advertised Inquiries, Accreditations and Principals and every one of them
+   * dead-ended on a 404 — which in dev presents as a long pause while Next compiles the not-found
+   * page, not as an obvious error. A nav entry is a promise that the route works; add each of the
+   * remaining three in the session that builds its page:
+   *   - Inquiries      /crm/inquiries      icon "inbox"        crm.view                 order 11
+   *   - Accreditations /crm/accreditations icon "badge-check"  accreditation.manage     order 12
+   *   - Principals     /crm/principals     icon "handshake"    principal_prospect.manage order 13
+   * Their icons are already mapped in src/components/shell/AppShell.tsx.
+   */
   nav: [
     {
       label: "Accounts",
@@ -121,27 +134,6 @@ export const crmManifest = defineManifest({
       icon: "building",
       permission: "crm.view",
       order: 10,
-    },
-    {
-      label: "Inquiries",
-      href: "/crm/inquiries",
-      icon: "inbox",
-      permission: "crm.view",
-      order: 11,
-    },
-    {
-      label: "Accreditations",
-      href: "/crm/accreditations",
-      icon: "badge-check",
-      permission: "accreditation.manage",
-      order: 12,
-    },
-    {
-      label: "Principals",
-      href: "/crm/principals",
-      icon: "handshake",
-      permission: "principal_prospect.manage",
-      order: 13,
     },
   ],
 });

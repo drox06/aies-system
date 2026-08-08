@@ -4,6 +4,7 @@ import { approvalsRouter } from "@/server/api/routers/approvals";
 import { auditRouter } from "@/server/api/routers/audit";
 import { authRouter } from "@/server/api/routers/auth";
 import { commentsRouter } from "@/server/api/routers/comments";
+import { crmRouter } from "@/server/api/routers/crm";
 import { customFieldsRouter } from "@/server/api/routers/custom-fields";
 import { notifyRouter } from "@/server/api/routers/notify";
 import { numberingRouter } from "@/server/api/routers/numbering";
@@ -21,6 +22,7 @@ export const appRouter = router({
   approvals: approvalsRouter,
   comments: commentsRouter,
   search: searchRouter,
+  crm: crmRouter,
 });
 
 export type AppRouter = typeof appRouter;

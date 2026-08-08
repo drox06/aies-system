@@ -239,3 +239,113 @@ export async function deleteAccountService(actor: ActorMeta, input: { accountId:
     return { ok: true as const };
   });
 }
+
+/**
+ * specs/00-foundation.md §4.2's record-level scoping, for accounts.
+ *
+ * A Prisma `where` fragment, not a post-filter: filtering after the query would page wrongly
+ * (25 rows fetched, 6 shown) and would still have pulled records the user may not read.
+ *
+ * §10's test is "salesperson A cannot read salesperson B's inquiry without crm.view_all", and the
+ * same rule governs the account the inquiry hangs off. `crm.view_all` lifts it entirely.
+ *
+ * Exported as a plain function rather than going through `registerScope` because nothing outside
+ * this module scopes accounts yet, and a module-load-time registration would throw on the second
+ * evaluation under dev hot-reload. Register it in the core registry the moment a second module
+ * needs it — that is a one-liner.
+ */
+export function accountScopeWhere(user: {
+  id: string;
+  permissions: ReadonlySet<string>;
+}): Record<string, unknown> {
+  if (user.permissions.has("crm.view_all")) return {};
+  return { ownerId: user.id };
+}
+
+export interface ListAccountsParams {
+  search?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+  sortKey?: string | null;
+  sortDir?: "asc" | "desc";
+}
+
+/** Columns a client may sort by. An allow-list, because the sort key arrives from the query
+ *  string and interpolating it into `orderBy` unchecked is how you leak a schema. */
+const SORTABLE = new Set(["code", "name", "accountType", "status", "createdAt", "updatedAt"]);
+
+export async function listAccountsService(
+  user: { id: string; permissions: ReadonlySet<string> },
+  params: ListAccountsParams = {},
+) {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25));
+  const search = params.search?.trim();
+
+  const where = {
+    deletedAt: null,
+    ...accountScopeWhere(user),
+    ...(params.status ? { status: params.status } : {}),
+    ...(search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { code: { contains: search, mode: "insensitive" as const } },
+            { legalName: { contains: search, mode: "insensitive" as const } },
+            { tin: { contains: search } },
+          ],
+        }
+      : {}),
+  };
+
+  const sortKey = params.sortKey && SORTABLE.has(params.sortKey) ? params.sortKey : "name";
+  const sortDir = params.sortDir === "desc" ? "desc" : "asc";
+
+  // One round-trip for both, since the pager needs the total and the DB is ~183ms away.
+  const [rows, total] = await Promise.all([
+    db.customerAccount.findMany({
+      where,
+      orderBy: { [sortKey]: sortDir },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        accountType: true,
+        status: true,
+        industry: true,
+        ownerId: true,
+        createdAt: true,
+        _count: { select: { sites: true, contacts: true } },
+      },
+    }),
+    db.customerAccount.count({ where }),
+  ]);
+
+  return { rows, total };
+}
+
+export async function getAccountService(
+  user: { id: string; permissions: ReadonlySet<string> },
+  accountId: string,
+) {
+  // Scope is applied in the lookup itself, so an out-of-scope id is indistinguishable from a
+  // missing one — a 403 would confirm the record exists to someone not allowed to know that.
+  const account = await db.customerAccount.findFirst({
+    where: { id: accountId, deletedAt: null, ...accountScopeWhere(user) },
+    include: {
+      sites: { where: { deletedAt: null }, orderBy: { name: "asc" } },
+      contacts: {
+        where: { deletedAt: null },
+        orderBy: [{ isPrimary: "desc" }, { lastName: "asc" }],
+      },
+      parent: { select: { id: true, code: true, name: true } },
+    },
+  });
+  if (!account) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
+  }
+  return account;
+}
