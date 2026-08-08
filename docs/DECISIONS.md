@@ -330,10 +330,26 @@ solid ring 0.56–0.88R, teeth 0.88–1.0R at ~50% duty. It is drawn in a navy�
 the chrome's light direction, and reads cleanly at 16px where 60 bands of traced chrome would not.
 
 **Known limitation:** the full-colour lockup is 364kB (130kB gzipped) because the banded trace
-needs 800 paths. That is acceptable only because it is not on the hot path — the app shell uses
-the 12.5kB mono variant and the 0.6kB mark. If genuine gradient artwork (an `.ai`/`.eps` export
-with real gradient fills rather than a posterised trace) is ever supplied, drop it in at
-`brand/aies-logo-source.svg`, re-run `npm run brand`, and every derivative regenerates.
+needs 800 paths. If genuine gradient artwork (an `.ai`/`.eps` export with real gradient fills
+rather than a posterised trace) is ever supplied, drop it in at `brand/aies-logo-source.svg`,
+re-run `npm run brand`, and every derivative regenerates.
+
+**Amended (still session 5):** this entry originally justified that weight by noting the asset was
+off the hot path, since the shell used the 12.5kB mono variant. That is no longer true. On the
+company's instruction the full-colour lockup is now used on both the auth screens and the sidebar,
+so it loads on every page. Two things make that acceptable rather than a regression: it is one
+file shared by both, so after the login screen it is already cached and the marginal cost on every
+later page is zero; and the mono variant could not be used in either place once the requirement
+was to show the *actual* logo. The mono-white silhouette and the 0.6kB mark are still generated
+and still correct for anywhere the colour version cannot go. If the first paint ever feels heavy
+on a plant LTE connection, the fix is a raster derivative for fixed-size screen use, keeping the
+SVG for PDF headers where the vector genuinely matters.
+
+**Placing the colour lockup in navy chrome:** §6.1's "never place the gradient version on a
+coloured background" is satisfied by a white plate behind it, not by exception. The rule is not
+decorative — the wordmark's "AI" runs navy-900 to blue-600, so directly on the navy sidebar it
+would be navy on navy, and the near-black tagline would disappear. The logo sits on white; the
+white sits on navy. The plate's padding doubles as the clear space §6.1 requires.
 
 **Rejected:** a second raster supplied mid-session (`aies logo png.png`, 1264×843). It is a
 redrawn interpretation, not the same artwork — the lightning bolt is reshaped, the palette drifts

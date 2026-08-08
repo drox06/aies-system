@@ -43,22 +43,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         collapsed ? "w-16" : "w-60",
       )}
     >
-      {/* Taller than the top bar so the wordmark can run the full width of the sidebar. The
-          lockup is 2.44:1, so filling a 15rem sidebar (less padding) puts it at ~52px tall — the
-          header height follows from that rather than the other way round. */}
+      {/* The full-colour lockup on a white plate rather than the mono-white silhouette.
+          Spec.md §6.1 forbids the gradient version on a *coloured* background — the wordmark's
+          "AI" is navy-900→blue-600 and would vanish into navy — so the plate is what makes this
+          legal as well as legible: the logo sits on white, and the white sits on navy. The
+          padding is the clear space §6.1 asks for. */}
       <div
         className={cn(
           "flex shrink-0 items-center border-b border-white/10",
-          collapsed ? "h-20 justify-center px-2" : "h-24 px-4",
+          collapsed ? "h-20 justify-center px-2" : "h-28 px-3",
         )}
       >
-        <Link href="/" aria-label="AIES home" className="flex w-full items-center justify-center">
+        <Link
+          href="/"
+          aria-label="AIES home"
+          className={cn(
+            "flex w-full items-center justify-center rounded-md bg-surface",
+            collapsed ? "p-1.5" : "p-2",
+          )}
+        >
           {collapsed ? (
-            <Logo variant="mark" height={36} />
+            <Logo variant="mark" height={34} />
           ) : (
-            // w-full + h-auto lets it scale to the sidebar rather than a fixed pixel height, so
-            // it stays edge-to-edge if the sidebar width is ever changed.
-            <Logo variant="mono-white" height={52} className="h-auto w-full" />
+            // w-full + h-auto scales it to the sidebar rather than a fixed pixel height, so it
+            // stays edge-to-edge if the sidebar width ever changes.
+            <Logo variant="primary" height={128} className="h-auto w-full" />
           )}
         </Link>
       </div>
