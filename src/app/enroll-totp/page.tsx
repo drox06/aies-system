@@ -38,13 +38,16 @@ export default function EnrollTotpPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-navy-800 p-4">
+    // Matches /login: the full-colour lockup needs a light ground (Spec.md §6.1), and these three
+    // screens are one continuous flow, so they must not flip between navy and light.
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-bg p-4">
       <div className="w-full max-w-md">
-        <div className="mb-8 flex justify-center">
-          <Logo variant="mono-white" height={52} />
+        <div className="mb-7 flex flex-col items-center">
+          <Logo variant="primary" height={128} className="h-auto w-full max-w-[19rem]" />
+          <span aria-hidden className="mt-4 h-0.5 w-16 rounded-full bg-red-500" />
         </div>
 
-        <div className="rounded-lg border border-border bg-surface p-6 shadow-xl">
+        <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
           <h1 className="text-lg">Set up two-factor authentication</h1>
           <p className="mt-1 mb-5 text-sm text-text-muted">
             Every AIES account requires an authenticator app. This cannot be skipped.

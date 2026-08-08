@@ -76,16 +76,22 @@ function LoginForm() {
   }
 
   return (
-    // Spec.md §6.4: navy-800 is the brand's chrome colour. A full-bleed navy field with the
-    // mono-white lockup is the one screen where the brand should be unmistakable, since it is the
-    // only page an unauthenticated visitor ever sees.
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-navy-800 p-4">
+    // Light ground, not navy. Spec.md §6.1 forbids the gradient lockup on a coloured background,
+    // and §6.2 shows why it is not merely a style rule: the wordmark's "AI" runs navy-900 to
+    // blue-600, so on navy it would be navy on navy, and the near-black tagline would disappear
+    // outright. Showing the real logo therefore means giving it the surface it was drawn for.
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-bg p-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 flex justify-center">
-          <Logo variant="mono-white" height={52} />
+        <div className="mb-7 flex flex-col items-center">
+          {/* Sized by width so the lockup scales with the card instead of a fixed pixel height;
+              `height` stays as the pre-CSS intrinsic ratio hint that stops layout shifting. */}
+          <Logo variant="primary" height={128} className="h-auto w-full max-w-[19rem]" />
+          {/* Spec.md §6.4: a 2px red-500 rule under the header is one of the sanctioned uses of
+              brand red — identity, not a call to action. */}
+          <span aria-hidden className="mt-4 h-0.5 w-16 rounded-full bg-red-500" />
         </div>
 
-        <div className="rounded-lg border border-border bg-surface p-6 shadow-xl">
+        <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
           <h1 className="text-lg">Sign in</h1>
           <p className="mt-1 mb-5 text-sm text-text-muted">
             {needsTotp
@@ -153,7 +159,9 @@ function LoginForm() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-white/50">AIES Electromechanical Corporation</p>
+        <p className="mt-6 text-center text-xs text-text-muted">
+          Authorised users only. All activity is logged.
+        </p>
       </div>
     </main>
   );
