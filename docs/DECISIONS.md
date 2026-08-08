@@ -288,3 +288,56 @@ doesn't rewrite history), this is a live lookup — resolved fresh on every read
 older comments show their current name. That's the intentionally different choice here: a comment
 thread is closer to a chat log (where every UI, e.g. Slack, shows the current display name) than to
 a compliance audit trail (where "what was true at the time" is the point).
+
+## 15. Brand assets are generated from a traced vector master, not hand-authored
+
+**Module:** 00, session 5
+**Context:** Spec.md §6.1 requires five SVG derivatives plus four raster icons, produced by
+"trace or rebuild from the JPG". The company supplied a vector master — an 802-path auto-trace
+in which every gradient is approximated by ~60 flat colour bands.
+
+**Verified the palette against it first:** the trace's colours match Spec.md §6.2's sampled tokens
+almost exactly (`#011761` vs `--aies-navy-900: #011860`, `#FD5E0F` vs `--aies-orange-500: #FD5E13`,
+`#EC010C` vs `--aies-red-500: #EE010C`). That independently confirms §6.2 was genuinely sampled
+from this artwork, so the tokens are used verbatim.
+
+**Chose:** a committed generator, `scripts/build-brand-assets.ts` (`npm run brand`), rather than
+hand-edited SVGs. Every derivative needs the same corrections, and doing them once by hand means
+they can never be redone when better artwork arrives. Outputs are committed so Vercel builds do
+not depend on the script.
+
+Corrections the generator applies, each for a specific defect in the master:
+
+- **Background removed.** The master is fully opaque — it traced the JPG's white background as a
+  full-canvas path. Spec.md §6.1 requires transparency, and without this the logo would carry a
+  white box onto the navy sidebar §6.4 calls for.
+- **Drop shadow removed.** The artwork's soft shadow survived flattening as a single flat grey
+  sliver ~120:1 wide. At sidebar size it reads as a stray rule under the logo, and a logo should
+  not carry a baked shadow into a PDF header.
+- **Mono variants are a hybrid.** Wordmark and gear come from the background path's knockout
+  subpaths, which trace those large shapes crisply. The tagline does *not* — the knockout renders
+  8px type coarsely enough to fill the "O" of ELECTROMECHANICAL solid and melt "ME" together — so
+  the tagline is taken from its own 48 letter paths instead, combined through a luminance mask.
+  A mask rather than a compound path because the tracer painted the counters *over* the letters
+  as separate light shapes rather than cutting holes in them, and subtracting those without a
+  mask would need boolean path arithmetic. Cost: 32kB raw / 12.5kB gzipped.
+
+**The mark is rebuilt as geometry, not extracted.** In the artwork the "S" sits on top of the
+gear, so the traced gear paths have an S-shaped void through them — cropping them yields a gear
+with a bite out of it, unusable as a favicon. The replacement was measured off the source raster
+(least-squares circle fit plus a radial fill profile): 12 teeth at a 30° pitch, hole below 0.45R,
+solid ring 0.56–0.88R, teeth 0.88–1.0R at ~50% duty. It is drawn in a navy→sky gradient echoing
+the chrome's light direction, and reads cleanly at 16px where 60 bands of traced chrome would not.
+
+**Known limitation:** the full-colour lockup is 364kB (130kB gzipped) because the banded trace
+needs 800 paths. That is acceptable only because it is not on the hot path — the app shell uses
+the 12.5kB mono variant and the 0.6kB mark. If genuine gradient artwork (an `.ai`/`.eps` export
+with real gradient fills rather than a posterised trace) is ever supplied, drop it in at
+`brand/aies-logo-source.svg`, re-run `npm run brand`, and every derivative regenerates.
+
+**Rejected:** a second raster supplied mid-session (`aies logo png.png`, 1264×843). It is a
+redrawn interpretation, not the same artwork — the lightning bolt is reshaped, the palette drifts
+lighter than the §6.2 tokens, and the content ratio is 1.79:1 against the original's 2.61:1
+(§6.1 records "roughly 2.6:1"). It is also raster, lower-resolution than the JPG already in
+`brand/`, and equally opaque, so it cannot serve the 24px-sidebar-to-300dpi-PDF range that made
+vector matter in the first place.
