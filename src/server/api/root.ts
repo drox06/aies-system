@@ -3,6 +3,7 @@ import { adminRouter } from "@/server/api/routers/admin";
 import { auditRouter } from "@/server/api/routers/audit";
 import { authRouter } from "@/server/api/routers/auth";
 import { customFieldsRouter } from "@/server/api/routers/custom-fields";
+import { notifyRouter } from "@/server/api/routers/notify";
 import { numberingRouter } from "@/server/api/routers/numbering";
 import { systemRouter } from "@/server/api/routers/system";
 
@@ -13,6 +14,7 @@ export const appRouter = router({
   audit: auditRouter,
   numbering: numberingRouter,
   customFields: customFieldsRouter,
+  notify: notifyRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,0 +1,33 @@
+// specs/00-foundation.md §7.3. Only the in-app channel actually delivers anything this session —
+// no email provider is configured yet (see docs/DECISIONS.md). Email/digest preferences are
+// tracked and an email job is enqueued when requested, so the plumbing is real; nothing consumes
+// the "notify_email" queue yet, which dead-letters visibly rather than silently dropping mail —
+// exactly the "make failure loud" principle Spec.md §3.3 asks for.
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String
+  type        String
+  title       String
+  body        String?
+  entityType  String?
+  entityId    String?
+  // Coalesced occurrences folded into this one row (specs/00-foundation.md §7.3: "Ten comments
+  // on one quote in five minutes is one notification").
+  count       Int       @default(1)
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([recipientId, readAt, createdAt])
+}
+
+model NotificationPreference {
+  id     String  @id @default(cuid())
+  userId String
+  type   String
+  inApp  Boolean @default(true)
+  email  Boolean @default(true)
+  digest Boolean @default(false)
+
+  @@unique([userId, type])
+}

@@ -194,3 +194,26 @@ HTTPS in the first place — RFC 6797 says browsers should ignore it over plain 
 every browser/environment to do so is exactly what broke here. Recovering required opening a fresh
 browser tab (a new profile/context) since there was no way to clear the cached HSTS policy through
 the available tooling.
+
+---
+
+## 10. `notify`'s email channel is enqueued but has no consumer yet — by design
+
+**Module:** 00, session 4
+**Ambiguity:** specs/00-foundation.md §7.3 lists three channels — in-app, email, daily digest —
+with no guidance on what to do if the email provider (Resend/SMTP, Spec.md's stack table) isn't
+configured yet, which it isn't this session.
+**Chose:** `notify()` fully implements the in-app channel (the only one that's actually visible to
+anyone yet) and, when a notification type's resolved channels include email, enqueues a job on a
+`notify_email` queue via the existing job-queue infrastructure (session 3) — but no handler is
+registered for that queue. Per the job queue's own design, an unregistered queue dead-letters
+immediately with a clear `lastError`, surfaced in the (future) admin dead-letter UI.
+**Why:** This is a deliberate use of an existing mechanism rather than a gap. Spec.md §3.3's own
+principle — "Silent job failure is the main risk of this design; make failure loud" — is exactly
+what happens here: "email wanted but not configured" becomes a visible, queryable dead-lettered
+job instead of a silently dropped notification or a fabricated no-op email sender that looks like
+it works. `digest` is tracked as a preference but nothing reads it yet, since it would compound on
+email already working.
+**Revisit:** once an email provider is configured (a `docs/DEPLOYMENT.md`-era decision — Spec.md
+§10 lists "Outbound document email" under module 10 integrations), register a `notify_email`
+handler and, separately, a scheduled digest job.
