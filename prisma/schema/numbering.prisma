@@ -1,0 +1,25 @@
+// Document numbering (Spec.md §5): "Sequences are allocated in a Postgres transaction with row
+// locking. Numbers are never reused, never reordered, and gaps are permitted and logged."
+
+// Configurable formats, e.g. "INQ-{YY}{MM}-{####}" (specs/00-foundation.md §7.1: "Formats
+// configurable in settings"). A dedicated table for now rather than the generic SystemSetting
+// mechanism (§10), which doesn't exist yet — migrating these rows into it later is cheap.
+model NumberingFormat {
+  documentType String @id
+  format       String
+  label        String
+}
+
+// One counter per (documentType, resolved scope). Scope is usually a date period (e.g. "26:08"
+// for a format using {YY}{MM}) but is derived generically from whatever non-counter tokens the
+// format uses, so a scope with no date component at all (e.g. a future controlled-document format
+// keyed on {DEPT}/{TYPE}) works the same way without a schema change.
+model DocumentSequence {
+  id           String   @id @default(cuid())
+  documentType String
+  scopeKey     String
+  counter      Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([documentType, scopeKey])
+}

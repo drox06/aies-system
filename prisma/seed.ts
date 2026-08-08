@@ -213,10 +213,53 @@ async function seedApprovalRules() {
   console.log(`Seeded ${APPROVAL_RULES.length} approval rules.`);
 }
 
+interface NumberingFormatSeed {
+  documentType: string;
+  format: string;
+  label: string;
+}
+
+// Spec.md §5. Quotation's `R{n}` revision suffix is appended by the quotation module (02) on top
+// of this base number, not part of the counter format itself.
+const NUMBERING_FORMATS: NumberingFormatSeed[] = [
+  { documentType: "inquiry", format: "INQ-{YY}{MM}-{####}", label: "Inquiry" },
+  { documentType: "quotation", format: "QTN-{YY}{MM}-{####}", label: "Quotation" },
+  { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
+  { documentType: "supplier_po", format: "PO-{YY}-{#####}", label: "Supplier PO" },
+  { documentType: "ticket", format: "TKT-{YY}-{#####}", label: "Ticket" },
+  { documentType: "cash_advance", format: "CA-{YY}-{#####}", label: "Cash Advance" },
+  { documentType: "material_request", format: "MR-{YY}-{#####}", label: "Material Request" },
+  { documentType: "methodology", format: "MTH-{YY}-{###}", label: "Methodology" },
+  { documentType: "delivery_receipt", format: "DR-{YY}-{#####}", label: "Delivery Receipt" },
+  { documentType: "service_report", format: "SR-{YY}-{#####}", label: "Service Report" },
+  { documentType: "billing_statement", format: "BS-{YY}-{#####}", label: "Billing Statement" },
+  { documentType: "service_invoice", format: "SI-{YY}-{#####}", label: "Service Invoice" },
+  { documentType: "calibration_job", format: "CAL-{YY}-{####}", label: "Calibration Job" },
+  { documentType: "ncr", format: "NCR-{YY}-{###}", label: "NCR" },
+  {
+    documentType: "controlled_doc",
+    format: "AIES-{DEPT}-{TYPE}-{###}",
+    label: "Controlled Document",
+  },
+];
+
+async function seedNumberingFormats() {
+  for (const f of NUMBERING_FORMATS) {
+    await db.numberingFormat.upsert({
+      where: { documentType: f.documentType },
+      update: { format: f.format, label: f.label },
+      create: f,
+    });
+  }
+
+  console.log(`Seeded ${NUMBERING_FORMATS.length} numbering formats.`);
+}
+
 async function main() {
   await seedRolesAndPermissions();
   await seedUsers();
   await seedApprovalRules();
+  await seedNumberingFormats();
 }
 
 main()
