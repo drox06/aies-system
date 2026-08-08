@@ -1,0 +1,38 @@
+// specs/00-foundation.md §7.6. `attachments` isn't a separate field here — a file uploaded with
+// entityType "comment" and entityId = this comment's id (src/server/core/storage) already
+// associates it, with no duplication. `deletedBy` isn't in the spec's one-line model sketch but
+// is added per Spec.md §10's own cross-cutting rule: "Soft-delete with deletedAt + deletedBy."
+model Comment {
+  id         String    @id @default(cuid())
+  entityType String
+  entityId   String
+  authorId   String
+  body       String
+  parentId   String?
+  // User ids mentioned in this comment — resolved client-side by the @mention autocomplete, not
+  // re-parsed from markdown server-side (fragile, and the UI already knows exactly who it means).
+  mentions   String[]
+  editedAt   DateTime?
+  deletedAt  DateTime?
+  deletedBy  String?
+  createdAt  DateTime  @default(now())
+
+  parent  Comment?      @relation("CommentReplies", fields: [parentId], references: [id])
+  replies Comment[]     @relation("CommentReplies")
+  edits   CommentEdit[]
+
+  @@index([entityType, entityId, createdAt])
+}
+
+// specs/00-foundation.md §7.6: "Editing is allowed for 15 minutes, then locked; edits keep
+// history." One row per edit, holding the body *before* that edit.
+model CommentEdit {
+  id        String   @id @default(cuid())
+  commentId String
+  body      String
+  editedAt  DateTime @default(now())
+
+  comment Comment @relation(fields: [commentId], references: [id])
+
+  @@index([commentId])
+}

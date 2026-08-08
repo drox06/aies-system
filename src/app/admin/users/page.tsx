@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { AuditTrail } from "@/components/AuditTrail";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import { trpc } from "@/lib/trpc/client";
 
 export default function AdminUsersPage() {
@@ -16,13 +16,13 @@ export default function AdminUsersPage() {
   const assignRole = trpc.admin.assignRole.useMutation({
     onSuccess: () => {
       void utils.admin.listUsers.invalidate();
-      void utils.audit.listForEntity.invalidate();
+      void utils.comments.activityFeed.invalidate();
     },
   });
   const removeRole = trpc.admin.removeRole.useMutation({
     onSuccess: () => {
       void utils.admin.listUsers.invalidate();
-      void utils.audit.listForEntity.invalidate();
+      void utils.comments.activityFeed.invalidate();
     },
   });
 
@@ -167,7 +167,7 @@ export default function AdminUsersPage() {
                 {expandedUserId === user.id && (
                   <tr>
                     <td colSpan={6} style={{ ...cellStyle, background: "#F5F7FA" }}>
-                      <AuditTrail entityType="User" entityId={user.id} />
+                      <ActivityFeed entityType="User" entityId={user.id} />
                     </td>
                   </tr>
                 )}

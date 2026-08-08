@@ -3,6 +3,7 @@ import { adminRouter } from "@/server/api/routers/admin";
 import { approvalsRouter } from "@/server/api/routers/approvals";
 import { auditRouter } from "@/server/api/routers/audit";
 import { authRouter } from "@/server/api/routers/auth";
+import { commentsRouter } from "@/server/api/routers/comments";
 import { customFieldsRouter } from "@/server/api/routers/custom-fields";
 import { notifyRouter } from "@/server/api/routers/notify";
 import { numberingRouter } from "@/server/api/routers/numbering";
@@ -17,6 +18,7 @@ export const appRouter = router({
   customFields: customFieldsRouter,
   notify: notifyRouter,
   approvals: approvalsRouter,
+  comments: commentsRouter,
 });
 
 export type AppRouter = typeof appRouter;
