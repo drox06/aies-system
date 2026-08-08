@@ -1,0 +1,24 @@
+// Postgres-backed job queue (Spec.md §3.3) — no Redis, since serverless functions can't hold a
+// long-running worker. `POST /api/cron/drain` (hit by Vercel Cron every minute) claims a batch
+// with `SELECT ... FOR UPDATE SKIP LOCKED` via src/server/core/jobs/queue.ts.
+model Job {
+  id             String    @id @default(cuid())
+  queue          String
+  payload        Json
+  runAt          DateTime  @default(now())
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5)
+  // pending | running | succeeded | dead. A retryable failure returns to "pending" with runAt
+  // pushed out by exponential backoff (Spec.md §3.3: "Failures retry with exponential backoff,
+  // then land in a dead-letter queue") — there's no separate persisted "failed" resting state
+  // between an attempt failing and that decision being made.
+  status         String    @default("pending")
+  lockedAt       DateTime?
+  lockedBy       String?
+  lastError      String?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
