@@ -1,8 +1,8 @@
 # Build Progress
 
 Last updated: 2026-08-08
-Current module: 00 — Foundation (session 5 of 5 built; module review gate NOT yet signed off)
-Status: in progress
+Current module: 00 — Foundation — COMPLETE (tagged `module-00-complete`)
+Status: ready for module 01
 
 ## Done
 - [x] Spec pack organized into repo layout (Spec.md, docs/, specs/, brand/)
@@ -145,27 +145,46 @@ Status: in progress
   - [x] Found and fixed three real bugs by using the app rather than testing it — see the two
         DECISIONS entries below and the hover-menu note.
 
-## In progress
-- [ ] **Module 00 review gate (docs/BUILD-PROTOCOL.md §7) — not yet signed off.**
-      Next concrete step: perform the manual check the protocol names, which needs a human login:
-      "log in, create a user, assign a role, confirm the audit log caught all three, and confirm a
-      non-privileged role genuinely cannot see cost fields in the API response." Sessions 3 and 4
-      each did the first half of this in a browser; it has not been redone since the app shell
-      landed, and the session was signed out mid-session 5 by the pooler incident below.
-      Blockers/notes:
-        - No credentials available to this session, so the browser pass stopped at verifying the
-          shell as EA/president. The server-side half of "sees only their permitted nav"
-          (specs §11) is covered by `tests/server/api/system-nav.test.ts` instead.
-        - The cost-field half of the gate **cannot** be done in module 00 — no cost or margin
-          fields exist until module 02. `tests/server/core/rbac/field-gating.test.ts` covers the
-          stripping logic; the serialised-response check belongs to module 02's gate.
-        - `docker/docker-compose.yml` has **never been run** — Docker is not installed on this
-          machine (docs/DECISIONS.md #1). The new CI job is its first real execution, so expect to
-          iterate on it once CI runs.
-      Once those pass: `git tag module-00-complete`.
+- [x] **Module 00 review gate (docs/BUILD-PROTOCOL.md §7) — PASSED, tagged
+      `module-00-complete`.**
+  - [x] `npm test` — 186 tests across 37 files. `npm run lint`, `npm run typecheck`,
+        `next build` all clean.
+  - [x] Migration applies cleanly (13 migrations + `20260808072831_user_deleted_by`); CI applies
+        the whole chain to a fresh Postgres on every push.
+  - [x] **Manual check performed by the operator in a browser**, evidenced in the audit log
+        rather than asserted: `login=2` ("EA signed in"), `create=1` ("Created user
+        Demo@aies.local with role Technician"), `role_assigned=9`. That is exactly the protocol's
+        "log in, create a user, assign a role, confirm the audit log caught all three".
+  - [x] Six defects found by that pass, all fixed — see the session 5 feedback list below.
+  - [ ] **Deferred, with reason:** the gate's "a non-privileged role cannot see cost fields in the
+        serialised response" cannot be executed in module 00, because no cost or margin field
+        exists until module 02. `tests/server/core/rbac/field-gating.test.ts` covers the stripping
+        logic and `permission-matrix.test.ts` asserts only president/vice_president hold
+        `finance.view_cost`. **The serialised-response check is owed by module 02's gate.**
+
+### Defects found by the module 00 manual pass (all fixed in session 5)
+1. **Every input was invisible.** Tailwind v4's preflight resets input/select borders and
+   backgrounds, and login, change-password, enroll-totp and admin/users were still on bare HTML
+   from sessions 2–3. Adding Tailwind made their fields disappear. All four rebuilt on the design
+   system.
+2. **Add-role gave no feedback.** `assignRole`/`removeRole` had no `onError`, so a rejection was
+   indistinguishable from success. The audit log records the cost: the same assignment twice,
+   three seconds apart.
+3. **A stale `.next` cache silently killed the app's JavaScript** — pages returned 200, buttons
+   did nothing. Twice. docs/DECISIONS.md #17.
+4. **A pooler timeout signed every user out.** docs/DECISIONS.md #16.
+5. **~550ms of latency on every request** from the session callback's three queries. Now one.
+6. **The permission-matrix test read a role's permissions through a user who held it** — unsound
+   given §4.2's multiple roles, and it produced a false alarm on `finance.view_cost` the moment an
+   admin assigned `viewer` to the vice-president. Now reads the role's own grants.
 
 ## Not started
-- [ ] Modules 01–10
+- [ ] Module 01 — CRM: accounts, contacts, inquiries, pipeline, customer accreditation,
+      principal acquisition (`specs/01-crm-inquiry.md`). Depends only on module 00.
+      Next concrete step: read `specs/01-crm-inquiry.md`, then create `src/server/core/modules/
+      crm.manifest.ts` and register it in `src/server/core/manifests.ts` — the foundation
+      manifest added in session 5 is the worked example to copy.
+- [ ] Modules 02–10
 
 ## Decisions made this module
 - docs/DECISIONS.md #1-#3: session 1 (local DB deferred → real Supabase dev project instead;
