@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { TrpcProvider } from "@/lib/trpc/provider";
+import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <TrpcProvider>{children}</TrpcProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
