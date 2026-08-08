@@ -18,6 +18,7 @@ import {
   startAccreditationService,
   updateAccreditationService,
 } from "@/server/core/crm/accreditation-service";
+import { startAccreditationRenewalService } from "@/server/core/crm/accreditation-renewal";
 import { findDuplicateAccounts } from "@/server/core/crm/duplicates";
 import { p, router, type Context } from "@/server/api/trpc";
 
@@ -152,4 +153,13 @@ export const crmRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => updateAccreditationService(actorMeta(ctx), input)),
+
+  /**
+   * Begins a renewal, or raises a president approval first when the customer is blacklisted or
+   * dormant. The branch lives in the approval workflow's condition, not here — see
+   * accreditation-renewal.ts.
+   */
+  startAccreditationRenewal: p("accreditation.manage")
+    .input(z.object({ accreditationId: z.string() }))
+    .mutation(({ ctx, input }) => startAccreditationRenewalService(actorMeta(ctx), input)),
 });
