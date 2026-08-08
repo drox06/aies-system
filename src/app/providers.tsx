@@ -2,7 +2,9 @@
 
 import { SessionProvider, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
+import { Toaster } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
+import { ServiceWorker } from "@/components/shell/ServiceWorker";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { TrpcProvider } from "@/lib/trpc/provider";
 
@@ -33,6 +35,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <TrpcProvider>
         <Chrome>{children}</Chrome>
+        {/* Mounted outside <Chrome> so errors on the login and TOTP screens are reported too. */}
+        <Toaster position="bottom-right" richColors closeButton />
+        <ServiceWorker />
       </TrpcProvider>
     </SessionProvider>
   );

@@ -21,7 +21,30 @@ export async function createTRPCContext(opts: { headers: Headers }) {
 
 export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
 
-const t = initTRPC.context<Context>().create({ transformer: superjson });
+const t = initTRPC.context<Context>().create({
+  transformer: superjson,
+  /**
+   * specs/00-foundation.md §8: "unexpected errors → error boundary with a request ID the user can
+   * quote to an admin. Log server errors with the request ID."
+   *
+   * The id is put on the wire for every error, and the *unexpected* ones (anything that is not a
+   * deliberate TRPCError code) are logged against the same id here. That pairing is the whole
+   * point: a user reporting "it said F3A2…" gives an admin an exact line to grep for, instead of
+   * a timestamp and a guess.
+   */
+  errorFormatter({ shape, error, ctx }) {
+    const requestId = ctx?.requestId ?? null;
+
+    // INTERNAL_SERVER_ERROR is what tRPC assigns to anything thrown that was not a TRPCError, so
+    // it is exactly the set worth logging. Expected refusals (UNAUTHORIZED, FORBIDDEN,
+    // TOO_MANY_REQUESTS, BAD_REQUEST) are normal traffic and would drown the log.
+    if (error.code === "INTERNAL_SERVER_ERROR") {
+      console.error(`[trpc] ${requestId ?? "no-request-id"}`, error.cause ?? error);
+    }
+
+    return { ...shape, data: { ...shape.data, requestId } };
+  },
+});
 
 export const router = t.router;
 export const publicProcedure = t.procedure;
