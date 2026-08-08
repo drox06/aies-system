@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { ClipboardCheck, House, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   aria-current={active ? "page" : undefined}
                   title={collapsed ? entry.label : undefined}
                   className={cn(
-                    "flex items-center gap-3 py-2 pr-3 pl-4 text-sm transition-colors",
+                    "flex items-center gap-3 py-2.5 pr-3 pl-4 text-sm transition-colors",
                     // Spec.md §6.4: active nav marked with a 3px red-500 left bar — "the one place
                     // brand red earns its keep in the chrome". Inactive items reserve the same 3px
                     // with a transparent border so labels do not shift on selection.
@@ -99,9 +100,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       : "border-l-[3px] border-transparent pl-[13px] text-white/75 hover:bg-white/5 hover:text-white",
                   )}
                 >
-                  <span aria-hidden className="w-4 shrink-0 text-center text-xs">
-                    {ICONS[entry.icon ?? ""] ?? "•"}
-                  </span>
+                  {(() => {
+                    const Icon = ICONS[entry.icon ?? ""];
+                    return Icon ? (
+                      <Icon aria-hidden size={ICON_SIZE} strokeWidth={2.25} className="shrink-0" />
+                    ) : (
+                      // A module with an unmapped icon still gets an aligned placeholder rather
+                      // than a ragged row.
+                      <span
+                        aria-hidden
+                        className="flex shrink-0 items-center justify-center"
+                        style={{ width: ICON_SIZE, height: ICON_SIZE }}
+                      >
+                        <span className="size-1.5 rounded-full bg-current opacity-60" />
+                      </span>
+                    );
+                  })()}
                   {!collapsed && <span className="truncate">{entry.label}</span>}
                 </Link>
               );
@@ -212,13 +226,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Text glyphs rather than an icon font or a lucide import per entry: manifests declare icons as
- *  strings, and mapping them here keeps the icon set in one reviewable place. */
-const ICONS: Record<string, string> = {
-  home: "⌂",
-  check: "✓",
-  users: "☰",
+/**
+ * Manifests declare icons as plain strings (`icon: "home"`), so the string→component mapping lives
+ * here — one reviewable place, and a module cannot pull an arbitrary icon into the shell.
+ *
+ * Sized at 20px against 14px label text. That ratio is the point of the sizing: large enough to
+ * scan the sidebar by shape rather than by reading it, small enough that the label still leads.
+ * `strokeWidth` is lifted to 2.25 because these sit on navy — a 2px stroke that reads fine on
+ * white goes thin and grey against a dark ground.
+ */
+const ICONS: Record<string, LucideIcon> = {
+  home: House,
+  check: ClipboardCheck,
+  users: Users,
 };
+
+const ICON_SIZE = 20;
 
 interface NavEntry {
   label: string;
