@@ -1,5 +1,6 @@
 import { router } from "@/server/api/trpc";
 import { adminRouter } from "@/server/api/routers/admin";
+import { approvalsRouter } from "@/server/api/routers/approvals";
 import { auditRouter } from "@/server/api/routers/audit";
 import { authRouter } from "@/server/api/routers/auth";
 import { customFieldsRouter } from "@/server/api/routers/custom-fields";
@@ -15,6 +16,7 @@ export const appRouter = router({
   numbering: numberingRouter,
   customFields: customFieldsRouter,
   notify: notifyRouter,
+  approvals: approvalsRouter,
 });
 
 export type AppRouter = typeof appRouter;

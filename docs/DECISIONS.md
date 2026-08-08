@@ -237,3 +237,34 @@ local CLI stack (Docker, deferred in docs/DECISIONS.md #1) or a filesystem drive
 semantics needing to be invented from scratch just to fit the interface.
 **Revisit:** if a genuinely offline local dev workflow becomes necessary, or per Spec.md §7.6's
 self-host fallback.
+
+---
+
+## 12. Approval step "mode" — only "parallel" (first decision wins) is implemented
+
+**Module:** 00, session 4
+**Ambiguity:** specs/00-foundation.md §7.4 says step definitions support "parallel-or-sequential
+mode" with no further explanation of what "sequential" means for a single step's set of eligible
+approvers (role-holders, permission-holders, or a specific user).
+**Chose:** Eligibility per step is a *predicate* over a user (`isEligibleToDecide(user)`), not an
+enumerable list — matching how the rest of RBAC works (`user.permissions.has(...)`, not "fetch
+everyone with this permission"). "Parallel" (first eligible decision resolves the step) is fully
+implemented. "Sequential" (require literally every eligible person to approve) would need an
+enumerable approver set, which this model doesn't have, and no confirmed AIES scenario (quotation
+approval, cash advance approval — both single decisive approvers, VP or President-fallback) needs
+committee-style unanimity. `assertStepsSupported()` rejects any step declaring `mode: "sequential"`
+at workflow-save time — fails loud and early, rather than silently treating it as "parallel" (a
+real behavior difference someone could reasonably be surprised by) or accepting a definition nothing
+will honor correctly.
+**Revisit:** if a real workflow genuinely needs unanimous multi-approver agreement, at which point
+the eligibility model would need to gain an enumeration capability (e.g. resolving `requiredRole`
+against `db.user` to get an actual headcount) — a bigger change than adding a flag.
+
+## 13. Approval engine emits only the three events Spec.md §7.4 names
+
+**Module:** 00, session 4
+Advancing a multi-step workflow to its next step doesn't emit an event — only full approval
+(`approval.approved`), rejection (`approval.rejected`), and creation (`approval.requested`) do,
+matching the spec's literal list. `listMyApprovalInbox()` is pulled on demand rather than pushed,
+so nothing is actually missed; an intermediate `approval.step_advanced` event can be added later
+once a real multi-step workflow needs to notify a second step's approvers proactively.

@@ -1,0 +1,60 @@
+// specs/00-foundation.md §7.4: generic approvals attachable to any entity. `steps` is a
+// `ApprovalStepDef[]` (src/server/core/approvals/types.ts) executed in array order — see
+// docs/DECISIONS.md for how "parallel-or-sequential mode" is interpreted per step (unanimous vs.
+// first-decision-wins among that step's eligible approvers), not as concurrent multi-step
+// execution, which nothing in this codebase needs yet.
+model ApprovalWorkflow {
+  id         String   @id @default(cuid())
+  entityType String
+  name       String
+  isActive   Boolean  @default(true)
+  steps      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  requests ApprovalRequest[]
+
+  @@index([entityType, isActive])
+}
+
+model ApprovalRequest {
+  id            String    @id @default(cuid())
+  entityType    String
+  entityId      String
+  workflowId    String
+  // pending | approved | rejected
+  status        String    @default("pending")
+  currentStep   Int       @default(0)
+  // A snapshot of whatever fields the workflow's step conditions need (e.g. { total: 600000 }) —
+  // taken at request time so a later edit to the underlying record can't retroactively change
+  // which approval path already applied.
+  entitySnapshot Json
+  requestedById String
+  requestedAt   DateTime  @default(now())
+  decidedAt     DateTime?
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  actions  ApprovalAction[]
+
+  @@index([entityType, entityId])
+  @@index([status])
+}
+
+model ApprovalAction {
+  id         String   @id @default(cuid())
+  requestId  String
+  step       Int
+  approverId String
+  // approved | rejected
+  decision   String
+  comment    String?
+  // Stamped true when the decider acted under Spec.md §4.4's automatic fallback, not as the
+  // step's primary approver — the audit trail must never present a fallback decision as though
+  // the primary approver made it.
+  isFallback Boolean  @default(false)
+  at         DateTime @default(now())
+
+  request ApprovalRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId])
+}
