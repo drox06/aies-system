@@ -1,0 +1,20 @@
+// Append-only audit trail (specs/00-foundation.md §5). No update or delete API exists for this
+// model, at any permission level — enforced by convention (src/server/core/audit/audit.ts is the
+// only writer) since Prisma itself doesn't support revoking mutation methods per-model.
+model AuditLog {
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  actorId    String? // null for system/job actors
+  actorLabel String // denormalised, survives user deletion
+  action     String // "create" | "update" | "delete" | "approve" | "login" | custom
+  entityType String
+  entityId   String
+  summary    String // human sentence: "Approved QTN-2608-0042R2"
+  diff       Json? // { field: { from, to } } — omit unchanged fields; sensitive values redacted
+  ip         String?
+  userAgent  String?
+  requestId  String?
+
+  @@index([entityType, entityId, at])
+  @@index([actorId, at])
+}
