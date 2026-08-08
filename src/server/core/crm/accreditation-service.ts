@@ -4,12 +4,8 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import "./accreditation-access";
 import {
-  accreditationRequirementsSchema,
   assertCanBeAccredited,
   assessAccreditation,
-  defaultRequirements,
-  parseRequirements,
-  type AccreditationRequirement,
   type AccreditationStatus,
 } from "./accreditation-rules";
 
@@ -24,15 +20,9 @@ export {
   ACCREDITATION_ENTITY_TYPE,
   ACCREDITATION_STATUSES,
   assertCanBeAccredited,
-  accreditationRequirementSchema,
-  accreditationRequirementsSchema,
   assessAccreditation,
-  DEFAULT_ACCREDITATION_REQUIREMENTS,
-  defaultRequirements,
-  parseRequirements,
   RENEWAL_WARNING_DAYS,
   type AccreditationHealth,
-  type AccreditationRequirement,
   type AccreditationStatus,
 } from "./accreditation-rules";
 
@@ -73,7 +63,6 @@ export async function startAccreditationService(
         // §5b: PD owns this work, so it defaults to whoever started it rather than the account's
         // sales owner.
         ownerId: input.ownerId ?? actor.actorId,
-        requirements: defaultRequirements(),
       },
     });
 
@@ -105,7 +94,6 @@ export interface UpdateAccreditationInput {
   rejectionReason?: string | null;
   notes?: string | null;
   ownerId?: string | null;
-  requirements?: AccreditationRequirement[];
   /** FileObject id of the customer-issued certificate. */
   certificateFileId?: string | null;
 }
@@ -185,17 +173,6 @@ export async function updateAccreditationService(
       const nextIso = parsed?.toISOString() ?? null;
       if (beforeIso !== nextIso) diff[field] = { from: beforeIso, to: nextIso };
       data[field] = parsed;
-    }
-    if (input.requirements !== undefined) {
-      const parsed = accreditationRequirementsSchema.parse(input.requirements);
-      // The whole checklist is one field, so a per-row diff would be noise. Record the counts that
-      // matter for the evidence trail instead.
-      const beforeList = parseRequirements(before.requirements);
-      diff.requirements = {
-        from: `${beforeList.length} items, ${beforeList.filter((r) => r.acceptedAt).length} accepted`,
-        to: `${parsed.length} items, ${parsed.filter((r) => r.acceptedAt).length} accepted`,
-      };
-      data.requirements = parsed;
     }
 
     const record = await tx.accreditationRecord.update({

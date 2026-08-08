@@ -12,7 +12,6 @@ import {
 } from "@/server/core/crm/account-service";
 import {
   ACCREDITATION_STATUSES,
-  accreditationRequirementSchema,
   getAccreditationForAccount,
   listAccreditationsService,
   startAccreditationService,
@@ -148,7 +147,6 @@ export const crmRouter = router({
         rejectionReason: z.string().nullish(),
         notes: z.string().nullish(),
         ownerId: z.string().nullish(),
-        requirements: z.array(accreditationRequirementSchema).optional(),
         certificateFileId: z.string().nullish(),
       }),
     )

@@ -27,51 +27,6 @@ function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * DAY_MS);
 }
 
-/** A checklist where the named documents are provided, optionally with an expiry. */
-function requirements(opts: { permitExpiresInDays?: number | null } = {}) {
-  return [
-    {
-      document: "SEC registration",
-      required: true,
-      providedFileId: "demo-file",
-      submittedAt: daysFromNow(-300).toISOString(),
-      acceptedAt: daysFromNow(-290).toISOString(),
-      expiresAt: null,
-      notes: null,
-    },
-    {
-      document: "BIR Form 2303 (Certificate of Registration)",
-      required: true,
-      providedFileId: "demo-file",
-      submittedAt: daysFromNow(-300).toISOString(),
-      acceptedAt: daysFromNow(-290).toISOString(),
-      expiresAt: null,
-      notes: null,
-    },
-    {
-      document: "Mayor's / Business permit (current year)",
-      required: true,
-      providedFileId: "demo-file",
-      submittedAt: daysFromNow(-300).toISOString(),
-      acceptedAt: daysFromNow(-290).toISOString(),
-      expiresAt:
-        opts.permitExpiresInDays === null || opts.permitExpiresInDays === undefined
-          ? null
-          : daysFromNow(opts.permitExpiresInDays).toISOString(),
-      notes: null,
-    },
-    {
-      document: "PhilGEPS registration",
-      required: false,
-      providedFileId: null,
-      submittedAt: null,
-      acceptedAt: null,
-      expiresAt: null,
-      notes: null,
-    },
-  ];
-}
-
 async function clean() {
   const accounts = await db.customerAccount.findMany({
     where: { code: { startsWith: DEMO_TAG } },
@@ -125,7 +80,6 @@ async function main() {
     accreditation?: {
       status: string;
       expiresInDays: number | null;
-      permitExpiresInDays?: number | null;
       certificate?: boolean;
       acknowledgedDaysAgo?: number;
     };
@@ -153,15 +107,10 @@ async function main() {
       name: "San Miguel Food Processing",
       industry: "Food manufacturing",
       accountStatus: "active",
-      // §5b's own example: the record says accredited, but the mayor's permit lapsed. The derived
-      // status must show expired and the account must read as blocking.
-      accreditation: {
-        status: "accredited",
-        expiresInDays: 200,
-        permitExpiresInDays: -7,
-        certificate: true,
-      },
-      note: "Says accredited, but the mayor's permit expired 7 days ago — should read as EXPIRED.",
+      // Still says accredited, but the certificate expired a week ago. The derived status must
+      // override the stored one and the account must read as blocking.
+      accreditation: { status: "accredited", expiresInDays: -7, certificate: true },
+      note: "Says accredited, but the certificate expired 7 days ago — should read as EXPIRED.",
     },
     {
       code: `${DEMO_TAG}0004`,
@@ -234,7 +183,6 @@ async function main() {
           certificateFileId: a.certificate ? "demo-certificate-file" : null,
           certificateUploadedAt: a.certificate ? daysFromNow(-330) : null,
           referenceNumber: `ACR-${account.code}`,
-          requirements: requirements({ permitExpiresInDays: a.permitExpiresInDays }),
           renewalAcknowledgedAt:
             a.acknowledgedDaysAgo === undefined ? null : daysFromNow(-a.acknowledgedDaysAgo),
           renewalAcknowledgedBy: a.acknowledgedDaysAgo === undefined ? null : pd.id,

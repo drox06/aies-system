@@ -4,7 +4,6 @@ import { createApprovalRequest, upsertApprovalWorkflow } from "@/server/core/app
 import type { ApprovalStepDef } from "@/server/core/approvals/types";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
-import { assessAccreditation } from "@/server/core/crm/accreditation-rules";
 import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
 
@@ -364,7 +363,6 @@ export async function sweepAccreditationRenewals(
     const threshold = RENEWAL_THRESHOLD_DAYS.find((t) => t === daysRemaining);
     if (threshold === undefined) continue;
 
-    const health = assessAccreditation(record, now);
     const restricted = isRestrictedForRenewal(record.account.status);
 
     await notify({
@@ -376,9 +374,6 @@ export async function sweepAccreditationRenewals(
           : `${record.account.name} accreditation expires in ${threshold} days`,
       body: [
         `Certificate expires ${record.expiresAt.toISOString().slice(0, 10)}.`,
-        health.missingDocuments.length > 0
-          ? `Outstanding documents: ${health.missingDocuments.join(", ")}.`
-          : null,
         // Told at reminder time, not discovered at renewal time — the approval is a dependency on
         // someone else's calendar.
         restricted

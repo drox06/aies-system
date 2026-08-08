@@ -58,7 +58,6 @@ async function makeAccreditation(opts: {
         opts.daysUntilExpiry === null || opts.daysUntilExpiry === undefined
           ? null
           : new Date(Date.now() + opts.daysUntilExpiry * DAY_MS),
-      requirements: [],
     },
   });
   accreditationIds.push(record.id);

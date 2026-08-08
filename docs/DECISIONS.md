@@ -456,3 +456,39 @@ arguably clearer anyway.
 
 **Watch for:** anyone reading specs/01–10 will type `db.account` first and get the OAuth table,
 which has a `userId` and no `name` — so it fails loudly rather than silently returning wrong rows.
+
+## 19. Accreditation tracks the outcome only — the document checklist §5b describes was dropped
+
+**Module:** 01
+**Spec deviation, decided by the company.**
+
+specs/01-crm-inquiry.md §5b specifies a per-customer requirement checklist — SEC registration, BIR
+2303, mayor's/business permit, PhilGEPS, PCAB licence, ISO certificates — with per-document expiry
+tracking, because "a mayor's permit expires annually and quietly invalidates an accreditation".
+That was built, then removed.
+
+**Why.** Those are **AIES's own** corporate documents, submitted to each customer to *get*
+accredited. They are lodged and tracked on each customer's own portal, which is the authoritative
+record of what that customer has and whether they accepted it. Mirroring them here created a second
+copy with no way to stay in step with the first.
+
+The duplication had a concrete cost, surfaced when the company asked whose mayor's permit was
+meant. AIES has **one** mayor's permit. Storing its expiry per accreditation record meant that on
+renewal each January, PD would have to open every customer's checklist and retype the same date —
+and any record missed would silently read as expired. That is the "lives in someone's memory and a
+folder" failure §5b exists to end, reintroduced one layer down.
+
+**Chose:** the record now holds only the outcome — the certificate the customer issued back, and
+its expiry date, both of which *are* per-customer facts. `assertCanBeAccredited` still gates the
+`accredited` status on both, and that gate matters more now, not less: with the checklist gone
+those two fields are the entire evidence base.
+
+**Rejected:** keeping the checklist as optional. An empty checklist on every record is a feature
+people learn to ignore, and a half-filled one is worse than none — it looks like a record of what
+was submitted while being a record of what somebody remembered to type.
+
+**If the shared-document problem needs solving later**, it belongs in module 07's DMS, where the
+permit exists once with one expiry and each accreditation references it. Do not rebuild it here.
+
+**Migration** `20260808213546_accreditation_drop_requirements` drops the column. Destructive by
+design; the data it held is on the customers' portals.

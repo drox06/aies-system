@@ -83,7 +83,6 @@ export default function AccreditationsPage() {
       <div className="flex flex-col gap-3">
         {ordered.map((row) => {
           const isOpen = openId === row.id;
-          const soonest = row.health.expiringDocuments[0];
           return (
             <Card key={row.id} className="p-0">
               <button
@@ -113,12 +112,11 @@ export default function AccreditationsPage() {
                   ) : (
                     "No expiry recorded"
                   )}
-                  {soonest && (
+                  {row.health.daysUntilExpiry !== null && (
                     <p>
-                      {soonest.document}{" "}
-                      {soonest.daysRemaining < 0
+                      {row.health.daysUntilExpiry < 0
                         ? "expired"
-                        : `in ${soonest.daysRemaining} day${soonest.daysRemaining === 1 ? "" : "s"}`}
+                        : `in ${row.health.daysUntilExpiry} day${row.health.daysUntilExpiry === 1 ? "" : "s"}`}
                     </p>
                   )}
                 </div>

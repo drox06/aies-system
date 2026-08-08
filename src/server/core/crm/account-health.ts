@@ -116,7 +116,7 @@ const STATUS_LABEL: Record<string, string> = {
 registerAccountFlagContributor("accreditation", async (accountIds) => {
   const records = await db.accreditationRecord.findMany({
     where: { accountId: { in: accountIds }, deletedAt: null },
-    select: { accountId: true, status: true, expiresAt: true, requirements: true },
+    select: { accountId: true, status: true, expiresAt: true },
   });
 
   const out = new Map<string, AccountFlag[]>();
@@ -153,20 +153,16 @@ registerAccountFlagContributor("accreditation", async (accountIds) => {
         detail:
           health.effectiveStatus === "expired"
             ? "This customer cannot issue a PO until the accreditation is renewed."
-            : health.missingDocuments.length > 0
-              ? `Outstanding: ${health.missingDocuments.slice(0, 3).join(", ")}${health.missingDocuments.length > 3 ? "…" : ""}`
-              : undefined,
+            : undefined,
       });
     } else if (health.effectiveStatus === "renewal_due") {
-      const soonest = health.expiringDocuments[0];
       flags.push({
         kind: "accreditation",
         severity: "warning",
         label: "Accreditation renewal due",
-        detail: soonest
-          ? `${soonest.document} ${soonest.daysRemaining < 0 ? "expired" : `expires in ${soonest.daysRemaining} day(s)`}`
-          : health.daysUntilExpiry !== null
-            ? `Expires in ${health.daysUntilExpiry} day(s)`
+        detail:
+          health.daysUntilExpiry !== null
+            ? `Certificate expires in ${health.daysUntilExpiry} day(s)`
             : undefined,
       });
     }

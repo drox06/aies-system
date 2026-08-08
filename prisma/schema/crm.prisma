@@ -148,9 +148,10 @@ model AccreditationRecord {
   submittedAt  DateTime?
   accreditedAt DateTime?
 
-  // The certificate the *customer* issues back, confirming AIES is an accredited supplier. This is
-  // the evidence, and it is a different artifact from the documents AIES submits to get it — those
-  // live per-row in `requirements.providedFileId`.
+  // The certificate the *customer* issues back, confirming AIES is an accredited supplier. With
+  // the per-document checklist removed (docs/DECISIONS.md #19), this and `expiresAt` are the whole
+  // record — the documents AIES submits to *get* accredited are lodged and tracked on the
+  // customer's own portal.
   //
   // FileObject id from module 00's storage service, stored with entityType "AccreditationRecord" so
   // the access checker registered in accreditation-access.ts governs who may download it.
@@ -168,16 +169,6 @@ model AccreditationRecord {
   // relation, consistent with Site.contactId.
   customerPortalUrl String?
   customerContactId String?
-
-  // §5b: "[{ document, required, providedFileId, submittedAt, acceptedAt, expiresAt, notes }]".
-  // Json because "every one asks for a slightly different set", so the checklist is data, not
-  // columns. The shape is validated by Zod at the service boundary
-  // (src/server/core/crm/accreditation-service.ts) — see AccreditationRequirement there.
-  //
-  // Cost of this choice: the 90/60/30 renewal sweep has to reach inside the array with
-  // jsonb_array_elements rather than an indexed column. Accepted because §5b is explicit about the
-  // shape, and the sweep runs once a day over a handful of rows per customer.
-  requirements Json @default("[]")
 
   // PD acknowledging that this renewal is now one of their tasks. Distinct from `status`: the
   // record can sit in `renewal_due` indefinitely with nobody having picked it up, and the whole
