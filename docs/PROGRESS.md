@@ -180,10 +180,11 @@ Status: in progress
   `mode` only supports "parallel"; approval engine emits only the three spec-named events;
   `ActivityFeed` resolves comment `authorId` to a live `authorLabel`, unlike audit's write-time
   snapshot).
-- docs/DECISIONS.md #15-#16: session 5 (brand assets generated from the vector master by a
+- docs/DECISIONS.md #15-#17: session 5 (brand assets generated from the vector master by a
   committed script, with the mark rebuilt as geometry and a second supplied raster rejected as a
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
-  instead of signing the user out).
+  instead of signing the user out; never run `npm run build` against a live dev server — it
+  silently kills the running app's JavaScript while every page still returns 200).
 
 ## Known issues / to revisit
 - No per-device "revoke this session" / session list UI yet (docs/DECISIONS.md #4).

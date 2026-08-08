@@ -374,3 +374,42 @@ Degrading to no access is the safer failure, and it is self-healing.
 
 **Note:** the error is logged with `console.error` rather than swallowed, so the underlying
 connection problem stays visible instead of being masked by the graceful degradation.
+
+## 17. Never run `npm run build` against a live dev server — the failure is silent and misleading
+
+**Module:** 00, session 5
+**Cost:** hit twice in one session, and the second time it was mistaken for a broken login.
+
+`next dev` and `next build` write to the same `.next` directory. Running a production build while
+the dev server is up overwrites the chunks the running server is serving, and the symptom is not
+an error — it is this:
+
+```
+Error: Cannot find module './331.js'
+    at .next/server/app/login/page.js
+  page: '/login'
+```
+
+The page still returns **200 with correct HTML**. Only its JavaScript is dead. So the form renders
+perfectly, the button looks enabled, and clicking it does nothing at all — no request leaves the
+browser, nothing appears in the server log, no error surfaces anywhere the person clicking can
+see. During the module 00 review gate this was reported as "I typed in my credentials but nothing
+happens", and the obvious readings (wrong password, broken auth, a bug in the new app shell) were
+all wrong.
+
+Two distinct traps, and the second is the one that actually cost the time:
+
+1. **Building while the server runs** corrupts the server's own cache.
+2. **Clearing `.next` and restarting fixes the server but not the browser.** An already-open tab
+   keeps its old bundle, whose handlers reference deleted chunks. The tab must be *hard* reloaded
+   (`Ctrl`+`Shift`+`R`) — an ordinary refresh can serve the same dead bundle from cache. The
+   server log looks completely healthy at this point, which makes it worse.
+
+**Rule:** stop the dev server before `npm run build`, or build from a separate checkout. When
+verification work is happening in a browser, do not restart the dev server underneath it; if the
+cache must be cleared mid-session, say so explicitly and expect a hard reload, because the person
+in the browser has no way to tell a dead bundle from a working one.
+
+**Not solvable by configuration.** `distDir` could separate the two, but that would diverge from
+what Vercel builds and trade a loud, well-understood local annoyance for a quiet difference
+between local and production output. The discipline is cheaper than the divergence.
