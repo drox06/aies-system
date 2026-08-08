@@ -1,8 +1,8 @@
 # Build Progress
 
 Last updated: 2026-08-08
-Current module: 00 — Foundation — COMPLETE (tagged `module-00-complete`)
-Status: ready for module 01
+Current module: 01 — CRM and Inquiry Intake (session 1 of 3 started)
+Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
 
 ## Done
 - [x] Spec pack organized into repo layout (Spec.md, docs/, specs/, brand/)
@@ -178,12 +178,51 @@ Status: ready for module 01
    given §4.2's multiple roles, and it produced a false alarm on `finance.view_cost` the moment an
    admin assigned `viewer` to the vice-president. Now reads the role's own grants.
 
+## In progress — Module 01, CRM and Inquiry Intake
+
+Planned as **3 sessions** (BUILD-PROTOCOL §6 splits only 00 and 04 explicitly, but this module
+carries 8 models, a status machine with SLA escalation, requirements templates, accreditation, a
+principal pipeline, kanban/My Day/Account 360, and a merge tool):
+
+- **Session 1 — manifest, permissions, core data model.** Manifest + permission wiring (done
+  below), then `Account` / `Site` / `Contact` + migration, `ACC-` codes on create, account CRUD,
+  fuzzy duplicate detection on create (§7), and the Account 360 shell (§6).
+- **Session 2 — inquiry.** `Inquiry` / `InquiryItem` / `Activity`, the §3 lifecycle state machine,
+  §4 requirements templates and the completeness gate, the §3 SLA escalation job, and the §5
+  inspection request.
+- **Session 3 — the rest.** §5b accreditation, §5c principal prospects, §6 kanban / My Day /
+  follow-up engine, and the §7 merge tool.
+
+### Done in session 1
+- [x] `src/server/core/modules/crm.manifest.ts` — all 12 permissions from §9 and all 9 emitted
+      events from §8, registered in `manifests.ts`.
+- [x] **Closed a real gap in the module 00 foundation:** `prisma/seed.ts` never read
+      `registry.permissions`. specs/00-foundation.md §3 promises modules own their permissions and
+      the app assembles them, but nothing consumed that — module 00's own manifest declares none,
+      so it was never exercised. A business module could declare `crm.view`, pass boot-time
+      collision validation, and still never reach the database, leaving every procedure gated on
+      it permanently 403 with nothing visibly wrong. The seed now unions foundation permissions
+      with manifest ones: **20 seeded (8 foundation + 12 CRM)**, verified against the database.
+- [x] `account` numbering format `ACC-{####}` (§2). No year segment, unlike every other document
+      type — an account code identifies a customer relationship permanently, so its counter must
+      never reset.
+- [x] Sidebar icons for the four CRM nav entries.
+- [x] 9 tests covering the manifest↔seed join, §9's role assignments, and that `crm.view_all` is
+      kept off the default sales grant so §10's record-scoping test can mean something.
+
+### Next concrete step
+Create `prisma/schema/crm.prisma` with `Account`, `Site` and `Contact` exactly as
+specs/01-crm-inquiry.md §2 defines them, then `npx prisma migrate dev --name crm_accounts`.
+Notes for whoever picks this up:
+  - `Account.code` comes from `allocateNumber(tx, "account")` — the format is already seeded.
+  - Follow Spec.md §10's cross-cutting rules: `customFields Json`, and soft delete with **both**
+    `deletedAt` and `deletedBy` (module 00 shipped `User` missing `deletedBy`; do not repeat it).
+  - §7 wants fuzzy duplicate detection on name trigram + TIN + contact-email domain. `pg_trgm` is
+    already enabled (migration `20260808041300_enable_pg_trgm`), so `similarity()` is available.
+  - If `prisma migrate dev` hangs on an advisory lock, a pooled connection is holding one — see
+    the note under "Known issues" below.
+
 ## Not started
-- [ ] Module 01 — CRM: accounts, contacts, inquiries, pipeline, customer accreditation,
-      principal acquisition (`specs/01-crm-inquiry.md`). Depends only on module 00.
-      Next concrete step: read `specs/01-crm-inquiry.md`, then create `src/server/core/modules/
-      crm.manifest.ts` and register it in `src/server/core/manifests.ts` — the foundation
-      manifest added in session 5 is the worked example to copy.
 - [ ] Modules 02–10
 
 ## Decisions made this module
@@ -244,3 +283,14 @@ Status: ready for module 01
   path when it stops being.
 - Email is still unconfigured (SPF/DKIM/DMARC documented in `docs/DEPLOYMENT.md` §4 but not set
   up), so `notify_email` jobs continue to dead-letter by design.
+- **`prisma migrate dev` can hang on `pg_advisory_lock`.** Supabase's pooler keeps a session alive
+  after a migrate command ends, and if that command was interrupted the lock is never released —
+  one was found held by an idle connection for 3.2 hours, silently blocking every later migration.
+  To clear it, terminate the *idle* session holding a granted advisory lock:
+  `SELECT pg_terminate_backend(l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+  WHERE l.locktype = 'advisory' AND l.granted AND a.state = 'idle';`
+  Stopping the dev server first also helps, since it holds pooler connections.
+- Module 01 §8 lists `quotation.sent` / `quotation.accepted` / `quotation.rejected` as consumed by
+  CRM, but they are **not** declared in the CRM manifest yet: `buildModuleRegistry` rejects a
+  subscription to an event no module emits, so declaring them before module 02 exists would fail
+  boot. `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces then.

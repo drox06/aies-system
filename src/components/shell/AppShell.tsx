@@ -3,7 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { ClipboardCheck, House, Users, type LucideIcon } from "lucide-react";
+import {
+  BadgeCheck,
+  Building2,
+  ClipboardCheck,
+  Handshake,
+  House,
+  Inbox,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
@@ -239,6 +248,11 @@ const ICONS: Record<string, LucideIcon> = {
   home: House,
   check: ClipboardCheck,
   users: Users,
+  // Module 01 (specs/01-crm-inquiry.md).
+  building: Building2,
+  inbox: Inbox,
+  "badge-check": BadgeCheck,
+  handshake: Handshake,
 };
 
 const ICON_SIZE = 20;

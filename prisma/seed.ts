@@ -4,6 +4,7 @@
 // script doesn't need.
 import { hash } from "@node-rs/argon2";
 import { PrismaClient } from "@prisma/client";
+import { registry } from "../src/server/core/manifests";
 
 const db = new PrismaClient();
 
@@ -130,6 +131,32 @@ const APPROVAL_RULES: ApprovalRuleSeed[] = [
   { key: "payment_terms.approve", label: "Payment terms change approval", escalateAfterHours: 24 },
 ];
 
+/**
+ * Every permission that should exist: module 00's own, plus whatever the business modules declare
+ * in their manifests.
+ *
+ * specs/00-foundation.md §3 is explicit that modules own their permissions and the app assembles
+ * them at boot — but until module 01 nothing consumed `registry.permissions`, because module 00's
+ * manifest declares none. So a business module could declare `crm.view`, have it validated for
+ * collisions at boot, and still never reach the database — leaving every `p("crm.view")`
+ * procedure permanently 403 with nothing obviously wrong. This is the join that makes the
+ * manifest system real rather than decorative.
+ *
+ * Collision handling is left to `buildModuleRegistry`, which already throws at boot if two modules
+ * claim one key; by the time this runs the set is known-unique.
+ */
+function allPermissions(): PermissionSeed[] {
+  return [
+    ...PERMISSIONS,
+    ...registry.permissions.map((p) => ({
+      key: p.key,
+      label: p.label,
+      group: p.group,
+      defaultRoles: p.defaultRoles ?? [],
+    })),
+  ];
+}
+
 async function seedRolesAndPermissions() {
   for (const role of ROLES) {
     await db.role.upsert({
@@ -139,7 +166,7 @@ async function seedRolesAndPermissions() {
     });
   }
 
-  for (const permission of PERMISSIONS) {
+  for (const permission of allPermissions()) {
     await db.permission.upsert({
       where: { key: permission.key },
       update: { label: permission.label, group: permission.group },
@@ -157,7 +184,10 @@ async function seedRolesAndPermissions() {
     }
   }
 
-  console.log(`Seeded ${ROLES.length} roles and ${PERMISSIONS.length} permissions.`);
+  console.log(
+    `Seeded ${ROLES.length} roles and ${allPermissions().length} permissions ` +
+      `(${PERMISSIONS.length} foundation + ${registry.permissions.length} from module manifests).`,
+  );
 }
 
 async function seedUser(email: string, name: string, roleKey: string, isDemoUser: boolean) {
@@ -228,6 +258,10 @@ interface NumberingFormatSeed {
 // Spec.md §5. Quotation's `R{n}` revision suffix is appended by the quotation module (02) on top
 // of this base number, not part of the counter format itself.
 const NUMBERING_FORMATS: NumberingFormatSeed[] = [
+  // specs/01-crm-inquiry.md §2: "New accounts get a code from the numbering service: ACC-{####}."
+  // No year segment, unlike the document types below — an account code is a permanent identifier
+  // for a customer relationship, not a dated document, so the counter never resets.
+  { documentType: "account", format: "ACC-{####}", label: "Account code" },
   { documentType: "inquiry", format: "INQ-{YY}{MM}-{####}", label: "Inquiry" },
   { documentType: "quotation", format: "QTN-{YY}{MM}-{####}", label: "Quotation" },
   { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
