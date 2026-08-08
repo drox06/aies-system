@@ -25,7 +25,8 @@
     "seed": "tsx prisma/seed.ts",
     "bootstrap": "npm run prisma:migrate:deploy && npm run seed",
     "prepare": "husky",
-    "reset:credentials": "tsx scripts/reset-user-credentials.ts"
+    "reset:credentials": "tsx scripts/reset-user-credentials.ts",
+    "demo:crm": "tsx scripts/demo-crm-data.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
