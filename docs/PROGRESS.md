@@ -24,13 +24,19 @@ Status: in progress
         but inert until Supabase secrets exist
   - [x] `.env.example`, `docs/DECISIONS.md` started
 
+- [x] Repo pushed to GitHub: https://github.com/drox06/aies-system (remote `origin`, branch `main`
+      tracking `origin/main`)
+- [x] Supabase project `aies-platform-dev` (ap-southeast-1) created — real Postgres, not local
+      Docker (see docs/DECISIONS.md #1 addendum). `.env` has working `DATABASE_URL` (transaction
+      pooler, 6543) and `DIRECT_URL` (session pooler, 5432) — `prisma migrate deploy` connects
+      successfully.
+
 ## In progress
 - [ ] Module 00 session 2: Auth + TOTP + RBAC + seeded roles + approval fallback
       Next concrete step: add `prisma/schema/auth.prisma` with `User`, `Role`, `Permission`,
-      `UserRole`, `RolePermission`, `UserPermissionOverride` (specs/00-foundation.md §4.2), run
-      the first real `prisma migrate dev` (this needs a live Postgres — either install Docker
-      Desktop now or point `DATABASE_URL`/`DIRECT_URL` at a reachable Postgres instance first),
-      then wire Auth.js v5 with credentials (argon2id) + mandatory TOTP per §4.1.
+      `UserRole`, `RolePermission`, `UserPermissionOverride` (specs/00-foundation.md §4.2), then
+      run the first real `prisma migrate dev --name init` against the now-working Supabase dev
+      database, then wire Auth.js v5 with credentials (argon2id) + mandatory TOTP per §4.1.
 
 ## Not started
 - [ ] Module 00 session 3: Audit log, event outbox, job queue, numbering
@@ -41,14 +47,19 @@ Status: in progress
 
 ## Decisions made this module
 - See docs/DECISIONS.md entries #1–#3 (local DB deferred, prisma.config.ts over
-  package.json#prisma, no migration yet since no models exist).
+  package.json#prisma, no migration yet since no models exist) and the addendum to #1 (used a
+  real Supabase dev project instead of Docker).
 
 ## Known issues / to revisit
 - Node.js was not installed on the build machine; installed Node 24 LTS via winget during this
-  session. Docker was deliberately not installed (docs/DECISIONS.md #1) — needed before session 2
-  can run a real migration.
+  session. Docker was never installed — a real Supabase project is standing in for local Postgres
+  instead (docs/DECISIONS.md #1 addendum).
 - The harness's shell processes inherit a stale PATH from before the Node install, so `node`/
   `npm`/`npx` must be invoked with an explicit PATH prepend (`C:\Program Files\nodejs`) in Bash,
   or `$env:Path` refreshed in PowerShell, until this is no longer observed (e.g. after a reboot).
-- No GitHub remote configured yet — `.github/workflows/ci.yml` has never actually run. Verify it
-  once the repo is pushed.
+- `.github/workflows/ci.yml` has run at least once (push to `main` after the initial commits) but
+  its result hasn't been checked yet — no `gh` CLI available locally to query it; check the
+  Actions tab at https://github.com/drox06/aies-system/actions.
+- `DATABASE_URL`/`DIRECT_URL` in `.env` point at a shared Supabase project, not a disposable local
+  DB — running `prisma migrate reset` or similar destructive commands against it during session 2
+  development should be done deliberately, not as a routine "start over" reflex.

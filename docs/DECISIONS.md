@@ -21,6 +21,19 @@ session. Nothing in module 00 session 1 requires a live database (no models exis
 **Revisit:** before module 00 session 2 (RBAC models + first real migration), since that session
 does need a live database to run `prisma migrate dev`.
 
+**Addendum (still session 1):** revisited immediately — WSL2 wasn't installed either, so Docker
+Desktop would have meant installing WSL2, a reboot, then Docker Desktop, possibly another reboot.
+Since Supabase is the actual deployment target anyway (Spec.md §3.1), the user created a real
+Supabase project (`aies-platform-dev`, ap-southeast-1) instead of a local database. `.env` now
+holds working credentials: `DATABASE_URL` via the transaction-mode pooler (port 6543,
+`pgbouncer=true`) for the app, `DIRECT_URL` via the session-mode pooler (port 5432) for Prisma
+Migrate — the session-mode pooler is used instead of Supabase's true direct connection
+(`db.<ref>.supabase.co`) because that host is IPv6-only unless the paid IPv4 add-on is purchased,
+and this is Supabase's own recommended pattern for Prisma. `prisma migrate deploy` connects
+successfully. `docker/docker-compose.dev.yml` stays in the repo unused for now — still useful if
+AIES later works from a machine/network where the Supabase pooler isn't reachable, or moves to
+the self-host fallback (Spec.md §7.2).
+
 ---
 
 ## 2. `prisma.config.ts` instead of `package.json#prisma` for the split-schema path
