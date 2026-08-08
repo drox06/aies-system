@@ -150,3 +150,47 @@ at a time. Confirmed stable across repeated runs after the change (was previousl
 `PrismaClient` (rather than each file's default import touching the same global singleton
 independently across worker processes) or a paid Supabase tier with more pooler connections would
 remove the need for this constraint.
+
+---
+
+## 8. `signIn()`'s `totpCode: undefined` was silently sent as the literal string `"undefined"`
+
+**Module:** 00, session 3 (found during manual browser verification of the login flow)
+**Found by:** logging in as a TOTP-enrolled user reliably produced "Incorrect authenticator code"
+instead of prompting for one, even though no code had been entered yet.
+**Root cause:** `src/app/login/page.tsx` called `signIn("credentials", { totpCode: needsTotp ?
+totpCode : undefined, ... })`. Auth.js's client (`node_modules/next-auth/react.js`) encodes
+credentials via `new URLSearchParams({...})`, and `URLSearchParams` stringifies an `undefined`
+property value as the four-character string `"undefined"` rather than omitting the key.
+Server-side, `src/auth.ts`'s `raw.totpCode ? String(raw.totpCode) : undefined` sees a non-empty
+(truthy) string, skips the "was a code even provided" check, and fails TOTP verification instead
+of asking for one.
+**Chose:** Send `totpCode: needsTotp ? totpCode : ""` (a real empty string) instead of `undefined`.
+**Why this stayed hidden through session 2:** every account tested then had `totpEnabled: false`
+at login time (enrollment happens *after* first login), so `authorize()` never reached the branch
+that reads `totpCode` at all. It only surfaces once an account has completed enrollment and logs
+in again — exactly the scenario this session's manual verification exercised for the first time.
+**Also fixed alongside this:** a synchronous re-entrancy guard (`submittingRef`) on the login
+form's submit handler, since a caller reported two simultaneous requests were reproducing the same
+symptom in a way that was hard to distinguish from the encoding bug — the guard is correct
+regardless of whether that was a genuine double-fire or a testing artifact.
+
+---
+
+## 9. `Strict-Transport-Security` is now only sent in production
+
+**Module:** 00, session 3 (found during manual browser verification)
+**Found by:** after the first local login attempt, all further navigation to `http://localhost:3000`
+failed with `ERR_SSL_PROTOCOL_ERROR` — the browser had started force-upgrading every request to
+`https://localhost`, which the dev server doesn't serve.
+**Root cause:** `middleware.ts` sent `Strict-Transport-Security: max-age=63072000;
+includeSubDomains; preload` on every response, including local plain-HTTP dev traffic. A browser
+that honors HSTS for `localhost` (not all do — Chrome normally exempts it, but this held in the
+Claude Browser pane's environment) caches that instruction and won't make another plain-HTTP
+request to the origin until it expires.
+**Chose:** Only set the header when `process.env.NODE_ENV === "production"`.
+**Why:** HSTS is meaningless (and actively harmful, as observed) over a connection that was never
+HTTPS in the first place — RFC 6797 says browsers should ignore it over plain HTTP, but relying on
+every browser/environment to do so is exactly what broke here. Recovering required opening a fresh
+browser tab (a new profile/context) since there was no way to clear the cached HSTS policy through
+the available tooling.

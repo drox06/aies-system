@@ -98,4 +98,45 @@ describe("drain", () => {
     expect(updated.status).toBe("dead");
     expect(updated.lastError).toContain("No handler registered");
   }, 30_000);
+
+  it("does not reclaim a job that is genuinely still running (recently locked)", async () => {
+    const job = await trackedEnqueue("test-stuck", {});
+    await db.job.update({
+      where: { id: job.id },
+      data: { status: "running", lockedAt: new Date(), lockedBy: "some-other-worker" },
+    });
+
+    const result = await drain({ batchSize: 10 });
+
+    const stillRunning = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(stillRunning.status).toBe("running");
+    expect(result.claimed).toBe(0);
+  }, 30_000);
+
+  it("specs/00-foundation.md §11: killing the drain mid-flight redelivers the event exactly once to an idempotent handler", async () => {
+    let callCount = 0;
+    registerJobHandler("test-idempotent", () => {
+      callCount++;
+    });
+
+    const job = await trackedEnqueue("test-idempotent", {});
+
+    // Simulate a worker that claimed the job and then got killed by the platform mid-handler,
+    // before it could write back a status — the row is left stuck at "running" with a stale lock.
+    await db.job.update({
+      where: { id: job.id },
+      data: {
+        status: "running",
+        lockedAt: new Date(Date.now() - 10 * 60_000), // 10 minutes ago — well past the 5m threshold
+        lockedBy: "dead-worker",
+      },
+    });
+
+    const result = await drain({ batchSize: 10 });
+
+    expect(result.claimed).toBe(1);
+    expect(callCount).toBe(1); // redelivered exactly once
+    const updated = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(updated.status).toBe("succeeded");
+  }, 30_000);
 });

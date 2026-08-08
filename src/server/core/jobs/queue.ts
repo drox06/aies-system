@@ -59,6 +59,12 @@ export interface DrainResult {
   dead: number;
 }
 
+// A Vercel function has a hard execution timeout, so a job can be killed mid-handler with no
+// chance to update its own status — it's left stuck at "running" forever unless something else
+// reclaims it. specs/00-foundation.md §11: "killing the drain mid-flight redelivers the event
+// exactly once to an idempotent handler." Five minutes comfortably exceeds a serverless timeout.
+const STALE_LOCK_MS = 5 * 60_000;
+
 /** Claims and runs one batch. `POST /api/cron/drain` calls this every minute in production. */
 export async function drain(
   options: { batchSize?: number; workerId?: string } = {},
@@ -66,11 +72,13 @@ export async function drain(
   const batchSize = options.batchSize ?? 10;
   const workerId = options.workerId ?? randomUUID();
   const now = new Date();
+  const staleBefore = new Date(now.getTime() - STALE_LOCK_MS);
 
   const claimedIds = await db.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM "Job"
-      WHERE status = 'pending' AND "runAt" <= ${now}
+      WHERE ("runAt" <= ${now})
+        AND (status = 'pending' OR (status = 'running' AND "lockedAt" < ${staleBefore}))
       ORDER BY "runAt" ASC
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED

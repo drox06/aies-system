@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -29,28 +29,42 @@ function LoginForm() {
   const [needsTotp, setNeedsTotp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // A boolean ref rather than just the `submitting` state, checked synchronously: two submit
+  // events that both fire before the first state update commits would otherwise both pass a
+  // `disabled={submitting}` check.
+  const submittingRef = useRef(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     setSubmitting(true);
 
     const result = await signIn("credentials", {
       email,
       password,
-      totpCode: needsTotp ? totpCode : undefined,
+      // Auth.js's client encodes this via `new URLSearchParams(...)`, which stringifies
+      // `undefined` as the literal text "undefined" rather than omitting the key — that string
+      // is truthy server-side, so `totpCode` must be a real empty string, never `undefined`, or
+      // src/auth.ts's `!totpCode` check for "was a code even provided" silently never fires.
+      totpCode: needsTotp ? totpCode : "",
       redirect: false,
     });
 
+    submittingRef.current = false;
     setSubmitting(false);
 
-    if (result?.error === "totp_required") {
+    // Auth.js's `error` field is just the generic error type ("CredentialsSignin") — the
+    // specific reason is in `code`, which is what our custom CredentialsSignin subclasses in
+    // src/auth.ts set (see node_modules/@auth/core/errors.js's CredentialsSignin doc comment).
+    if (result?.code === "totp_required") {
       setNeedsTotp(true);
       return;
     }
 
     if (result?.error) {
-      setError(ERROR_MESSAGES[result.error] ?? "Sign-in failed.");
+      setError((result.code && ERROR_MESSAGES[result.code]) ?? "Sign-in failed.");
       return;
     }
 

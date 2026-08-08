@@ -78,7 +78,15 @@ export default auth((req) => {
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  // Only over real HTTPS: a browser that honors HSTS on plain-HTTP localhost dev traffic will
+  // force-upgrade every subsequent request to https://localhost, which nothing here serves,
+  // breaking all further local navigation until the browser's HSTS cache for the origin expires.
+  if (process.env.NODE_ENV === "production") {
+    response.headers.set(
+      "Strict-Transport-Security",
+      "max-age=63072000; includeSubDomains; preload",
+    );
+  }
 
   return response;
 });
