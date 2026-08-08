@@ -28,6 +28,7 @@
     "@auth/prisma-adapter": "^2.11.3",
     "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.4.1",
+    "@supabase/supabase-js": "^2.112.2",
     "@tanstack/react-query": "^5.101.4",
     "@trpc/client": "^11.18.0",
     "@trpc/react-query": "^11.18.0",
@@ -41,6 +42,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sharp": "^0.35.3",
     "superjson": "^2.2.6",
     "zod": "^4.4.3"
   },

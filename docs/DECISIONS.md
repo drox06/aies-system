@@ -217,3 +217,23 @@ email already working.
 **Revisit:** once an email provider is configured (a `docs/DEPLOYMENT.md`-era decision — Spec.md
 §10 lists "Outbound document email" under module 10 integrations), register a `notify_email`
 handler and, separately, a scheduled digest job.
+
+---
+
+## 11. Only the Supabase storage driver is implemented — no local filesystem driver yet
+
+**Module:** 00, session 4
+**Ambiguity:** specs/00-foundation.md §7.2 offers two options for local development: "the
+Supabase CLI's local stack or a filesystem driver behind the same interface."
+**Chose:** Neither, for now — `src/server/core/storage/driver.ts` defines the swappable
+`StorageDriver` interface the spec asks for, but only `supabase-driver.ts` implements it. Local
+dev talks to the real `aies-files` bucket in the same remote `aies-platform-dev` Supabase project
+already used for Postgres (docs/DECISIONS.md #1's pattern extended to Storage).
+**Why:** A filesystem driver built without ever being exercised — no tests, no real call site
+using it — would be exactly the "half-finished implementation" this project's own conventions
+warn against. The real driver is fully tested (including round-tripping actual bytes through a
+real signed URL, not mocked), and Supabase Storage was already one credential away, unlike the
+local CLI stack (Docker, deferred in docs/DECISIONS.md #1) or a filesystem driver's own signed-URL
+semantics needing to be invented from scratch just to fit the interface.
+**Revisit:** if a genuinely offline local dev workflow becomes necessary, or per Spec.md §7.6's
+self-host fallback.
