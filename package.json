@@ -24,7 +24,8 @@
     "storage:bucket": "tsx scripts/ensure-storage-bucket.ts",
     "seed": "tsx prisma/seed.ts",
     "bootstrap": "npm run prisma:migrate:deploy && npm run seed",
-    "prepare": "husky"
+    "prepare": "husky",
+    "reset:credentials": "tsx scripts/reset-user-credentials.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
