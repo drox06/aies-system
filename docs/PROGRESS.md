@@ -209,18 +209,39 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
 - [x] Sidebar icons for the four CRM nav entries.
 - [x] 9 tests covering the manifest↔seed join, §9's role assignments, and that `crm.view_all` is
       kept off the default sales grant so §10's record-scoping test can mean something.
+- [x] `prisma/schema/crm.prisma` — §2's `CustomerAccount`, `Site`, `Contact`, migration
+      `20260808101705_crm_accounts_sites_contacts`. **The model is `CustomerAccount`, not
+      `Account`** — see docs/DECISIONS.md #18; field names stay `accountId` / `account` so the
+      spec's vocabulary survives where it is actually read.
+- [x] `src/server/core/crm/duplicates.ts` — §7 fuzzy duplicate detection on all three signals
+      (TIN exact, `pg_trgm` name similarity ≥ 0.4, contact-email domain), in one query so the
+      caller can be told *which* signal matched. Free mailbox domains (gmail, yahoo…) are excluded,
+      or every account with a gmail contact would match every other. It warns, never blocks:
+      several unrelated "… Water District" entities genuinely exist. 10 tests against the real DB.
+- [x] `src/server/core/crm/account-service.ts` — create/update/soft-delete with `ACC-` codes,
+      audit rows carrying a changed-fields-only diff, and the §8 `account.created` event emitted
+      transactionally.
 
 ### Next concrete step
-Create `prisma/schema/crm.prisma` with `Account`, `Site` and `Contact` exactly as
-specs/01-crm-inquiry.md §2 defines them, then `npx prisma migrate dev --name crm_accounts`.
+Expose the account service over tRPC and build the list UI:
+1. `src/server/api/routers/crm.ts` with `p("crm.view")` / `p("crm.create")` / `p("crm.edit")` /
+   `p("crm.delete")` procedures wrapping the service, plus a `checkDuplicates` query the create
+   form calls before submitting. Register it in `src/server/api/root.ts`.
+2. `/crm/accounts` using the session-5 `DataTable` (its API is complete — server-side pagination,
+   sort, filter chips, CSV export — pass `rows`/`total` and handle `onStateChange`).
+3. Record scoping (§10): a user without `crm.view_all` must see only accounts they own. Implement
+   as a `where` fragment in the service, following `src/server/core/rbac/scope.ts`.
+
+Then session 2 (inquiry) as planned above.
+
 Notes for whoever picks this up:
-  - `Account.code` comes from `allocateNumber(tx, "account")` — the format is already seeded.
-  - Follow Spec.md §10's cross-cutting rules: `customFields Json`, and soft delete with **both**
-    `deletedAt` and `deletedBy` (module 00 shipped `User` missing `deletedBy`; do not repeat it).
-  - §7 wants fuzzy duplicate detection on name trigram + TIN + contact-email domain. `pg_trgm` is
-    already enabled (migration `20260808041300_enable_pg_trgm`), so `similarity()` is available.
-  - If `prisma migrate dev` hangs on an advisory lock, a pooled connection is holding one — see
-    the note under "Known issues" below.
+  - `allocateNumber` takes **no** transaction client, so an account code is allocated before the
+    transaction opens and a rollback burns it. Module 00's numbering contract explicitly permits
+    gaps; fine for an internal account code, but revisit before anything the BIR counts.
+  - Soft delete needs **both** `deletedAt` and `deletedBy` (module 00 shipped `User` missing
+    `deletedBy`; the CRM models already do this correctly).
+  - If `prisma migrate dev` hangs on an advisory lock, or `prisma generate` fails with `EPERM`,
+    the dev server is holding it — stop the dev server first. See "Known issues" below.
 
 ## Not started
 - [ ] Modules 02–10

@@ -18,20 +18,20 @@ model ApprovalWorkflow {
 }
 
 model ApprovalRequest {
-  id            String    @id @default(cuid())
-  entityType    String
-  entityId      String
-  workflowId    String
+  id             String    @id @default(cuid())
+  entityType     String
+  entityId       String
+  workflowId     String
   // pending | approved | rejected
-  status        String    @default("pending")
-  currentStep   Int       @default(0)
+  status         String    @default("pending")
+  currentStep    Int       @default(0)
   // A snapshot of whatever fields the workflow's step conditions need (e.g. { total: 600000 }) —
   // taken at request time so a later edit to the underlying record can't retroactively change
   // which approval path already applied.
   entitySnapshot Json
-  requestedById String
-  requestedAt   DateTime  @default(now())
-  decidedAt     DateTime?
+  requestedById  String
+  requestedAt    DateTime  @default(now())
+  decidedAt      DateTime?
 
   workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id])
   actions  ApprovalAction[]

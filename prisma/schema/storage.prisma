@@ -2,22 +2,22 @@
 // in Supabase Storage (private bucket) at `storageKey`. Downloads only ever go through
 // `/api/files/[id]`, never a public bucket URL or a guessable path.
 model FileObject {
-  id          String   @id @default(cuid())
-  entityType  String
-  entityId    String
+  id               String    @id @default(cuid())
+  entityType       String
+  entityId         String
   // {entityType}/{yyyy}/{mm}/{entityId}/{uuid}-{sanitized-filename} — never the raw client
   // filename as a path component.
-  storageKey  String   @unique
+  storageKey       String    @unique
   // Set only for image/* uploads: a smaller derivative generated with sharp, at a second key
   // (same scheme, "-web" suffix) — served instead of the original over constrained connections.
   webDerivativeKey String?
-  filename    String
-  mimeType    String
-  size        Int
-  sha256      String
-  uploaderId  String
-  createdAt   DateTime @default(now())
-  deletedAt   DateTime?
+  filename         String
+  mimeType         String
+  size             Int
+  sha256           String
+  uploaderId       String
+  createdAt        DateTime  @default(now())
+  deletedAt        DateTime?
 
   // Deduplication by sha256 within an entity (specs/00-foundation.md §7.2).
   @@unique([entityType, entityId, sha256])

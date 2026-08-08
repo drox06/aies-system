@@ -429,3 +429,30 @@ in the browser has no way to tell a dead bundle from a working one.
 **Not solvable by configuration.** `distDir` could separate the two, but that would diverge from
 what Vercel builds and trade a loud, well-understood local annoyance for a quiet difference
 between local and production output. The discipline is cheaper than the divergence.
+
+## 18. The CRM account model is `CustomerAccount`, because Auth.js already owns `Account`
+
+**Module:** 01, session 1
+**Collision:** specs/01-crm-inquiry.md §2 names the central CRM model `Account`. Prisma model names
+must be unique across the whole schema, and `prisma/schema/auth.prisma` already defines an
+`Account` — the Auth.js adapter's OAuth account-link table.
+
+**Why the auth one cannot move:** `@auth/prisma-adapter` calls `prisma.account` by that exact name.
+Renaming the model breaks the adapter, and `@@map` only changes the *table* name, not the client
+property. There is no configuration for it short of writing a custom adapter.
+
+**Why the CRM one moved instead:** the alternative was deleting the Auth.js `Account` model and
+dropping `PrismaAdapter`, which is defensible on paper — the app is credentials-plus-JWT
+(docs/DECISIONS.md #4), no application code references `prisma.account`, and the table is dormant.
+But it is a change to authentication, made to win a naming argument, and Spec.md §4.1 keeps
+optional Google Workspace OIDC on the roadmap, which is exactly what that table is for. Trading a
+working auth path for a nicer identifier is a bad trade.
+
+**Chose:** `model CustomerAccount`, with every *field* name left as the spec writes it — `accountId`
+on `Site` and `Contact`, and the relation field named `account`. So `site.account.name` reads
+naturally and modules 02–10 can keep saying "accountId" as their specs do; only `db.customerAccount`
+differs, at the call site, where the distinction between a customer account and a login account is
+arguably clearer anyway.
+
+**Watch for:** anyone reading specs/01–10 will type `db.account` first and get the OAuth table,
+which has a `userId` and no `name` — so it fails loudly rather than silently returning wrong rows.

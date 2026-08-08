@@ -1,0 +1,129 @@
+// Module 01 — CRM. specs/01-crm-inquiry.md §2.
+//
+// §1: "Accounts are industrial: a water district, a power plant, a food manufacturer. Each has
+// plants, each plant has equipment, and the same account may run several unrelated inquiries at
+// once through different engineers. Model the hierarchy properly." So Account → Site → Contact are
+// real relations with real foreign keys, not loose id columns.
+//
+// References to a *user* stay plain string ids with no relation, matching AuditLog.actorId and
+// Comment.authorId: the person who owns an account can themselves be deleted, and a foreign key
+// would either block that or cascade away the ownership record.
+//
+// Status fields are String rather than Prisma enums, consistent with every model in module 00.
+// Adding a value to a Postgres enum is a migration; these lists are business vocabulary that will
+// move, and the allowed values are enforced by Zod at the service boundary where the error message
+// can actually be useful.
+
+model CustomerAccount {
+  id          String  @id @default(cuid())
+  // ACC-{####} from the numbering service (§2). Permanent: the counter has no year segment.
+  code        String  @unique
+  name        String
+  legalName   String?
+  tin         String?
+  industry    String?
+  // customer | prospect | both
+  accountType String  @default("prospect")
+  website     String?
+  phone       String?
+  email       String?
+
+  // Json rather than columns: Philippine addresses do not decompose cleanly into the usual
+  // fields (barangay, subdivision, building), and every downstream consumer — PDF headers,
+  // delivery notes — wants the whole block, not its parts.
+  billingAddress  Json @default("{}")
+  shippingAddress Json @default("{}")
+
+  // Plain id, not a relation: PaymentTerms is owned by module 05 and does not exist yet.
+  paymentTermsId String?
+  // Decimal, never Float. Money compared or summed as binary floating point is how you get a
+  // credit limit that is off by a centavo and a customer who disputes it.
+  creditLimit    Decimal? @db.Decimal(14, 2)
+  currency       String   @default("PHP")
+
+  ownerId String
+  // active | dormant | blacklisted
+  status  String @default("active")
+
+  // §2: "for group companies". A water district holding company and its districts.
+  parentAccountId String?
+
+  customFields Json @default("{}")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  // Spec.md §10: soft delete with deletedAt AND deletedBy.
+  deletedAt DateTime?
+  deletedBy String?
+
+  parent   CustomerAccount?  @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children CustomerAccount[] @relation("AccountHierarchy")
+  sites    Site[]
+  contacts Contact[]
+
+  @@index([ownerId, status])
+  @@index([status, name])
+  // Partial-index equivalent for the common "live accounts only" scan.
+  @@index([deletedAt])
+}
+
+// A plant or facility belonging to an account.
+model Site {
+  id        String @id @default(cuid())
+  accountId String
+  name      String
+  address   Json   @default("{}")
+  geo       Json?
+
+  // §2's own emphasis: gate pass, PPE, induction requirements. This is the field that stops a
+  // technician arriving at a refinery without the right induction and losing a day.
+  accessNotes String?
+
+  // The site's main contact. Nullable and deliberately NOT a relation with a foreign key —
+  // Contact.siteId already points the other way, and a mandatory cycle between the two would make
+  // both impossible to create first.
+  contactId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account  CustomerAccount @relation(fields: [accountId], references: [id])
+  contacts Contact[]
+
+  @@index([accountId, deletedAt])
+}
+
+model Contact {
+  id         String  @id @default(cuid())
+  accountId  String
+  siteId     String?
+  firstName  String
+  lastName   String
+  position   String?
+  department String?
+
+  email  String?
+  mobile String?
+  phone  String?
+
+  isPrimary       Boolean @default(false)
+  // §1: AIES sells through relationships, so knowing who can actually say yes is load-bearing,
+  // not a nice-to-have CRM field.
+  isDecisionMaker Boolean @default(false)
+  notes           String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account CustomerAccount @relation(fields: [accountId], references: [id])
+  site    Site?           @relation(fields: [siteId], references: [id])
+
+  @@index([accountId, deletedAt])
+  @@index([siteId])
+  // §7 matches duplicate accounts partly on the domain of a contact's email address.
+  @@index([email])
+}

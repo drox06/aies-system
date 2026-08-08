@@ -1,17 +1,17 @@
 // Identity, access, and Auth.js persistence (specs/00-foundation.md §4). Owned by module 00.
 
 model User {
-  id                 String    @id @default(cuid())
-  email              String    @unique
+  id                 String  @id @default(cuid())
+  email              String  @unique
   name               String
   phone              String?
   jobTitle           String?
   passwordHash       String
-  isActive           Boolean   @default(true)
-  mustChangePassword Boolean   @default(false)
+  isActive           Boolean @default(true)
+  mustChangePassword Boolean @default(false)
   // Seeded demo accounts (one per unassigned role) are flagged so they're excluded from
   // production data exports and easy to spot in the admin UI (specs/00-foundation.md §4.3).
-  isDemoUser         Boolean   @default(false)
+  isDemoUser         Boolean @default(false)
 
   totpSecret     String?
   totpEnabled    Boolean   @default(false)
@@ -139,13 +139,13 @@ model VerificationToken {
 // stateless — this table only holds the configured windows. Consumed by the generic approvals
 // service built in module 00 session 4.
 model ApprovalRule {
-  id                    String   @id @default(cuid())
-  key                   String   @unique
-  label                 String
-  primaryApproverRole   String
-  fallbackApproverRole  String
-  escalateAfterHours    Int
-  escalationMode        String   @default("parallel")
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  label                String
+  primaryApproverRole  String
+  fallbackApproverRole String
+  escalateAfterHours   Int
+  escalationMode       String   @default("parallel")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
