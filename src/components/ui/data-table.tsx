@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { Menu } from "@/components/ui/menu";
 import { cn } from "@/lib/utils";
 
 /**
@@ -105,7 +106,6 @@ export function DataTable<Row>({
   className,
 }: DataTableProps<Row>) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [searchDraft, setSearchDraft] = useState(state.search);
 
   const hidden = useMemo(() => new Set(state.hiddenColumns), [state.hiddenColumns]);
@@ -243,36 +243,30 @@ export function DataTable<Row>({
             </Button>
           )}
 
-          <div className="relative">
-            <Button variant="secondary" size="sm" onClick={() => setColumnMenuOpen((o) => !o)}>
-              Columns
-            </Button>
-            {columnMenuOpen && (
-              <div
-                className="absolute right-0 z-20 mt-1 w-56 rounded-md border border-border bg-surface p-2 shadow-lg"
-                onMouseLeave={() => setColumnMenuOpen(false)}
+          <Menu
+            label="Toggle columns"
+            triggerClassName={buttonVariants({ variant: "secondary", size: "sm" })}
+            trigger="Columns"
+          >
+            {columns.map((c) => (
+              <label
+                key={c.key}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-2"
               >
-                {columns.map((c) => (
-                  <label
-                    key={c.key}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-2"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!hidden.has(c.key)}
-                      onChange={() => {
-                        const next = new Set(hidden);
-                        if (next.has(c.key)) next.delete(c.key);
-                        else next.add(c.key);
-                        patch({ hiddenColumns: [...next], page: state.page });
-                      }}
-                    />
-                    {c.header}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(c.key)}
+                  onChange={() => {
+                    const next = new Set(hidden);
+                    if (next.has(c.key)) next.delete(c.key);
+                    else next.add(c.key);
+                    patch({ hiddenColumns: [...next], page: state.page });
+                  }}
+                />
+                {c.header}
+              </label>
+            ))}
+          </Menu>
 
           {exportFilename && (
             <Button variant="secondary" size="sm" onClick={exportCsv} disabled={rows.length === 0}>

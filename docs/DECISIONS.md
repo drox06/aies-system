@@ -341,3 +341,36 @@ lighter than the §6.2 tokens, and the content ratio is 1.79:1 against the origi
 (§6.1 records "roughly 2.6:1"). It is also raster, lower-resolution than the JPG already in
 `brand/`, and equally opaque, so it cannot serve the 24px-sidebar-to-300dpi-PDF range that made
 vector matter in the first place.
+
+## 16. A database error in the session callback degrades access; it does not sign the user out
+
+**Module:** 00, session 5
+**Found by:** manual verification. Mid-session the browser was silently returned to `/login`. The
+dev log showed `JWTSessionError` caused by `Timed out fetching a new connection from the
+connection pool (timeout: 10, limit: 25)` raised from `src/auth.ts`'s `session` callback — the
+full test suite was running against the same Supabase pooler as the dev server.
+
+**Why it mattered more than the local cause:** decision #4 has the session callback re-read roles
+and permissions from Postgres on *every* request, which is what makes deactivation take effect
+immediately. The callback had no error handling, so any failure of that query propagated, Auth.js
+treated the session as unreadable, and the user was signed out. On Vercel, against a pooled
+Supabase connection, brief connection pressure is an ordinary event — and the consequence was
+every signed-in user being thrown back to the login screen and made to re-enter a TOTP code,
+because one query was slow.
+
+**Chose:** catch inside the callback and distinguish the two facts that were being conflated:
+
+- The query *answered* and said the user is missing, inactive or deleted → invalidate, as before.
+  That is a real authorization decision.
+- The query *could not be made* → keep `session.user.id` and grant nothing. Identity came from a
+  signed JWT and needs no database to be trusted; permissions did not survive verification, so
+  none are granted. Permission-gated procedures fail closed, the user stays signed in, and the
+  next request restores the session once the database answers.
+
+**Rejected:** caching the last known permissions in the JWT and falling back to them. That would
+keep the app fully usable through an outage, but it would also mean a revoked permission could be
+exercised for the life of the token precisely when the audit trail is least able to record it.
+Degrading to no access is the safer failure, and it is self-healing.
+
+**Note:** the error is logged with `console.error` rather than swallowed, so the underlying
+connection problem stays visible instead of being masked by the graceful degradation.

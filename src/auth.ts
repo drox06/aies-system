@@ -96,33 +96,52 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const userId = token.sub;
       if (!userId) return session;
 
-      const dbUser = await db.user.findUnique({
-        where: { id: userId },
-        select: { isActive: true, deletedAt: true, totpEnabled: true, mustChangePassword: true },
-      });
+      try {
+        const dbUser = await db.user.findUnique({
+          where: { id: userId },
+          select: { isActive: true, deletedAt: true, totpEnabled: true, mustChangePassword: true },
+        });
 
-      // Deactivated or deleted since the token was issued: surface as unauthenticated rather
-      // than trusting stale claims. middleware.ts checks `session.user.id`, not just session
-      // truthiness, specifically so this takes effect.
-      if (!dbUser || !dbUser.isActive || dbUser.deletedAt) {
-        session.user.id = "";
+        // Deactivated or deleted since the token was issued: surface as unauthenticated rather
+        // than trusting stale claims. middleware.ts checks `session.user.id`, not just session
+        // truthiness, specifically so this takes effect.
+        if (!dbUser || !dbUser.isActive || dbUser.deletedAt) {
+          session.user.id = "";
+          session.user.roleKeys = [];
+          session.user.permissions = [];
+          return session;
+        }
+
+        const [roleKeys, permissions] = await Promise.all([
+          resolveUserRoleKeys(userId),
+          resolveUserPermissions(userId),
+        ]);
+
+        session.user.id = userId;
+        session.user.roleKeys = roleKeys;
+        session.user.permissions = [...permissions];
+        session.user.totpEnabled = dbUser.totpEnabled;
+        session.user.mustChangePassword = dbUser.mustChangePassword;
+
+        return session;
+      } catch (error) {
+        // The database could not be *asked* — which is a different fact from "this user is not
+        // allowed", and must not be conflated with it. Letting this throw makes Auth.js raise
+        // JWTSessionError and drop the session, so one slow query (a Supabase pooler timeout, a
+        // failover) signs everybody out and forces a full re-login including TOTP. Observed
+        // exactly that during session 5: `Timed out fetching a new connection from the connection
+        // pool` logged every user out mid-work. See docs/DECISIONS.md #16.
+        //
+        // So: keep the identity, which came from a signed JWT and needs no database to trust, and
+        // grant nothing, because no permission could be verified. Every permission-gated
+        // procedure then fails closed while the user stays signed in, and the next request repairs
+        // the session once the database answers again.
+        console.error("[auth] session callback could not reach the database:", error);
+        session.user.id = userId;
         session.user.roleKeys = [];
         session.user.permissions = [];
         return session;
       }
-
-      const [roleKeys, permissions] = await Promise.all([
-        resolveUserRoleKeys(userId),
-        resolveUserPermissions(userId),
-      ]);
-
-      session.user.id = userId;
-      session.user.roleKeys = roleKeys;
-      session.user.permissions = [...permissions];
-      session.user.totpEnabled = dbUser.totpEnabled;
-      session.user.mustChangePassword = dbUser.mustChangePassword;
-
-      return session;
     },
   },
 });
