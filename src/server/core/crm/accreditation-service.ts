@@ -2,8 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
+import "./accreditation-access";
 import {
   accreditationRequirementsSchema,
+  assertCanBeAccredited,
   assessAccreditation,
   defaultRequirements,
   parseRequirements,
@@ -19,7 +21,9 @@ import {
  */
 
 export {
+  ACCREDITATION_ENTITY_TYPE,
   ACCREDITATION_STATUSES,
+  assertCanBeAccredited,
   accreditationRequirementSchema,
   accreditationRequirementsSchema,
   assessAccreditation,
@@ -102,6 +106,8 @@ export interface UpdateAccreditationInput {
   notes?: string | null;
   ownerId?: string | null;
   requirements?: AccreditationRequirement[];
+  /** FileObject id of the customer-issued certificate. */
+  certificateFileId?: string | null;
 }
 
 export async function updateAccreditationService(
@@ -115,6 +121,22 @@ export async function updateAccreditationService(
     });
     if (!before) {
       throw new TRPCError({ code: "NOT_FOUND", message: "That accreditation no longer exists." });
+    }
+
+    // Marking accredited is a claim that this customer will issue a PO, so it needs evidence.
+    // Checked against the values *after* this update, not the stored ones, so uploading the
+    // certificate and setting accredited in one save works.
+    if (input.status === "accredited") {
+      const gate = assertCanBeAccredited({
+        certificateFileId:
+          input.certificateFileId !== undefined
+            ? input.certificateFileId
+            : before.certificateFileId,
+        expiresAt: input.expiresAt !== undefined ? input.expiresAt : before.expiresAt,
+      });
+      if (!gate.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: gate.reasons.join(" ") });
+      }
     }
 
     if (input.status === "rejected" && !(input.rejectionReason ?? before.rejectionReason)) {
@@ -132,6 +154,15 @@ export async function updateAccreditationService(
     if (input.status !== undefined && input.status !== before.status) {
       diff.status = { from: before.status, to: input.status };
       data.status = input.status;
+    }
+    if (
+      input.certificateFileId !== undefined &&
+      input.certificateFileId !== before.certificateFileId
+    ) {
+      diff.certificateFileId = { from: before.certificateFileId, to: input.certificateFileId };
+      data.certificateFileId = input.certificateFileId;
+      // Stamped server-side: when the evidence arrived is itself part of the evidence.
+      data.certificateUploadedAt = input.certificateFileId ? new Date() : null;
     }
     for (const field of [
       "referenceNumber",
@@ -203,6 +234,7 @@ export async function listAccreditationsService() {
     account: row.account,
     status: row.status,
     referenceNumber: row.referenceNumber,
+    certificateFileId: row.certificateFileId,
     expiresAt: row.expiresAt,
     ownerId: row.ownerId,
     updatedAt: row.updatedAt,

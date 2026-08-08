@@ -148,6 +148,7 @@ export const crmRouter = router({
         notes: z.string().nullish(),
         ownerId: z.string().nullish(),
         requirements: z.array(accreditationRequirementSchema).optional(),
+        certificateFileId: z.string().nullish(),
       }),
     )
     .mutation(({ ctx, input }) => updateAccreditationService(actorMeta(ctx), input)),

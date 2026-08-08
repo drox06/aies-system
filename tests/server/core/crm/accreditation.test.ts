@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertCanBeAccredited,
   assessAccreditation,
   defaultRequirements,
   parseRequirements,
@@ -208,5 +209,35 @@ describe("parseRequirements", () => {
   it("round-trips a valid checklist", () => {
     const list = defaultRequirements();
     expect(parseRequirements(list)).toHaveLength(list.length);
+  });
+});
+
+describe("assertCanBeAccredited", () => {
+  it("allows accredited when both the certificate and an expiry date exist", () => {
+    const gate = assertCanBeAccredited({
+      certificateFileId: "file_cert",
+      expiresAt: new Date("2027-01-01"),
+    });
+    expect(gate.ok).toBe(true);
+    expect(gate.reasons).toEqual([]);
+  });
+
+  it("blocks accredited with no certificate, and says so in words a user can act on", () => {
+    const gate = assertCanBeAccredited({ certificateFileId: null, expiresAt: new Date() });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons.join(" ")).toContain("certificate issued by the customer");
+  });
+
+  it("blocks accredited with no expiry date", () => {
+    // An accreditation with no expiry never becomes renewal_due, so it is never chased — which is
+    // exactly the folder-in-someone's-memory failure §5b exists to fix.
+    const gate = assertCanBeAccredited({ certificateFileId: "file_cert", expiresAt: null });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons.join(" ")).toContain("expiry date");
+  });
+
+  it("reports both problems at once rather than one at a time", () => {
+    const gate = assertCanBeAccredited({ certificateFileId: null, expiresAt: null });
+    expect(gate.reasons).toHaveLength(2);
   });
 });

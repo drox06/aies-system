@@ -185,3 +185,37 @@ export function assessAccreditation(
     daysUntilExpiry,
   };
 }
+
+/** The entityType that accreditation certificates are stored under, so the upload endpoint and the
+ *  file-access checker agree on one string. */
+export const ACCREDITATION_ENTITY_TYPE = "AccreditationRecord";
+
+export interface AccreditedGateResult {
+  ok: boolean;
+  /** Why not, phrased for the person trying to do it. */
+  reasons: string[];
+}
+
+/**
+ * Whether a record may be marked `accredited`.
+ *
+ * Being accredited is a claim with consequences — it is what tells a salesperson this customer can
+ * issue a PO, and §5b's whole point is that quoting an unaccredited customer wastes the quote. So
+ * the claim requires evidence: the certificate the customer issued, and an expiry date, because an
+ * accreditation with no expiry silently never becomes `renewal_due` and so is never chased.
+ *
+ * Mirrors §4's completeness gate on the `quoting` transition — same idea, same reason.
+ */
+export function assertCanBeAccredited(record: {
+  certificateFileId?: string | null;
+  expiresAt?: Date | string | null;
+}): AccreditedGateResult {
+  const reasons: string[] = [];
+  if (!record.certificateFileId) {
+    reasons.push("Upload the accreditation certificate issued by the customer.");
+  }
+  if (!record.expiresAt) {
+    reasons.push("Enter the expiry date shown on the certificate.");
+  }
+  return { ok: reasons.length === 0, reasons };
+}

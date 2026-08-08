@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DateCell } from "@/components/ui/cells";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Input, Label, Select } from "@/components/ui/input";
 import { toastError, toastSuccess } from "@/lib/errors";
 import {
+  ACCREDITATION_ENTITY_TYPE,
   parseRequirements,
   type AccreditationRequirement,
 } from "@/server/core/crm/accreditation-rules";
@@ -54,6 +57,7 @@ export function AccreditationPanel({
   const [rejectionReason, setRejectionReason] = useState("");
   const [notes, setNotes] = useState("");
   const [requirements, setRequirements] = useState<AccreditationRequirement[]>([]);
+  const [certificateFileId, setCertificateFileId] = useState<string | null>(null);
   const [newDocument, setNewDocument] = useState("");
 
   useEffect(() => {
@@ -69,6 +73,7 @@ export function AccreditationPanel({
     // is concerned. parseRequirements returns [] for anything malformed rather than letting a bad
     // row render as blanks that quietly overwrite good data on save.
     setRequirements(parseRequirements(r.requirements));
+    setCertificateFileId(r.certificateFileId ?? null);
   }, [record.data]);
 
   const start = trpc.crm.startAccreditation.useMutation({
@@ -121,6 +126,7 @@ export function AccreditationPanel({
       expiresAt: expiresAt ? new Date(`${expiresAt}T00:00:00.000Z`).toISOString() : null,
       rejectionReason: rejectionReason || null,
       notes: notes || null,
+      certificateFileId,
       requirements: requirements.map((r) => ({
         document: r.document,
         required: r.required,
@@ -165,6 +171,55 @@ export function AccreditationPanel({
             onChange={(e) => setExpiresAt(e.target.value)}
           />
         </div>
+      </div>
+
+      {/* The evidence. §5b treats accreditation as recurring work with a paper trail, and a status
+          field with no certificate behind it is an assertion, not a record — which is also what an
+          ISO 9001 auditor asks to see. Marking the record `accredited` is blocked server-side until
+          both this and the expiry date exist. */}
+      <div className="rounded-md border border-border bg-surface-2 p-3">
+        <p className="text-sm font-medium">Accreditation certificate</p>
+        <p className="mt-0.5 mb-3 text-xs text-text-muted">
+          The certificate the customer issued to AIES. Required before this can be marked
+          accredited, together with the expiry date above.
+        </p>
+
+        {certificateFileId ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={`/api/files/${certificateFileId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-blue-600 hover:underline"
+            >
+              View certificate
+            </a>
+            {record.data.certificateUploadedAt && (
+              <span className="text-xs text-text-muted">
+                uploaded <DateCell value={record.data.certificateUploadedAt} />
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-danger"
+              onClick={() => setCertificateFileId(null)}
+            >
+              Replace
+            </Button>
+          </div>
+        ) : (
+          <FileDropzone
+            entityType={ACCREDITATION_ENTITY_TYPE}
+            entityId={id}
+            accept=".pdf,image/*"
+            multiple={false}
+            onUploaded={(files) => {
+              const uploaded = files[0];
+              if (uploaded) setCertificateFileId(uploaded.id);
+            }}
+          />
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">

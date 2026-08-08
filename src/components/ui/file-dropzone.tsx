@@ -14,6 +14,14 @@ import { cn } from "@/lib/utils";
  * Spec.md §6.6 requires this to work on a phone in a plant, so the whole zone is a label wrapping
  * a real file input: drag-and-drop is an enhancement on top, never the only way in.
  */
+/** What POST /api/files returns per file — the FileObject row. */
+export interface UploadedFile {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 export function FileDropzone({
   entityType,
   entityId,
@@ -24,7 +32,8 @@ export function FileDropzone({
 }: {
   entityType: string;
   entityId: string;
-  onUploaded?: () => void;
+  /** Receives the created FileObject rows, so a caller can store the id it just produced. */
+  onUploaded?: (files: UploadedFile[]) => void;
   accept?: string;
   multiple?: boolean;
   className?: string;
@@ -36,6 +45,7 @@ export function FileDropzone({
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
     setBusy(files.length);
+    const uploaded: UploadedFile[] = [];
     try {
       // Sequential rather than parallel: a phone on plant LTE uploading four 8MB site photos at
       // once is how you get four timeouts instead of four files.
@@ -50,9 +60,10 @@ export function FileDropzone({
           const text = await res.text().catch(() => "");
           throw new Error(text || `Upload failed for ${file.name}`);
         }
+        uploaded.push((await res.json()) as UploadedFile);
         setBusy((n) => n - 1);
       }
-      onUploaded?.();
+      onUploaded?.(uploaded);
     } catch (error) {
       toastError(error);
     } finally {

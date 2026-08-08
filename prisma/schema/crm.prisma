@@ -145,8 +145,22 @@ model AccreditationRecord {
   // not_started | preparing | submitted | under_review | accredited | rejected | expired | renewal_due
   status String @default("not_started")
 
-  submittedAt     DateTime?
-  accreditedAt    DateTime?
+  submittedAt  DateTime?
+  accreditedAt DateTime?
+
+  // The certificate the *customer* issues back, confirming AIES is an accredited supplier. This is
+  // the evidence, and it is a different artifact from the documents AIES submits to get it — those
+  // live per-row in `requirements.providedFileId`.
+  //
+  // FileObject id from module 00's storage service, stored with entityType "AccreditationRecord" so
+  // the access checker registered in accreditation-access.ts governs who may download it.
+  certificateFileId     String?
+  certificateUploadedAt DateTime?
+
+  // Entered by hand by the assigned owner, deliberately not parsed off the certificate: these
+  // arrive as scans and photographs, and a wrong date read by a machine is worse than a right one
+  // typed by the person who is accountable for it. `accredited` status requires both this and the
+  // certificate — see assertCanBeAccredited.
   expiresAt       DateTime?
   referenceNumber String?
 
