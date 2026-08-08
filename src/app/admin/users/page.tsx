@@ -1,21 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { AuditTrail } from "@/components/AuditTrail";
 import { trpc } from "@/lib/trpc/client";
 
 export default function AdminUsersPage() {
   const utils = trpc.useUtils();
   const users = trpc.admin.listUsers.useQuery();
   const roles = trpc.admin.listRoles.useQuery();
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const createUser = trpc.admin.createUser.useMutation({
     onSuccess: () => void utils.admin.listUsers.invalidate(),
   });
   const assignRole = trpc.admin.assignRole.useMutation({
-    onSuccess: () => void utils.admin.listUsers.invalidate(),
+    onSuccess: () => {
+      void utils.admin.listUsers.invalidate();
+      void utils.audit.listForEntity.invalidate();
+    },
   });
   const removeRole = trpc.admin.removeRole.useMutation({
-    onSuccess: () => void utils.admin.listUsers.invalidate(),
+    onSuccess: () => {
+      void utils.admin.listUsers.invalidate();
+      void utils.audit.listForEntity.invalidate();
+    },
   });
 
   const [email, setEmail] = useState("");
@@ -101,51 +109,69 @@ export default function AdminUsersPage() {
               <th style={cellStyle}>Roles</th>
               <th style={cellStyle}>2FA</th>
               <th style={cellStyle}>Add role</th>
+              <th style={cellStyle}>Activity</th>
             </tr>
           </thead>
           <tbody>
             {users.data?.map((user) => (
-              <tr key={user.id}>
-                <td style={cellStyle}>
-                  {user.name} {user.isDemoUser && <em>(demo)</em>}
-                </td>
-                <td style={cellStyle}>{user.email}</td>
-                <td style={cellStyle}>
-                  {user.roles.map((role) => (
-                    <span key={role.key} style={{ marginRight: 6 }}>
-                      {role.name}
-                      <button
-                        type="button"
-                        aria-label={`Remove ${role.name} from ${user.name}`}
-                        onClick={() => removeRole.mutate({ userId: user.id, roleKey: role.key })}
-                        disabled={removeRole.isPending}
-                      >
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-                </td>
-                <td style={cellStyle}>{user.totpEnabled ? "Enrolled" : "Not enrolled"}</td>
-                <td style={cellStyle}>
-                  <select
-                    defaultValue=""
-                    onChange={(e) => {
-                      if (!e.target.value) return;
-                      assignRole.mutate({ userId: user.id, roleKey: e.target.value });
-                      e.target.value = "";
-                    }}
-                  >
-                    <option value="" disabled>
-                      Add role...
-                    </option>
-                    {roles.data?.map((role) => (
-                      <option key={role.key} value={role.key}>
+              <Fragment key={user.id}>
+                <tr>
+                  <td style={cellStyle}>
+                    {user.name} {user.isDemoUser && <em>(demo)</em>}
+                  </td>
+                  <td style={cellStyle}>{user.email}</td>
+                  <td style={cellStyle}>
+                    {user.roles.map((role) => (
+                      <span key={role.key} style={{ marginRight: 6 }}>
                         {role.name}
-                      </option>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${role.name} from ${user.name}`}
+                          onClick={() => removeRole.mutate({ userId: user.id, roleKey: role.key })}
+                          disabled={removeRole.isPending}
+                        >
+                          &times;
+                        </button>
+                      </span>
                     ))}
-                  </select>
-                </td>
-              </tr>
+                  </td>
+                  <td style={cellStyle}>{user.totpEnabled ? "Enrolled" : "Not enrolled"}</td>
+                  <td style={cellStyle}>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        assignRole.mutate({ userId: user.id, roleKey: e.target.value });
+                        e.target.value = "";
+                      }}
+                    >
+                      <option value="" disabled>
+                        Add role...
+                      </option>
+                      {roles.data?.map((role) => (
+                        <option key={role.key} value={role.key}>
+                          {role.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={cellStyle}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedUserId(expandedUserId === user.id ? null : user.id)}
+                    >
+                      {expandedUserId === user.id ? "Hide" : "Show"}
+                    </button>
+                  </td>
+                </tr>
+                {expandedUserId === user.id && (
+                  <tr>
+                    <td colSpan={6} style={{ ...cellStyle, background: "#F5F7FA" }}>
+                      <AuditTrail entityType="User" entityId={user.id} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
