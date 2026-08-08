@@ -64,6 +64,12 @@ const PERMISSIONS: PermissionSeed[] = [
     group: "Finance",
     defaultRoles: ["vice_president", "president"],
   },
+  {
+    key: "admin.manage_custom_fields",
+    label: "Manage custom fields",
+    group: "Administration",
+    defaultRoles: ["president"],
+  },
 ];
 
 interface RoleSeed {

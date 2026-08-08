@@ -1,0 +1,20 @@
+// specs/00-foundation.md §7.5: "Because every AIES customer has different requirements and
+// rigid schemas will not survive." Definitions live here; values live in a `customFields Json`
+// column (JSONB, GIN-indexed) on each host entity — a column each business module adds to its
+// own models when it needs this, not owned by this table.
+model CustomFieldDef {
+  id         String   @id @default(cuid())
+  entityType String
+  key        String
+  label      String
+  // text | textarea | number | currency | date | select | multiselect | boolean | user | file
+  type       String
+  options    Json? // string[] of allowed values, for select/multiselect
+  required   Boolean  @default(false)
+  order      Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, key])
+}
