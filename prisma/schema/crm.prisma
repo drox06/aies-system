@@ -179,6 +179,15 @@ model AccreditationRecord {
   // shape, and the sweep runs once a day over a handful of rows per customer.
   requirements Json @default("[]")
 
+  // PD acknowledging that this renewal is now one of their tasks. Distinct from `status`: the
+  // record can sit in `renewal_due` indefinitely with nobody having picked it up, and the whole
+  // point of the acknowledgement is to start a clock against a named person.
+  //
+  // Cleared when the renewal completes (a new certificate and a future expiry), which is what
+  // stops the escalation — see completesRenewal() in accreditation-renewal.ts.
+  renewalAcknowledgedAt DateTime?
+  renewalAcknowledgedBy String?
+
   rejectionReason String?
   notes           String?
   ownerId         String

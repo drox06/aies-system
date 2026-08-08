@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { sweepAccreditationRenewals } from "@/server/core/crm/accreditation-renewal";
+import {
+  sweepAccreditationRenewals,
+  sweepStalledRenewals,
+} from "@/server/core/crm/accreditation-renewal";
 
 /**
  * Once daily. specs/00-foundation.md §9.1 asks for `/api/cron/nightly`; this is the first thing
@@ -30,6 +33,13 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] accreditation renewal sweep failed:", error);
     results.accreditationRenewals = { error: String(error) };
+  }
+
+  try {
+    results.stalledRenewals = await sweepStalledRenewals();
+  } catch (error) {
+    console.error("[cron/nightly] stalled renewal sweep failed:", error);
+    results.stalledRenewals = { error: String(error) };
   }
 
   return NextResponse.json(results);

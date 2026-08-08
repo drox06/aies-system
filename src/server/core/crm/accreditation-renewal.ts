@@ -22,6 +22,7 @@ import { registerNotificationType } from "@/server/core/notify/registry";
  */
 
 export const RENEWAL_NOTIFICATION_TYPE = "accreditation.renewal_due";
+export const RENEWAL_STALLED_NOTIFICATION_TYPE = "accreditation.renewal_stalled";
 export const RENEWAL_APPROVAL_ENTITY_TYPE = "AccreditationRenewal";
 export const RENEWAL_WORKFLOW_NAME = "Accreditation renewal on a restricted account";
 
@@ -32,6 +33,17 @@ export const RENEWAL_WORKFLOW_NAME = "Accreditation renewal on a restricted acco
  * takes longer than a month, so a single 30-day warning is genuinely tight.
  */
 export const RENEWAL_THRESHOLD_DAYS = [90, 60, 30] as const;
+
+/**
+ * Days *after* PD acknowledges, at which an unfinished renewal is escalated to the president (EA)
+ * and vice-president (KJ).
+ *
+ * Read as elapsed time, so they fire in ascending order — 30 days after acknowledging is the first
+ * escalation, 60 the most serious. The company wrote "60/45/30"; the same three numbers either way,
+ * and escalation that gets louder as the deadline nears is the only reading that makes operational
+ * sense.
+ */
+export const RENEWAL_STALL_DAYS = [30, 45, 60] as const;
 
 const DAY_MS = 86_400_000;
 
@@ -50,6 +62,14 @@ registerNotificationType({
   // No coalescing: each threshold is a distinct instruction ("heads up" vs "start now"), and
   // collapsing 60 into 30 would lose the escalation. Duplicate suppression is handled instead by
   // only firing on the day a threshold is crossed — see sweepAccreditationRenewals.
+});
+
+registerNotificationType({
+  key: RENEWAL_STALLED_NOTIFICATION_TYPE,
+  label: "An acknowledged accreditation renewal is still not completed",
+  // In-app only, for the same reason as the reminder above: the work happens on the customer's
+  // portal, and this is about visibility of who owes what.
+  defaultChannels: { inApp: true, email: false, digest: false },
 });
 
 /** The account states that make a renewal a decision rather than routine work. */
@@ -95,25 +115,30 @@ export async function ensureRenewalWorkflow(): Promise<string> {
   return workflow.id;
 }
 
-export interface StartRenewalResult {
-  /** True when renewal work may begin now. */
-  commenced: boolean;
+export interface AcknowledgeRenewalResult {
+  /** True when PD's acknowledgement was recorded and the clock has started. */
+  acknowledged: boolean;
   /** Set when approval is required first. */
   approvalRequestId?: string;
   accountStatus: string;
 }
 
 /**
- * Begins a renewal, or asks EA first.
+ * PD acknowledging that this renewal is now one of their tasks — or asking EA first.
  *
- * Deliberately does not touch `expiresAt` or the certificate: a renewal is not complete until the
- * customer issues a *new* certificate, at which point PD uploads it and types the new date. This
- * only moves the record into renewal preparation.
+ * Acknowledgement is a commitment with a deadline attached, not a status flip: it starts the clock
+ * that `sweepStalledRenewals` measures, and it names the person the escalation will be about. That
+ * is why it is a separate field from `status`, which can sit in `renewal_due` forever with nobody
+ * having picked it up.
+ *
+ * Deliberately does not touch `expiresAt` or the certificate. A renewal is not complete until the
+ * customer issues a *new* certificate, at which point PD uploads it and types the new date — and
+ * that is exactly what stops the escalation.
  */
-export async function startAccreditationRenewalService(
+export async function acknowledgeRenewalService(
   actor: ActorMeta,
   input: { accreditationId: string },
-): Promise<StartRenewalResult> {
+): Promise<AcknowledgeRenewalResult> {
   const record = await db.accreditationRecord.findFirst({
     where: { id: input.accreditationId, deletedAt: null },
     include: { account: { select: { id: true, code: true, name: true, status: true } } },
@@ -142,21 +167,27 @@ export async function startAccreditationRenewalService(
   });
 
   // No applicable step means the engine approved it on creation — an unrestricted customer.
-  const commenced = request.status === "approved";
+  const acknowledged = request.status === "approved";
 
-  if (commenced) {
+  if (acknowledged) {
     await db.$transaction(async (tx) => {
       await tx.accreditationRecord.update({
         where: { id: record.id },
-        data: { status: "preparing" },
+        data: {
+          status: "preparing",
+          renewalAcknowledgedAt: new Date(),
+          // Recorded separately from ownerId: the escalation is about who took the task on, and
+          // the record's owner can be reassigned afterwards.
+          renewalAcknowledgedBy: actor.actorId,
+        },
       });
       await writeAuditLog(tx, {
         actorId: actor.actorId,
         actorLabel: actor.actorLabel,
-        action: "renewal_started",
+        action: "renewal_acknowledged",
         entityType: "AccreditationRecord",
         entityId: record.id,
-        summary: `Started accreditation renewal for ${record.account.code} — ${record.account.name}`,
+        summary: `Acknowledged accreditation renewal for ${record.account.code} — ${record.account.name}`,
         ip: actor.ip,
         userAgent: actor.userAgent,
         requestId: actor.requestId,
@@ -182,10 +213,108 @@ export async function startAccreditationRenewalService(
   }
 
   return {
-    commenced,
-    approvalRequestId: commenced ? undefined : request.id,
+    acknowledged,
+    approvalRequestId: acknowledged ? undefined : request.id,
     accountStatus: record.account.status,
   };
+}
+
+/**
+ * Whether a renewal counts as done.
+ *
+ * "Done" means the customer issued a *new* certificate after PD acknowledged, and it has a future
+ * expiry. Checking only that a certificate exists would call every acknowledged renewal complete
+ * the moment it started, since the old certificate is still attached.
+ */
+export function completesRenewal(
+  record: {
+    renewalAcknowledgedAt: Date | null;
+    certificateUploadedAt: Date | null;
+    expiresAt: Date | null;
+  },
+  now: Date = new Date(),
+): boolean {
+  if (!record.renewalAcknowledgedAt) return false;
+  if (!record.certificateUploadedAt || !record.expiresAt) return false;
+  return (
+    record.certificateUploadedAt > record.renewalAcknowledgedAt &&
+    record.expiresAt.getTime() > now.getTime()
+  );
+}
+
+export interface StalledSweepResult {
+  escalated: { accreditationId: string; accountCode: string; daysSinceAcknowledged: number }[];
+  cleared: string[];
+  scanned: number;
+}
+
+/**
+ * Escalates acknowledged renewals that are still not finished, to the president and vice-president.
+ *
+ * Recipients are resolved by *role*, not by hardcoded user id: EA and KJ hold president and
+ * vice-president today, and a system that names them directly quietly stops working the day
+ * somebody changes job.
+ *
+ * Also clears the acknowledgement on renewals that did complete, so a finished renewal stops being
+ * escalated without anyone having to remember to tick it off — the new certificate is the tick.
+ */
+export async function sweepStalledRenewals(now: Date = new Date()): Promise<StalledSweepResult> {
+  const acknowledged = await db.accreditationRecord.findMany({
+    where: { deletedAt: null, renewalAcknowledgedAt: { not: null } },
+    include: { account: { select: { code: true, name: true } } },
+  });
+
+  const escalated: StalledSweepResult["escalated"] = [];
+  const cleared: string[] = [];
+
+  // Resolved once for the whole sweep rather than per record.
+  const escalationRecipients = await db.user.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      roles: { some: { role: { key: { in: ["president", "vice_president"] } } } },
+    },
+    select: { id: true },
+  });
+
+  for (const record of acknowledged) {
+    if (!record.renewalAcknowledgedAt) continue;
+
+    if (completesRenewal(record, now)) {
+      await db.accreditationRecord.update({
+        where: { id: record.id },
+        data: { renewalAcknowledgedAt: null, renewalAcknowledgedBy: null },
+      });
+      cleared.push(record.id);
+      continue;
+    }
+
+    const startOfDay = (d: Date) => Math.floor(d.getTime() / DAY_MS);
+    const elapsed = startOfDay(now) - startOfDay(record.renewalAcknowledgedAt);
+    const threshold = RENEWAL_STALL_DAYS.find((t) => t === elapsed);
+    if (threshold === undefined) continue;
+
+    for (const recipient of escalationRecipients) {
+      await notify({
+        recipientId: recipient.id,
+        type: RENEWAL_STALLED_NOTIFICATION_TYPE,
+        title: `Accreditation renewal still open after ${threshold} days — ${record.account.name}`,
+        body:
+          `Acknowledged ${record.renewalAcknowledgedAt.toISOString().slice(0, 10)}, ` +
+          `but no new certificate and expiry date have been recorded yet.`,
+        entityType: "AccreditationRecord",
+        entityId: record.id,
+      });
+    }
+
+    escalated.push({
+      accreditationId: record.id,
+      accountCode: record.account.code,
+      daysSinceAcknowledged: threshold,
+    });
+  }
+
+  return { escalated, cleared, scanned: acknowledged.length };
 }
 
 export interface RenewalSweepResult {

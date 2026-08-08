@@ -5,8 +5,10 @@ import {
   isRestrictedForRenewal,
   RENEWAL_NOTIFICATION_TYPE,
   RENEWAL_THRESHOLD_DAYS,
-  startAccreditationRenewalService,
+  acknowledgeRenewalService,
+  completesRenewal,
   sweepAccreditationRenewals,
+  sweepStalledRenewals,
 } from "@/server/core/crm/accreditation-renewal";
 import { getNotificationType } from "@/server/core/notify/registry";
 
@@ -27,6 +29,9 @@ const actor = { actorId: PD, actorLabel: "PD Test" };
 
 const accountIds: string[] = [];
 const accreditationIds: string[] = [];
+// Escalation notifications go to the real seeded leadership accounts, so they are cleaned up by
+// entity id rather than by recipient.
+const escalationNotificationIds: string[] = [];
 
 async function makeAccreditation(opts: {
   accountStatus?: string;
@@ -68,6 +73,10 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await db.notification.deleteMany({ where: { recipientId: PD } });
+  if (escalationNotificationIds.length > 0) {
+    await db.notification.deleteMany({ where: { entityId: { in: escalationNotificationIds } } });
+    escalationNotificationIds.length = 0;
+  }
   await db.approvalAction.deleteMany({
     where: { request: { entityId: { in: accreditationIds } } },
   });
@@ -150,13 +159,13 @@ describe("sweepAccreditationRenewals", () => {
   }, 40_000);
 });
 
-describe("startAccreditationRenewalService", () => {
+describe("acknowledgeRenewalService", () => {
   it("commences immediately for an active customer", async () => {
     const { record } = await makeAccreditation({ daysUntilExpiry: 30, accountStatus: "active" });
 
-    const result = await startAccreditationRenewalService(actor, { accreditationId: record.id });
+    const result = await acknowledgeRenewalService(actor, { accreditationId: record.id });
 
-    expect(result.commenced).toBe(true);
+    expect(result.acknowledged).toBe(true);
     expect(result.approvalRequestId).toBeUndefined();
     const after = await db.accreditationRecord.findUniqueOrThrow({ where: { id: record.id } });
     expect(after.status).toBe("preparing");
@@ -168,9 +177,9 @@ describe("startAccreditationRenewalService", () => {
       accountStatus: "blacklisted",
     });
 
-    const result = await startAccreditationRenewalService(actor, { accreditationId: record.id });
+    const result = await acknowledgeRenewalService(actor, { accreditationId: record.id });
 
-    expect(result.commenced).toBe(false);
+    expect(result.acknowledged).toBe(false);
     expect(result.approvalRequestId).toBeDefined();
     // Crucially the record has NOT moved — "prior to commencement" means the work does not start.
     const after = await db.accreditationRecord.findUniqueOrThrow({ where: { id: record.id } });
@@ -184,8 +193,8 @@ describe("startAccreditationRenewalService", () => {
 
   it("also requires approval when the customer is dormant", async () => {
     const { record } = await makeAccreditation({ daysUntilExpiry: 30, accountStatus: "dormant" });
-    const result = await startAccreditationRenewalService(actor, { accreditationId: record.id });
-    expect(result.commenced).toBe(false);
+    const result = await acknowledgeRenewalService(actor, { accreditationId: record.id });
+    expect(result.acknowledged).toBe(false);
   }, 40_000);
 
   it("records the account status in the approval snapshot, so EA sees why they were asked", async () => {
@@ -193,7 +202,7 @@ describe("startAccreditationRenewalService", () => {
       daysUntilExpiry: 30,
       accountStatus: "blacklisted",
     });
-    const result = await startAccreditationRenewalService(actor, { accreditationId: record.id });
+    const result = await acknowledgeRenewalService(actor, { accreditationId: record.id });
     const request = await db.approvalRequest.findUniqueOrThrow({
       where: { id: result.approvalRequestId! },
     });
@@ -208,7 +217,7 @@ describe("startAccreditationRenewalService", () => {
       daysUntilExpiry: 30,
       accountStatus: "blacklisted",
     });
-    await startAccreditationRenewalService(actor, { accreditationId: record.id });
+    await acknowledgeRenewalService(actor, { accreditationId: record.id });
 
     const rows = await db.auditLog.findMany({ where: { entityId: record.id } });
     expect(rows).toHaveLength(1);
@@ -241,4 +250,141 @@ describe("renewal notification channels", () => {
     const sent = await db.notification.count({ where: { recipientId: PD, entityId: record.id } });
     expect(sent).toBe(1);
   }, 40_000);
+});
+
+describe("completesRenewal", () => {
+  const ack = new Date("2026-06-01T00:00:00.000Z");
+  const now = new Date("2026-07-01T00:00:00.000Z");
+
+  it("is not complete just because an old certificate is still attached", () => {
+    // The certificate from the *previous* cycle is still on the record the moment PD acknowledges.
+    // Treating its presence as completion would mark every renewal done the instant it started.
+    expect(
+      completesRenewal(
+        {
+          renewalAcknowledgedAt: ack,
+          certificateUploadedAt: new Date("2025-01-01T00:00:00.000Z"),
+          expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("is complete once a new certificate is uploaded after the acknowledgement", () => {
+    expect(
+      completesRenewal(
+        {
+          renewalAcknowledgedAt: ack,
+          certificateUploadedAt: new Date("2026-06-20T00:00:00.000Z"),
+          expiresAt: new Date("2027-06-01T00:00:00.000Z"),
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("is not complete if the new expiry is already in the past", () => {
+    expect(
+      completesRenewal(
+        {
+          renewalAcknowledgedAt: ack,
+          certificateUploadedAt: new Date("2026-06-20T00:00:00.000Z"),
+          expiresAt: new Date("2026-06-25T00:00:00.000Z"),
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("is not applicable when nothing was acknowledged", () => {
+    expect(
+      completesRenewal(
+        { renewalAcknowledgedAt: null, certificateUploadedAt: new Date(), expiresAt: new Date() },
+        now,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("sweepStalledRenewals", () => {
+  async function acknowledgeDaysAgo(recordId: string, days: number) {
+    await db.accreditationRecord.update({
+      where: { id: recordId },
+      data: {
+        renewalAcknowledgedAt: new Date(Date.now() - days * DAY_MS),
+        renewalAcknowledgedBy: PD,
+      },
+    });
+  }
+
+  it("escalates to president and vice-president 30 days after acknowledgement", async () => {
+    const { record } = await makeAccreditation({ daysUntilExpiry: 10 });
+    await acknowledgeDaysAgo(record.id, 30);
+
+    const result = await sweepStalledRenewals();
+
+    expect(result.escalated.some((e) => e.accreditationId === record.id)).toBe(true);
+
+    // Sent to the role-holders, not to PD — the point is that someone above them now knows.
+    const leaders = await db.user.findMany({
+      where: {
+        isActive: true,
+        deletedAt: null,
+        roles: { some: { role: { key: { in: ["president", "vice_president"] } } } },
+      },
+      select: { id: true },
+    });
+    expect(leaders.length).toBeGreaterThan(0);
+    const sent = await db.notification.count({
+      where: { entityId: record.id, recipientId: { in: leaders.map((l) => l.id) } },
+    });
+    expect(sent).toBe(leaders.length);
+    escalationNotificationIds.push(record.id);
+  }, 60_000);
+
+  it("does not escalate between thresholds", async () => {
+    const { record } = await makeAccreditation({ daysUntilExpiry: 10 });
+    await acknowledgeDaysAgo(record.id, 37);
+    const result = await sweepStalledRenewals();
+    expect(result.escalated.some((e) => e.accreditationId === record.id)).toBe(false);
+  }, 60_000);
+
+  it("escalates again at 45 and 60 days", async () => {
+    for (const days of [45, 60]) {
+      const { record } = await makeAccreditation({ daysUntilExpiry: 10 });
+      await acknowledgeDaysAgo(record.id, days);
+      const result = await sweepStalledRenewals();
+      expect(
+        result.escalated.some((e) => e.accreditationId === record.id),
+        `expected an escalation at ${days} days`,
+      ).toBe(true);
+      escalationNotificationIds.push(record.id);
+    }
+  }, 90_000);
+
+  it("clears the acknowledgement once the renewal is genuinely completed", async () => {
+    const { record } = await makeAccreditation({ daysUntilExpiry: 300 });
+    await acknowledgeDaysAgo(record.id, 30);
+    // A new certificate arrives after the acknowledgement — the tick is the certificate itself,
+    // so nobody has to remember to mark the task done.
+    await db.accreditationRecord.update({
+      where: { id: record.id },
+      data: { certificateUploadedAt: new Date() },
+    });
+
+    const result = await sweepStalledRenewals();
+
+    expect(result.cleared).toContain(record.id);
+    expect(result.escalated.some((e) => e.accreditationId === record.id)).toBe(false);
+    const after = await db.accreditationRecord.findUniqueOrThrow({ where: { id: record.id } });
+    expect(after.renewalAcknowledgedAt).toBeNull();
+  }, 60_000);
+
+  it("ignores records nobody has acknowledged", async () => {
+    const { record } = await makeAccreditation({ daysUntilExpiry: 10 });
+    const result = await sweepStalledRenewals();
+    expect(result.escalated.some((e) => e.accreditationId === record.id)).toBe(false);
+    expect(result.cleared).not.toContain(record.id);
+  }, 60_000);
 });

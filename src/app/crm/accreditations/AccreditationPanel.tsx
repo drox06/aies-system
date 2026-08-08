@@ -85,6 +85,23 @@ export function AccreditationPanel({
     onError: toastError,
   });
 
+  const acknowledge = trpc.crm.acknowledgeRenewal.useMutation({
+    onSuccess: (result) => {
+      void record.refetch();
+      onChanged();
+      // The approval branch is invisible until it happens, so say which one occurred rather than a
+      // generic "done".
+      if (result.acknowledged) {
+        toastSuccess("Renewal acknowledged. The clock starts today.");
+      } else {
+        toastSuccess(
+          `This customer is ${result.accountStatus}, so the president must approve before the renewal starts. Approval requested.`,
+        );
+      }
+    },
+    onError: toastError,
+  });
+
   const update = trpc.crm.updateAccreditation.useMutation({
     onSuccess: () => {
       void record.refetch();
@@ -376,7 +393,30 @@ export function AccreditationPanel({
         <Input id={`notes-${id}`} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+        {/* Acknowledgement is a commitment with a clock attached, so the consequence is stated on
+            the button rather than discovered 30 days later. */}
+        {record.data.renewalAcknowledgedAt ? (
+          <p className="text-sm text-text-muted">
+            Renewal acknowledged <DateCell value={record.data.renewalAcknowledgedAt} />. Upload the
+            new certificate and its expiry date to close it out.
+          </p>
+        ) : (
+          <div className="flex flex-col items-start gap-1">
+            <Button
+              variant="secondary"
+              disabled={acknowledge.isPending}
+              onClick={() => acknowledge.mutate({ accreditationId: id })}
+            >
+              {acknowledge.isPending ? "Acknowledging..." : "Acknowledge renewal"}
+            </Button>
+            <span className="text-xs text-text-muted">
+              Confirms you are taking this renewal on. The president and vice-president are notified
+              if a new certificate is not recorded within 30, 45 and 60 days.
+            </span>
+          </div>
+        )}
+
         <Button onClick={save} disabled={update.isPending}>
           {update.isPending ? "Saving..." : "Save accreditation"}
         </Button>
