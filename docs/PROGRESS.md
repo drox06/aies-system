@@ -265,6 +265,19 @@ Notes for whoever picks this up:
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
 
+## Not visually verified
+
+Everything below passes typecheck, lint, tests and a production build, and was checked through
+the DOM or the served HTML — but **nobody has looked at it on screen**. The module 00 manual pass
+found six defects that 186 automated tests did not, so this distinction is worth keeping honest.
+
+- The sidebar's white logo plate and the 20px lucide icons (module 00 session 5). The browser pane
+  had signed itself out, so these were confirmed by computed geometry and a clean compile only.
+- The redesigned `/login`, `/change-password` and `/enroll-totp` screens carrying the full-colour
+  lockup on a light ground. Markup verified by `curl`; appearance not.
+- `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the
+  `self-host-fallback` CI job is its first real run.
+
 ## Known issues / to revisit
 - No per-device "revoke this session" / session list UI yet (docs/DECISIONS.md #4).
 - The optional Google Workspace OIDC provider is not wired up (adapter is ready for it).
@@ -292,10 +305,21 @@ Notes for whoever picks this up:
   calls `indexEntity()` on create/update, since module 00 has no business entities of its own.
   Verified the plumbing (search request round-trips, renders "No results." cleanly) but real
   end-to-end fuzzy/full-text search UX is unverified until module 01+ starts indexing records.
-- The full-colour `public/brand/aies-logo.svg` is 364kB (130kB gzipped) because the supplied
-  master is a posterised trace needing 800 paths. Acceptable only because it is off the hot path
-  — the shell uses the 12.5kB mono variant and the 0.6kB mark. If artwork with real gradient fills
-  is ever supplied, replace `brand/aies-logo-source.svg` and re-run `npm run brand`.
+- The full-colour `public/brand/aies-logo.svg` is 372kB (130kB gzipped) because the supplied
+  master is a posterised trace needing 800 paths. It is now used on **both** the auth screens and
+  the sidebar (on a white plate), on the company's instruction, so it loads on every page — the
+  earlier justification that it was "off the hot path" no longer holds. Acceptable because it is
+  one file shared by both, so it is cached before any page after login, but if first paint feels
+  heavy on plant LTE the fix is a raster derivative for fixed-size screen use, keeping the SVG for
+  PDF headers. See docs/DECISIONS.md #15's amendment. If artwork with real gradient fills is ever
+  supplied, replace `brand/aies-logo-source.svg` and re-run `npm run brand`.
+- **Losing an authenticator locks a user out permanently.** specs/00-foundation.md §4.1 makes TOTP
+  mandatory with "no opt-out, no admin-only carve-out", and this app generates and redeems no
+  recovery codes, so there is no self-service path back in. The only recovery is an operator with
+  database access running `npm run reset:credentials -- <email>`. That is a deliberate trade
+  (a recovery-code path is a second, weaker authentication factor), and the enrolment screen now
+  warns about it — but with five accounts and one of them the president, it is worth revisiting
+  before this carries real business data.
 - `docker/docker-compose.yml` and its Dockerfile have never been executed (no Docker on the build
   machine). The new `self-host-fallback` CI job is their first run.
 - No `/api/cron/nightly` route yet — Spec.md §7 calls for one, but nothing needs it until module
