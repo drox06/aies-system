@@ -8,6 +8,7 @@ import {
   startAccreditationRenewalService,
   sweepAccreditationRenewals,
 } from "@/server/core/crm/accreditation-renewal";
+import { getNotificationType } from "@/server/core/notify/registry";
 
 /**
  * The company's rules, in their words:
@@ -213,5 +214,31 @@ describe("startAccreditationRenewalService", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.action).toBe("renewal_approval_requested");
     expect(rows[0]?.summary).toContain("blacklisted");
+  }, 40_000);
+});
+
+describe("renewal notification channels", () => {
+  it("is in-app only — the renewal is done on the customer's portal, not from here", () => {
+    // Pinned deliberately. Turning email on would enqueue a notify_email job per reminder onto a
+    // queue with no handler (docs/DECISIONS.md #10), so each one dead-letters: the dead-letter
+    // queue fills with work nobody wants, and the failures that do matter get buried in it.
+    const def = getNotificationType(RENEWAL_NOTIFICATION_TYPE);
+    expect(def, "the type must be registered").toBeDefined();
+    expect(def?.defaultChannels.inApp).toBe(true);
+    expect(def?.defaultChannels.email).toBe(false);
+    expect(def?.defaultChannels.digest).toBe(false);
+  });
+
+  it("writes no email job when the sweep notifies", async () => {
+    const { record } = await makeAccreditation({ daysUntilExpiry: 30 });
+    const before = await db.job.count({ where: { queue: "notify_email" } });
+
+    await sweepAccreditationRenewals();
+
+    const after = await db.job.count({ where: { queue: "notify_email" } });
+    expect(after).toBe(before);
+    // ...and the in-app notification did land, so this is not passing by doing nothing at all.
+    const sent = await db.notification.count({ where: { recipientId: PD, entityId: record.id } });
+    expect(sent).toBe(1);
   }, 40_000);
 });

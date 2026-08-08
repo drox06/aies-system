@@ -38,7 +38,15 @@ const DAY_MS = 86_400_000;
 registerNotificationType({
   key: RENEWAL_NOTIFICATION_TYPE,
   label: "Customer accreditation is due for renewal",
-  defaultChannels: { inApp: true, email: true, digest: false },
+  // In-app only, and deliberately so — not because email is unwired.
+  //
+  // The renewal itself is done on the *customer's* portal, not here. This notification exists to
+  // tell PD to go and do that, and to make the status visible in one place; an email would be a
+  // second copy of a reminder whose action lives somewhere else entirely. It would also enqueue a
+  // `notify_email` job on a queue that has no handler by design (docs/DECISIONS.md #10), so every
+  // reminder would dead-letter — filling the dead-letter queue with work nobody ever wants and
+  // burying the failures that do matter.
+  defaultChannels: { inApp: true, email: false, digest: false },
   // No coalescing: each threshold is a distinct instruction ("heads up" vs "start now"), and
   // collapsing 60 into 30 would lose the escalation. Duplicate suppression is handled instead by
   // only firing on the day a threshold is crossed — see sweepAccreditationRenewals.
