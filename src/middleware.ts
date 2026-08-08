@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-// Database-backed sessions (specs/00-foundation.md §4.1) mean middleware needs a real Prisma
-// lookup on every request, which the Edge runtime can't do. Next.js 15.5 stabilized the Node.js
-// middleware runtime for exactly this case — see src/auth.config.ts for the alternative if this
-// ever needs to move back to Edge.
+// The session callback (src/auth.ts) re-resolves roles/permissions from Postgres on every
+// request rather than trusting JWT claims, so middleware needs a real Prisma lookup — which the
+// Edge runtime can't do. Next.js 15.5 stabilized the Node.js middleware runtime for exactly this
+// case — see src/auth.config.ts for the alternative if this ever needs to move back to Edge.
 export const runtime = "nodejs";
 
 // API routes handle their own auth (Auth.js's own routes, and tRPC's protectedProcedure —
@@ -42,9 +42,13 @@ export default auth((req) => {
   const isApiRoute = pathname.startsWith("/api/");
   let response: NextResponse;
 
+  // `req.auth` can be a truthy session shell with an empty user (deactivated/deleted account —
+  // see the `session` callback in src/auth.ts), so check the id, not just session presence.
+  const user = req.auth?.user?.id ? req.auth.user : null;
+
   if (isApiRoute) {
     response = NextResponse.next({ request: { headers: requestHeaders } });
-  } else if (!req.auth) {
+  } else if (!user) {
     if (PUBLIC_PAGE_PATHS.includes(pathname)) {
       response = NextResponse.next({ request: { headers: requestHeaders } });
     } else {
@@ -55,7 +59,6 @@ export default auth((req) => {
   } else {
     // Signed in. TOTP enrollment is forced before anything else (specs/00-foundation.md §4.1:
     // "the account is unusable until it completes"), then a forced password change if flagged.
-    const { user } = req.auth;
     if (!user.totpEnabled && pathname !== "/enroll-totp") {
       response = NextResponse.redirect(new URL("/enroll-totp", req.nextUrl.origin));
     } else if (

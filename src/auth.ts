@@ -29,9 +29,17 @@ class InvalidTotpError extends CredentialsSignin {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
+  // Kept for a future optional Google Workspace OIDC provider (specs/00-foundation.md §4.1),
+  // which would use it for Account linkage — unused by the Credentials provider below.
   adapter: PrismaAdapter(db),
   session: {
-    strategy: "database",
+    // Auth.js hard-disallows "database" strategy combined with a Credentials provider
+    // (UnsupportedStrategy) — session data is instead resolved fresh from the DB on every
+    // request in the `session` callback below, keyed off the JWT's `sub`, so permission/
+    // deactivation changes still take effect immediately rather than waiting on token refresh.
+    // See docs/DECISIONS.md for what this costs: no per-device "revoke this session" (only
+    // "sign out everywhere" would be buildable, and isn't built yet either).
+    strategy: "jwt",
     // specs/00-foundation.md §4.1: 12h idle timeout, 30-day absolute lifetime.
     maxAge: 30 * 24 * 60 * 60,
     updateAge: 12 * 60 * 60,
@@ -78,17 +86,37 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async session({ session, user }) {
-      const [roleKeys, permissions, dbUser] = await Promise.all([
-        resolveUserRoleKeys(user.id),
-        resolveUserPermissions(user.id),
-        db.user.findUniqueOrThrow({
-          where: { id: user.id },
-          select: { totpEnabled: true, mustChangePassword: true },
-        }),
+    async jwt({ token, user }) {
+      if (user?.id) {
+        token.sub = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      const userId = token.sub;
+      if (!userId) return session;
+
+      const dbUser = await db.user.findUnique({
+        where: { id: userId },
+        select: { isActive: true, deletedAt: true, totpEnabled: true, mustChangePassword: true },
+      });
+
+      // Deactivated or deleted since the token was issued: surface as unauthenticated rather
+      // than trusting stale claims. middleware.ts checks `session.user.id`, not just session
+      // truthiness, specifically so this takes effect.
+      if (!dbUser || !dbUser.isActive || dbUser.deletedAt) {
+        session.user.id = "";
+        session.user.roleKeys = [];
+        session.user.permissions = [];
+        return session;
+      }
+
+      const [roleKeys, permissions] = await Promise.all([
+        resolveUserRoleKeys(userId),
+        resolveUserPermissions(userId),
       ]);
 
-      session.user.id = user.id;
+      session.user.id = userId;
       session.user.roleKeys = roleKeys;
       session.user.permissions = [...permissions];
       session.user.totpEnabled = dbUser.totpEnabled;
