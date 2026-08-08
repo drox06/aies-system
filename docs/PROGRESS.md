@@ -1,7 +1,7 @@
 # Build Progress
 
 Last updated: 2026-08-08
-Current module: 01 — CRM and Inquiry Intake (session 1 of 3 started)
+Current module: 01 — CRM and Inquiry Intake (session 1 of 3 complete: accounts + accreditation)
 Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
 
 ## Done
@@ -184,14 +184,14 @@ Planned as **3 sessions** (BUILD-PROTOCOL §6 splits only 00 and 04 explicitly, 
 carries 8 models, a status machine with SLA escalation, requirements templates, accreditation, a
 principal pipeline, kanban/My Day/Account 360, and a merge tool):
 
-- **Session 1 — manifest, permissions, core data model.** Manifest + permission wiring (done
-  below), then `Account` / `Site` / `Contact` + migration, `ACC-` codes on create, account CRUD,
-  fuzzy duplicate detection on create (§7), and the Account 360 shell (§6).
+- **Session 1 — accounts and accreditation. DONE, see below.** Manifest, permissions, core data
+  model, accounts UI, and — pulled forward from session 3 at the company's request — the whole of
+  §5b customer accreditation including its renewal workflow.
 - **Session 2 — inquiry.** `Inquiry` / `InquiryItem` / `Activity`, the §3 lifecycle state machine,
   §4 requirements templates and the completeness gate, the §3 SLA escalation job, and the §5
   inspection request.
-- **Session 3 — the rest.** §5b accreditation, §5c principal prospects, §6 kanban / My Day /
-  follow-up engine, and the §7 merge tool.
+- **Session 3 — the rest.** §5c principal prospects, §6 kanban / My Day / Account 360 /
+  follow-up engine, and the §7 merge tool. (§5b accreditation moved to session 1.)
 
 ### Done in session 1
 - [x] `src/server/core/modules/crm.manifest.ts` — all 12 permissions from §9 and all 9 emitted
@@ -221,27 +221,84 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
 - [x] `src/server/core/crm/account-service.ts` — create/update/soft-delete with `ACC-` codes,
       audit rows carrying a changed-fields-only diff, and the §8 `account.created` event emitted
       transactionally.
+- [x] `src/server/api/routers/crm.ts` + `/crm/accounts` on the session-5 `DataTable`, with one
+      dialog serving create and edit (two dialogs sharing a twelve-field form is how a field ends
+      up on create and missing from edit). The §7 duplicate check runs *while the form is being
+      filled*, naming which signal matched.
+- [x] Record scoping (§4.2, §10) as a `where` fragment, not a post-filter — a post-filter pages
+      wrongly and still fetches rows the user may not read. `getAccount` scopes inside the lookup,
+      so an out-of-scope id is indistinguishable from a missing one; a 403 would confirm the record
+      exists to someone not allowed to know that.
+- [x] Primary contact (name / mobile / position / email) captured inline on the account, stored as
+      a `Contact` with `isPrimary` rather than as new columns — `CustomerAccount.phone`/`email` are
+      the company switchboard, and one model means the same person can later attach to a site or an
+      inquiry without being re-typed.
+- [x] **§5b customer accreditation, pulled forward from session 3** — model, register page, and
+      per-customer panel. Records **only the outcome**: the certificate the customer issued and its
+      expiry. The document checklist §5b describes was built and then removed at the company's
+      direction — those are AIES's own documents, tracked on each customer's portal. See
+      docs/DECISIONS.md #19; it matters because AIES has *one* mayor's permit and the old model
+      made PD retype its expiry on every customer's record each January.
+- [x] Status is **derived, never stored**: a record saying `accredited` with a past expiry reads as
+      expired, because nobody runs a job before opening a page. `assertCanBeAccredited` gates the
+      `accredited` status on certificate + expiry — with the checklist gone those two fields are the
+      entire evidence base.
+- [x] Certificate upload via module 00 storage, with a CRM `FileAccessChecker`: module 00's default
+      is "only the uploader", which is the right default and the wrong answer here — PD uploads it,
+      the salesperson deciding whether to quote needs to see it. Read follows `crm.view`, scoping
+      still applies.
+- [x] **Renewal workflow.** 90/60/30-day reminders to PD; an **Acknowledge renewal** button that
+      records PD taking the task on and starts a clock; escalation to president and vice-president
+      at 30/45/60 days if no new certificate arrives. Recipients resolve **by role**, not by
+      hardcoded id. Completion is a certificate uploaded *after* the acknowledgement with a future
+      expiry — "has a certificate" would mark every renewal done the instant it started, since the
+      previous cycle's certificate is still attached. That also makes the new certificate the tick:
+      the sweep clears the acknowledgement, so nobody has to remember to mark it done.
+- [x] **EA approval gate** for renewals on blacklisted or dormant customers, and the record does
+      **not** move until approved — "prior to commencement" means the work does not start. The
+      branch lives in the approvals workflow's condition, not in an `if`: module 00's engine
+      resolves a request with no applicable step as approved on creation, so an active customer
+      needs no special case. First real business use of that engine.
+- [x] Reminders are **in-app only, by design** (not because email is unwired): the renewal happens
+      on the customer's portal. With email on, every reminder enqueued a `notify_email` job onto a
+      queue that has no handler, so each dead-lettered — filling the one place operational failures
+      are meant to be visible. Pinned by a test that asserts no email job *and* that the in-app one
+      still lands, so it cannot pass by doing nothing.
+- [x] `/api/cron/nightly` (which §9.1 asked for and nothing needed until now), running both sweeps,
+      each caught separately. Scheduled 02:00 Manila in `vercel.json`.
+- [x] `scripts/demo-crm-data.ts` (`npm run demo:crm`, `-- --clean`) — six accounts covering the
+      states that actually differ, positioned on exact threshold days so the sweeps fire. Both
+      sweeps verified end to end against it.
+- [x] A guard that **every registered nav href resolves to a real page**, after the first CRM
+      manifest advertised four routes that did not exist. Verified it fails when the defect is
+      reintroduced.
+- [x] 240 tests across 41 files; lint, typecheck and `next build` clean.
 
 ### Next concrete step
-Expose the account service over tRPC and build the list UI:
-1. `src/server/api/routers/crm.ts` with `p("crm.view")` / `p("crm.create")` / `p("crm.edit")` /
-   `p("crm.delete")` procedures wrapping the service, plus a `checkDuplicates` query the create
-   form calls before submitting. Register it in `src/server/api/root.ts`.
-2. `/crm/accounts` using the session-5 `DataTable` (its API is complete — server-side pagination,
-   sort, filter chips, CSV export — pass `rows`/`total` and handle `onStateChange`).
-3. Record scoping (§10): a user without `crm.view_all` must see only accounts they own. Implement
-   as a `where` fragment in the service, following `src/server/core/rbac/scope.ts`.
-
-Then session 2 (inquiry) as planned above.
+**Module 01 session 2 — the inquiry.** Read specs/01-crm-inquiry.md §§3–5, then:
+1. `prisma/schema/crm.prisma`: add `Inquiry`, `InquiryItem`, `Activity` per §2, then migrate.
+   `INQ-{YY}{MM}-{####}` is already seeded in the numbering formats.
+2. The §3 lifecycle as an explicit state machine with allowed transitions, not free-form status
+   writes — `lostReason` is a required picklist on `lost`, and every change writes to the audit log
+   and the activity feed.
+3. §4 requirements templates per service type, with the completeness gate blocking `quoting` unless
+   overridden with a logged reason.
+4. The §3 SLA escalation job (new → acknowledged within 1 business day, escalating to VP and
+   president), added to the existing `/api/cron/nightly`. The clock **pauses** during
+   `inspection_required` (§5) — that is the part worth testing.
+5. Add the Inquiries nav entry **in the same change as its page**, or the nav-integrity test fails.
 
 Notes for whoever picks this up:
-  - `allocateNumber` takes **no** transaction client, so an account code is allocated before the
-    transaction opens and a rollback burns it. Module 00's numbering contract explicitly permits
-    gaps; fine for an internal account code, but revisit before anything the BIR counts.
-  - Soft delete needs **both** `deletedAt` and `deletedBy` (module 00 shipped `User` missing
-    `deletedBy`; the CRM models already do this correctly).
+  - `allocateNumber` takes **no** transaction client, so a number is allocated before the
+    transaction opens and a rollback burns it. Module 00's contract permits gaps; fine for internal
+    codes, but revisit before anything the BIR counts.
+  - Soft delete needs **both** `deletedAt` and `deletedBy`.
+  - Business-day arithmetic for the SLA needs the §10 working calendar, which does **not** exist
+    yet (`SystemSetting` is unbuilt). Either build the calendar first or use plain calendar days
+    and record the shortcut — do not silently pretend weekends are working days.
   - If `prisma migrate dev` hangs on an advisory lock, or `prisma generate` fails with `EPERM`,
-    the dev server is holding it — stop the dev server first. See "Known issues" below.
+    the dev server is holding it — stop the dev server first. Dropping a column also needs
+    `migrate diff` + a hand-written migration, since `migrate dev` refuses non-interactively.
 
 ## Not started
 - [ ] Modules 02–10
@@ -264,6 +321,10 @@ Notes for whoever picks this up:
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #18-#19: module 01 (the CRM account model is `CustomerAccount` because Auth.js
+  already owns `Account` and its adapter calls `prisma.account` by name; accreditation records the
+  outcome only — certificate and expiry — because AIES's own documents live on each customer's
+  portal, and duplicating them made one mayor's permit into N expiry dates to maintain).
 
 ## Not visually verified
 
@@ -273,6 +334,12 @@ found six defects that 186 automated tests did not, so this distinction is worth
 
 - The sidebar's white logo plate and the 20px lucide icons (module 00 session 5). The browser pane
   had signed itself out, so these were confirmed by computed geometry and a clean compile only.
+- **All of module 01's UI**: `/crm/accounts` (list, create/edit dialog, duplicate warning, primary
+  contact, "Needs attention" column) and `/crm/accreditations` (register, certificate upload,
+  acknowledge button). Verified by 240 tests and a production build only. `npm run demo:crm` loads
+  six accounts covering the states that differ, so a manual pass has something to look at —
+  DEMO-0003 is the one to scrutinise, since it says `accredited` with an expiry 7 days past and
+  must read as EXPIRED.
 - The redesigned `/login`, `/change-password` and `/enroll-totp` screens carrying the full-colour
   lockup on a light ground. Markup verified by `curl`; appearance not.
 - `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the
@@ -339,3 +406,18 @@ found six defects that 186 automated tests did not, so this distinction is worth
   CRM, but they are **not** declared in the CRM manifest yet: `buildModuleRegistry` rejects a
   subscription to an event no module emits, so declaring them before module 02 exists would fail
   boot. `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces then.
+- **The ISO 9001 clause 8.4 approved-supplier register is owed.** The company asked to know both
+  "can we legally sell to this customer" (built — §5b accreditation) and "is this vendor approved
+  to buy from" (**not built**). The second is spec 08 §5's `SupplierEvaluation` and needs module
+  03's `Supplier`; building it now would mean inventing a supplier record module 03 then has to
+  reconcile.
+- **The accreditation renewal sweeps have never run on a schedule.** No Vercel project exists, so
+  `vercel.json`'s cron entries are inert. Verified manually with
+  `curl -X POST http://localhost:3000/api/cron/nightly`.
+- `ApprovalCondition.value` is numeric only (`evaluateCondition` rejects non-numeric snapshot
+  fields), so the renewal workflow's "customer is blacklisted or dormant" test uses an
+  `accountRestricted` 1/0 mirror alongside the readable `accountStatus`. Extending the condition
+  language to strings is a module 00 change nothing has yet needed.
+- **Nothing indexes CRM records for search.** `indexEntity()` is not called on account create or
+  update, so the Ctrl+K palette still finds nothing. Worth doing when inquiries land, since that is
+  when search starts to earn its keep.
