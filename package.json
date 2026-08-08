@@ -21,6 +21,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "brand": "tsx scripts/build-brand-assets.ts",
+    "storage:bucket": "tsx scripts/ensure-storage-bucket.ts",
     "seed": "tsx prisma/seed.ts",
     "bootstrap": "npm run prisma:migrate:deploy && npm run seed",
     "prepare": "husky"

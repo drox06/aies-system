@@ -1,7 +1,7 @@
 # Build Progress
 
 Last updated: 2026-08-08
-Current module: 00 — Foundation (session 4 of 5 complete)
+Current module: 00 — Foundation (session 5 of 5 built; module review gate NOT yet signed off)
 Status: in progress
 
 ## Done
@@ -99,11 +99,70 @@ Status: in progress
         `authorId` → `User.name` in `getActivityFeed()` (live lookup, not a write-time
         snapshot like audit's `actorLabel` — deliberately different, see #14 for why)
 
+- [x] Module 00 session 5 — design system, app shell, DataTable, deployment artifacts:
+  - [x] **Brand extraction (Spec.md §6.1) from a real vector master.** The company supplied one
+        mid-session, so nothing was hand-traced. `scripts/build-brand-assets.ts` (`npm run brand`)
+        generates all four SVGs plus `favicon.ico`/`icon-192`/`icon-512`/`apple-touch-icon`;
+        outputs are committed so Vercel builds don't depend on it. The master is an 802-path
+        auto-trace and needed three corrections, each for a defect that would otherwise have
+        shipped — see docs/DECISIONS.md #15. The gear mark is rebuilt as geometry because the "S"
+        overlaps the gear in the artwork, so an extracted gear has a bite out of it.
+  - [x] Verified Spec.md §6.2's palette against the vector master: `#011761` vs `navy-900
+        #011860`, `#FD5E0F` vs `orange-500 #FD5E13`, `#EC010C` vs `red-500 #EE010C`. The tokens
+        were genuinely sampled from this artwork, so they are used verbatim.
+  - [x] Tailwind v4 + Inter (self-hosted via next/font, so the strict CSP needs no font-src
+        exception). Tokens exposed both as `--color-*` (Tailwind utilities) and the spec's own
+        `--aies-*` names (so PDF templates written against Spec.md resolve directly).
+  - [x] §6.3's "red problem" enforced structurally, not by comment: `Button` has **no** brand-red
+        variant, so a destructive action always renders in `--color-danger`. `StatusBadge` carries
+        status colour in a tinted background and dot but takes its text ink from an AA-passing
+        token, because §6.2's own contrast table rules orange-500 (3.1:1) out for small labels.
+  - [x] `DataTable` built out fully before its first caller, per §8's "over-invest here":
+        server-side pagination, sort, filter chips, saved views, column visibility, CSV export
+        (RFC 4180 escaping + UTF-8 BOM so Excel renders ₱), bulk actions. Holds state and hands it
+        out via `onStateChange` rather than fetching, so it works with tRPC, a server action or a
+        plain array.
+  - [x] Remaining §8 components: `RecordLayout`, `PageHeader`, `Card`, `EmptyState`,
+        `StatusBadge`, `MoneyCell`, `MoneyInput`, `DateCell`, `UserAvatar`, `FileDropzone`
+        (posts to the session-4 `/api/files`, uploads sequentially), `ConfirmDialog` (optional
+        `confirmPhrase` for irreversible actions), `Menu`.
+  - [x] App shell: sidebar assembled from module manifests and filtered by permission
+        **server-side**, top bar with search/bell/account menu, mobile drawer, collapsible.
+        Foundation gained its own manifest so its pages route through the same mechanism every
+        business module will use.
+  - [x] Error handling: tRPC `errorFormatter` puts the request id on the wire for every error and
+        logs the unexpected ones against it; `app/error.tsx` shows Next's server-side digest as
+        the reference, so what the user quotes is the token an admin greps for.
+  - [x] PWA: manifest route + service worker caching brand assets and an offline notice —
+        deliberately **not** API responses or authenticated HTML (see the note in `public/sw.js`).
+  - [x] Deployment artifacts: `docs/DEPLOYMENT.md` (all 13 items of Spec.md §7.5 with exact DSM
+        menu paths, the quarterly restore-drill table, and the ~USD 45/month cost stated plainly),
+        `docker/docker-compose.yml` + `Dockerfile` + `Caddyfile` self-host fallback with a CI job
+        that boots it, `scripts/backup-to-nas.sh` (staged `.partial` dir, manifest, and a
+        `pg_restore --list` verification before accepting the dump), `scripts/restore.sh` (refuses
+        non-scratch targets, prints a row-count sanity report), `vercel.json` cron.
+  - [x] 179 tests across 36 files, all passing; typecheck, lint and `next build` clean.
+  - [x] Found and fixed three real bugs by using the app rather than testing it — see the two
+        DECISIONS entries below and the hover-menu note.
+
 ## In progress
-- [ ] Module 00 session 5: Design system (brand extraction first), app shell, DataTable,
-      deployment artifacts (docs/DEPLOYMENT.md, docker-compose self-host fallback)
-      Next concrete step: brand extraction from `brand/` assets into design tokens, per
-      specs/00-foundation.md's session 5 breakdown — not yet started.
+- [ ] **Module 00 review gate (docs/BUILD-PROTOCOL.md §7) — not yet signed off.**
+      Next concrete step: perform the manual check the protocol names, which needs a human login:
+      "log in, create a user, assign a role, confirm the audit log caught all three, and confirm a
+      non-privileged role genuinely cannot see cost fields in the API response." Sessions 3 and 4
+      each did the first half of this in a browser; it has not been redone since the app shell
+      landed, and the session was signed out mid-session 5 by the pooler incident below.
+      Blockers/notes:
+        - No credentials available to this session, so the browser pass stopped at verifying the
+          shell as EA/president. The server-side half of "sees only their permitted nav"
+          (specs §11) is covered by `tests/server/api/system-nav.test.ts` instead.
+        - The cost-field half of the gate **cannot** be done in module 00 — no cost or margin
+          fields exist until module 02. `tests/server/core/rbac/field-gating.test.ts` covers the
+          stripping logic; the serialised-response check belongs to module 02's gate.
+        - `docker/docker-compose.yml` has **never been run** — Docker is not installed on this
+          machine (docs/DECISIONS.md #1). The new CI job is its first real execution, so expect to
+          iterate on it once CI runs.
+      Once those pass: `git tag module-00-complete`.
 
 ## Not started
 - [ ] Modules 01–10
@@ -121,6 +180,10 @@ Status: in progress
   `mode` only supports "parallel"; approval engine emits only the three spec-named events;
   `ActivityFeed` resolves comment `authorId` to a live `authorLabel`, unlike audit's write-time
   snapshot).
+- docs/DECISIONS.md #15-#16: session 5 (brand assets generated from the vector master by a
+  committed script, with the mark rebuilt as geometry and a second supplied raster rejected as a
+  redrawn interpretation; a database error in the Auth.js session callback now degrades access
+  instead of signing the user out).
 
 ## Known issues / to revisit
 - No per-device "revoke this session" / session list UI yet (docs/DECISIONS.md #4).
@@ -149,3 +212,15 @@ Status: in progress
   calls `indexEntity()` on create/update, since module 00 has no business entities of its own.
   Verified the plumbing (search request round-trips, renders "No results." cleanly) but real
   end-to-end fuzzy/full-text search UX is unverified until module 01+ starts indexing records.
+- The full-colour `public/brand/aies-logo.svg` is 364kB (130kB gzipped) because the supplied
+  master is a posterised trace needing 800 paths. Acceptable only because it is off the hot path
+  — the shell uses the 12.5kB mono variant and the 0.6kB mark. If artwork with real gradient fills
+  is ever supplied, replace `brand/aies-logo-source.svg` and re-run `npm run brand`.
+- `docker/docker-compose.yml` and its Dockerfile have never been executed (no Docker on the build
+  machine). The new `self-host-fallback` CI job is their first run.
+- No `/api/cron/nightly` route yet — Spec.md §7 calls for one, but nothing needs it until module
+  10's media-archive lifecycle job. `docs/DEPLOYMENT.md` §2 records where to add it.
+- The notification bell polls every 60s. Fine for five users; Supabase Realtime is the upgrade
+  path when it stops being.
+- Email is still unconfigured (SPF/DKIM/DMARC documented in `docs/DEPLOYMENT.md` §4 but not set
+  up), so `notify_email` jobs continue to dead-letter by design.

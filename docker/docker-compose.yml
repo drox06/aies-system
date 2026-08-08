@@ -1,0 +1,75 @@
+# Self-host fallback. specs/00-foundation.md §9.2.
+#
+# NOT the deployment path — that is Vercel + Supabase (Spec.md §3.1, §7.1). This exists so AIES is
+# never locked in: if the NAS is upgraded to 6GB, or a VPS becomes preferable, this brings the
+# whole stack back in-house. CI boots it on every push (.github/workflows/ci.yml) because a
+# fallback nobody exercises rots within two months, and discovering that during the incident that
+# made you need it is the worst possible time.
+#
+#   docker compose -f docker/docker-compose.yml up -d
+#
+# Required in a .env beside this file: POSTGRES_PASSWORD, AUTH_SECRET, APP_DOMAIN.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aies
+      POSTGRES_USER: aies
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # The app's migrations run on start, so "container running" is not good enough — wait until
+      # the database actually answers.
+      test: ["CMD-SHELL", "pg_isready -U aies -d aies"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # Not published to the host: only the app needs it, and this may run on a machine with a
+    # public interface.
+    expose:
+      - "5432"
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Same connection string for both: without a pooler in front there is no separate
+      # session-mode URL, and Prisma Migrate needs DIRECT_URL to exist.
+      DATABASE_URL: postgresql://aies:${POSTGRES_PASSWORD}@postgres:5432/aies
+      DIRECT_URL: postgresql://aies:${POSTGRES_PASSWORD}@postgres:5432/aies
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET is required}
+      AUTH_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      AUTH_TRUST_HOST: "true"
+      NODE_ENV: production
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persisted, or every restart re-requests a certificate and eventually hits Let's Encrypt
+      # rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

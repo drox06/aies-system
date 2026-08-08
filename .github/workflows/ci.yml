@@ -56,6 +56,40 @@ jobs:
 
       - run: npm run build
 
+  # specs/00-foundation.md §9.2: the self-host fallback is "kept working but not the deployment
+  # path. A test in CI must prove it still boots, or it will rot within two months." This builds
+  # the image and brings the stack up far enough to prove the app answers through Caddy.
+  self-host-fallback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Boot the compose stack
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          AUTH_SECRET: ci-auth-secret-not-used-anywhere-real
+          # Caddy would try to obtain a real certificate for a public domain; localhost makes it
+          # serve over plain HTTP so CI does not depend on Let's Encrypt being reachable.
+          APP_DOMAIN: localhost
+        run: docker compose -f docker/docker-compose.yml up -d --build --wait --wait-timeout 300
+
+      - name: The app must answer through Caddy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost/api/health; then
+              echo "self-host stack is serving"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::self-host fallback did not serve /api/health within 150s"
+          docker compose -f docker/docker-compose.yml logs --tail 100
+          exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker/docker-compose.yml down -v
+
   # Runs Prisma's real migration path against the production database. Inert until the Supabase
   # project exists and DATABASE_URL/DIRECT_URL secrets are set (module 00 session 5,
   # docs/DEPLOYMENT.md) — Spec.md §9.1: "migrations never run by hand against production."
