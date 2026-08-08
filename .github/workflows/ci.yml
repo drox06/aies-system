@@ -40,10 +40,12 @@ jobs:
 
       - run: npm run typecheck
 
-      - run: npm test
-
       - name: Apply committed migrations to a fresh database
         run: npx prisma migrate deploy
+
+      # Tests run against the now-migrated CI database — several exercise real Prisma
+      # queries/raw SQL (e.g. src/server/core/rate-limit.ts's atomic upsert) rather than mocking.
+      - run: npm test
 
       - name: Fail if the Prisma schema has drifted from committed migrations
         run: |

@@ -1,0 +1,11 @@
+// Cross-cutting infrastructure tables (Spec.md §3.7) that don't belong to any single business
+// module. Grows as module 00's later sessions add audit/events/jobs/numbering.
+
+// Fixed-window rate limiting for tRPC mutations (specs/00-foundation.md §4.1: "Rate limiting on
+// all mutation endpoints"). See src/server/core/rate-limit.ts — the upsert that maintains this
+// table is a single atomic statement to avoid a check-then-act race under concurrent requests.
+model RateLimitBucket {
+  key         String   @id
+  windowStart DateTime
+  count       Int      @default(0)
+}
