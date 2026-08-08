@@ -15,7 +15,7 @@ import { AccountDialog } from "./AccountDialog";
 
 interface AccountFlag {
   kind: string;
-  severity: "blocking" | "warning" | "info";
+  severity: "blocking" | "warning" | "info" | "ok";
   label: string;
   detail?: string;
 }
@@ -41,11 +41,14 @@ const STATUS_TONE: Record<string, StatusTone> = {
 };
 
 /** Severity → the §6.4 badge scale. `blocking` is danger because it stops a sale; `warning` is the
- *  orange "needs your attention" accent Spec.md §6.3 reserves for exactly this. */
+ *  orange "needs your attention" accent Spec.md §6.3 reserves for exactly this; `ok` is green,
+ *  because a salesperson scanning this column is asking "can I quote them?" and green is the
+ *  answer they are looking for. */
 const FLAG_TONE: Record<AccountFlag["severity"], StatusTone> = {
   blocking: "failed",
   warning: "pending",
   info: "draft",
+  ok: "approved",
 };
 
 export default function AccountsPage() {
@@ -113,14 +116,18 @@ export default function AccountsPage() {
             : "",
       },
       {
-        key: "flags",
-        header: "Needs attention",
-        cell: (row) =>
-          row.flags.length === 0 ? (
-            <span className="text-xs text-text-muted">—</span>
-          ) : (
+        // Filtered to accreditation only. The health aggregator is deliberately generic — module
+        // 05 will register a finance contributor for unbilled work and overdue collections — but a
+        // column headed "Accreditation Status" must not quietly start showing receivables. Finance
+        // gets its own column when it lands; the aggregator does not change.
+        key: "accreditation",
+        header: "Accreditation Status",
+        cell: (row) => {
+          const flags = row.flags.filter((f) => f.kind === "accreditation");
+          if (flags.length === 0) return <span className="text-xs text-text-muted">—</span>;
+          return (
             <div className="flex flex-col items-start gap-1">
-              {row.flags.slice(0, 2).map((flag) => (
+              {flags.map((flag) => (
                 <StatusBadge
                   key={`${flag.kind}-${flag.label}`}
                   tone={FLAG_TONE[flag.severity]}
@@ -129,12 +136,14 @@ export default function AccountsPage() {
                   {flag.label}
                 </StatusBadge>
               ))}
-              {row.flags.length > 2 && (
-                <span className="text-xs text-text-muted">+{row.flags.length - 2} more</span>
-              )}
             </div>
-          ),
-        exportValue: (row) => row.flags.map((f) => f.label).join("; "),
+          );
+        },
+        exportValue: (row) =>
+          row.flags
+            .filter((f) => f.kind === "accreditation")
+            .map((f) => f.label)
+            .join("; "),
       },
       {
         key: "status",

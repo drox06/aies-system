@@ -27,7 +27,10 @@ export type FlagSeverity =
   /** Will become blocking if ignored — a renewal window, an ageing receivable. */
   | "warning"
   /** Worth knowing, needs no action. */
-  | "info";
+  | "info"
+  /** Actively fine. Emitted so a column can state the good case rather than leaving a blank that
+   *  reads identically to "not checked yet". */
+  | "ok";
 
 export interface AccountFlag {
   /** Stable identifier for the contributor, e.g. "accreditation". */
@@ -85,7 +88,7 @@ export async function getAccountFlags(accountIds: string[]): Promise<Map<string,
   }
 
   // Worst first, so a table cell showing only the first flag shows the one that matters.
-  const rank: Record<FlagSeverity, number> = { blocking: 0, warning: 1, info: 2 };
+  const rank: Record<FlagSeverity, number> = { blocking: 0, warning: 1, info: 2, ok: 3 };
   for (const flags of out.values()) {
     flags.sort((a, b) => rank[a.severity] - rank[b.severity]);
   }
@@ -97,7 +100,8 @@ export function worstSeverity(flags: AccountFlag[] | undefined): FlagSeverity | 
   if (!flags || flags.length === 0) return null;
   if (flags.some((f) => f.severity === "blocking")) return "blocking";
   if (flags.some((f) => f.severity === "warning")) return "warning";
-  return "info";
+  if (flags.some((f) => f.severity === "info")) return "info";
+  return "ok";
 }
 
 // ---- accreditation contributor (specs/01-crm-inquiry.md §5b) ----------------------------------
@@ -159,10 +163,23 @@ registerAccountFlagContributor("accreditation", async (accountIds) => {
       flags.push({
         kind: "accreditation",
         severity: "warning",
-        label: "Accreditation renewal due",
+        label: "Renewal due",
         detail:
           health.daysUntilExpiry !== null
             ? `Certificate expires in ${health.daysUntilExpiry} day(s)`
+            : undefined,
+      });
+    } else {
+      // The good case is stated, not implied. A blank cell reads the same as "nobody has checked",
+      // and "are we still accredited with them?" is the question this column exists to answer —
+      // silence is a worse answer than a green badge.
+      flags.push({
+        kind: "accreditation",
+        severity: "ok",
+        label: "Accredited",
+        detail:
+          health.daysUntilExpiry !== null
+            ? `Certificate valid for another ${health.daysUntilExpiry} day(s)`
             : undefined,
       });
     }

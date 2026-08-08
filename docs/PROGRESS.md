@@ -233,6 +233,13 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
       a `Contact` with `isPrimary` rather than as new columns — `CustomerAccount.phone`/`email` are
       the company switchboard, and one model means the same person can later attach to a site or an
       inquiry without being re-typed.
+- [x] Accounts list carries an **Accreditation Status** column: green *Accredited*, orange *Renewal
+      due*, red *Accreditation expired*, grey for in-progress or none. The good case is stated
+      rather than implied — a blank cell reads the same as "nobody has checked", and "are we still
+      accredited with them?" is the question the column exists to answer. The health aggregator
+      stays generic (module 05 registers a finance contributor later), but the column filters to
+      `kind === "accreditation"` so a column with that heading can never quietly start showing
+      receivables; finance gets its own column when it lands.
 - [x] **§5b customer accreditation, pulled forward from session 3** — model, register page, and
       per-customer panel. Records **only the outcome**: the certificate the customer issued and its
       expiry. The document checklist §5b describes was built and then removed at the company's
@@ -335,11 +342,14 @@ found six defects that 186 automated tests did not, so this distinction is worth
 - The sidebar's white logo plate and the 20px lucide icons (module 00 session 5). The browser pane
   had signed itself out, so these were confirmed by computed geometry and a clean compile only.
 - **All of module 01's UI**: `/crm/accounts` (list, create/edit dialog, duplicate warning, primary
-  contact, "Needs attention" column) and `/crm/accreditations` (register, certificate upload,
+  contact, Accreditation Status column) and `/crm/accreditations` (register, certificate upload,
   acknowledge button). Verified by 240 tests and a production build only. `npm run demo:crm` loads
-  six accounts covering the states that differ, so a manual pass has something to look at —
-  DEMO-0003 is the one to scrutinise, since it says `accredited` with an expiry 7 days past and
-  must read as EXPIRED.
+  six accounts covering the states that differ, so a manual pass has something to look at. The
+  Accreditation Status column was checked by calling `getAccountFlags` directly against that data —
+  DEMO-0001 green *Accredited*, 0002 and 0004 orange *Renewal due*, 0003 red *Accreditation
+  expired*, 0005 and 0006 grey — but **the rendered page has still not been looked at**.
+  DEMO-0003 is the one to scrutinise: it says `accredited` with an expiry 7 days past and must
+  show red.
 - The redesigned `/login`, `/change-password` and `/enroll-totp` screens carrying the full-colour
   lockup on a light ground. Markup verified by `curl`; appearance not.
 - `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the
