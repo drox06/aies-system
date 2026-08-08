@@ -1,7 +1,16 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import { Providers } from "./providers";
 import "./globals.css";
+
+// Spec.md §6.5: Inter variable, weights 400/500/600. Self-hosted by next/font — no request to
+// Google at runtime, which also keeps the strict CSP from session 2 free of a font-src exception.
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "AIES Operations Platform",
@@ -24,7 +33,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   await headers();
 
   return (
-    <html lang="en">
+    <html lang="en" className={inter.variable}>
       <body>
         <Providers>{children}</Providers>
       </body>

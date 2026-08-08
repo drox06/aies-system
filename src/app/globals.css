@@ -1,21 +1,144 @@
-/*
- * Placeholder reset. Replaced by the brand token system and shadcn/ui base styles
- * in module 00 session 5 (specs/00-foundation.md §8) — do not build on this.
- */
-* {
-  box-sizing: border-box;
+@import "tailwindcss";
+
+/* ============================================================================================
+ * AIES design tokens — Spec.md §6.2.
+ *
+ * The hex values below are CONFIRMED, not placeholder: they were sampled from the logo and
+ * contrast-checked, and session 5 independently verified them against the vector master (the
+ * artwork's own #011761 / #FD5E0F / #EC010C sit within a hair of navy-900 / orange-500 / red-500).
+ * Do not "tidy" them toward rounder numbers.
+ *
+ * Measured contrast against white (Spec.md §6.2):
+ *   navy-800 14.3 · blue-600 10.3 · blue-400 4.8 · red-500 4.5 · danger 6.5 · text-muted 5.5
+ *   red-400 3.9 · sky-400 3.3 · orange-500 3.1  ← these three FAIL AA for text
+ * ========================================================================================== */
+@theme {
+  /* -- Brand: deep navy through blue, from the wordmark's left side and the gear -------------- */
+  --color-navy-900: #011860;
+  --color-navy-800: #012076; /* app bar, sidebar, PDF headers */
+  --color-navy-700: #002983;
+  --color-blue-600: #003999; /* PRIMARY — buttons, links, active states */
+  --color-blue-500: #0050b1;
+  --color-blue-400: #0674cc; /* hover, focus ring */
+  --color-sky-400: #0994e3; /* gear highlight — decorative only, fails text contrast */
+
+  /* -- Brand red: from the "ES" of the wordmark ----------------------------------------------
+   * Spec.md §6.3: this is IDENTITY, not "click me". Permitted uses are the logo, the PDF header
+   * rule, the sidebar accent bar, section dividers, and the active-nav indicator. A primary CTA
+   * in brand red on the same screen as a destructive action is explicitly forbidden — if you
+   * want red because something is dangerous, you want --color-danger below. */
+  --color-red-600: #db000b;
+  --color-red-500: #ee010c; /* the brand red — 16px+ / bold only, it passes AA at exactly 4.5 */
+  --color-red-400: #ff1d0e; /* decorative only */
+  --color-orange-500: #fd5e13; /* gradient midpoint — reserved for "needs your attention" */
+
+  /* -- Semantic: deliberately NOT the brand red (Spec.md §6.3) -------------------------------
+   * danger is visibly deeper and less saturated than red-500. That difference is the whole point
+   * and should not be "corrected" to match the brand later. */
+  --color-danger: #b3261e;
+  --color-warning: #b26a00;
+  --color-success: #1e7a46;
+  --color-info: var(--color-blue-500);
+
+  /* -- Neutrals ------------------------------------------------------------------------------ */
+  --color-bg: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef2f7;
+  --color-border: #dce3eb;
+  --color-text: #0f1b2a;
+  --color-text-muted: #5a6b7d;
+  --color-text-invert: #ffffff;
+
+  /* -- Typography (Spec.md §6.5) -------------------------------------------------------------
+   * Inter, injected as --font-inter by next/font in src/app/layout.tsx. No display face: this is
+   * a working tool, not a marketing site. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Spec.md §6.6: 14px for dense tables, 16px for forms and body, never below 12px. */
+  --text-table: 0.875rem;
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
+/* Spec.md §6.2 names these tokens --aies-*. Kept as aliases so anything written directly against
+ * the spec's names — PDF templates especially — resolves without a translation step. */
+:root {
+  --aies-navy-900: var(--color-navy-900);
+  --aies-navy-800: var(--color-navy-800);
+  --aies-navy-700: var(--color-navy-700);
+  --aies-blue-600: var(--color-blue-600);
+  --aies-blue-500: var(--color-blue-500);
+  --aies-blue-400: var(--color-blue-400);
+  --aies-sky-400: var(--color-sky-400);
+  --aies-red-600: var(--color-red-600);
+  --aies-red-500: var(--color-red-500);
+  --aies-red-400: var(--color-red-400);
+  --aies-orange-500: var(--color-orange-500);
+  --aies-danger: var(--color-danger);
+  --aies-warning: var(--color-warning);
+  --aies-success: var(--color-success);
+  --aies-info: var(--color-info);
+  --aies-bg: var(--color-bg);
+  --aies-surface: var(--color-surface);
+  --aies-surface-2: var(--color-surface-2);
+  --aies-border: var(--color-border);
+  --aies-text: var(--color-text);
+  --aies-text-muted: var(--color-text-muted);
+  --aies-text-invert: var(--color-text-invert);
 }
 
-body {
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    /* Spec.md §6.6: Asia/Manila is fixed and dates store UTC; nothing here depends on locale, but
+     * the scrollbar gutter stops the app shifting when a dialog opens. */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Spec.md §6.5: "Non-tabular figures in a money column are the fastest way to make a table look
+   * amateur." Applied to every numeric cell type by default rather than left to call sites. */
+  th,
+  td,
+  input[type="number"],
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--color-navy-800);
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  /* Spec.md §6.4: 2px blue-400 with a 2px offset, visible on every interactive element.
+   * "Never remove the outline." */
+  :focus-visible {
+    outline: 2px solid var(--color-blue-400);
+    outline-offset: 2px;
+  }
+
+  /* Spec.md §6.6: minimum 44px touch targets on mobile — field views are used one-handed, with
+   * gloves, outdoors. Enforced here so individual components cannot quietly opt out. */
+  @media (pointer: coarse) {
+    button,
+    [role="button"],
+    a[href],
+    input,
+    select,
+    textarea {
+      min-height: 44px;
+    }
+  }
 }
