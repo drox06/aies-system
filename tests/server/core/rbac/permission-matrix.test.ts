@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { resolveUserPermissions } from "@/server/core/rbac/permissions";
+import { computePermissionSet } from "@/server/core/rbac/permissions";
 
 /**
  * Integration test against the real seeded dev database (prisma/seed.ts) rather than mocks —
@@ -11,18 +11,26 @@ import { resolveUserPermissions } from "@/server/core/rbac/permissions";
  * field-gating.test.ts) is gated on.
  */
 
+/**
+ * The permissions a role grants, read from the role itself.
+ *
+ * This deliberately does NOT go via a user who happens to hold the role. Spec.md §4.2 is explicit
+ * that "users hold multiple roles — at AIES one person is often sales and operations", so any
+ * user's permission set is the union of all their roles and tells you nothing about one role in
+ * isolation. The earlier version picked a holder and read their permissions, which passed only for
+ * as long as every seeded user happened to hold exactly one role; the moment an admin assigned
+ * `viewer` to the vice-president during manual testing, this suite reported that `viewer` grants
+ * `finance.view_cost`. That is a false alarm about the single most sensitive permission in the
+ * system (§4.3), and a false alarm there is worse than no test.
+ */
 async function permissionsForRole(roleKey: string): Promise<Set<string>> {
   const role = await db.role.findUniqueOrThrow({
     where: { key: roleKey },
-    include: { users: { include: { user: true } } },
+    include: { permissions: { include: { permission: true } } },
   });
 
-  const user = role.users.find((userRole) => !userRole.user.isDemoUser) ?? role.users[0];
-  if (!user) {
-    throw new Error(`No seeded user found for role "${roleKey}". Has \`npm run seed\` been run?`);
-  }
-
-  return resolveUserPermissions(user.userId);
+  // No per-user overrides: those are a property of a user, not of a role.
+  return computePermissionSet([role.permissions.map((rp) => rp.permission)], []);
 }
 
 describe("permission matrix (against seeded data)", () => {

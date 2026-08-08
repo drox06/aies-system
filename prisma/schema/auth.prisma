@@ -24,6 +24,10 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+  // Spec.md §10's cross-cutting rule is "soft-delete with deletedAt + deletedBy". Not a relation
+  // to User: the deleting admin can themselves be deleted later, and a foreign key would either
+  // block that or cascade away the evidence of who did what.
+  deletedBy String?
 
   roles               UserRole[]
   permissionOverrides UserPermissionOverride[]

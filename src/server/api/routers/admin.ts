@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import {
   assignRoleService,
   createUserService,
+  deleteUserService,
   removeRoleService,
+  setUserActiveService,
   type ActorMeta,
 } from "@/server/core/admin/service";
 import { p, router, type Context } from "@/server/api/trpc";
@@ -56,4 +58,12 @@ export const adminRouter = router({
   removeRole: p("admin.manage_roles")
     .input(z.object({ userId: z.string(), roleKey: z.string() }))
     .mutation(({ ctx, input }) => removeRoleService(actorMeta(ctx), input)),
+
+  setUserActive: p("admin.manage_users")
+    .input(z.object({ userId: z.string(), isActive: z.boolean() }))
+    .mutation(({ ctx, input }) => setUserActiveService(actorMeta(ctx), input)),
+
+  deleteUser: p("admin.manage_users")
+    .input(z.object({ userId: z.string() }))
+    .mutation(({ ctx, input }) => deleteUserService(actorMeta(ctx), input)),
 });

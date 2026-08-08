@@ -142,3 +142,119 @@ export async function removeRoleService(
     return { ok: true as const };
   });
 }
+
+/**
+ * Deactivate or reactivate a user. Spec.md §10's cross-cutting rule is soft-delete everywhere,
+ * and this is the reversible half of it: `isActive: false` is the correct answer for someone who
+ * has left, because their audit history, approvals and comments must all stay attributable.
+ *
+ * Takes effect on the deactivated user's very next request, without waiting for a token to
+ * expire, because the session callback re-reads `isActive` every time (docs/DECISIONS.md #4).
+ */
+export async function setUserActiveService(
+  actor: ActorMeta,
+  input: { userId: string; isActive: boolean },
+) {
+  // Locking yourself out of the only account that can manage users is unrecoverable through the
+  // UI — it would need someone with database access. Cheaper to refuse.
+  if (input.userId === actor.actorId && !input.isActive) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "You cannot deactivate your own account.",
+    });
+  }
+
+  return db.$transaction(async (tx) => {
+    const user = await tx.user.findUniqueOrThrow({
+      where: { id: input.userId },
+      select: { email: true, isActive: true },
+    });
+
+    if (user.isActive === input.isActive) {
+      return { ok: true as const };
+    }
+
+    await tx.user.update({
+      where: { id: input.userId },
+      data: { isActive: input.isActive },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: input.isActive ? "reactivated" : "deactivated",
+      entityType: "User",
+      entityId: input.userId,
+      summary: `${input.isActive ? "Reactivated" : "Deactivated"} ${user.email}`,
+      diff: { isActive: { from: user.isActive, to: input.isActive } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return { ok: true as const };
+  });
+}
+
+/**
+ * Soft-delete a user (Spec.md §10: "Soft-delete with deletedAt + deletedBy").
+ *
+ * Never a hard delete. Every AuditLog row, approval decision and comment references this id, and
+ * an ISO 9001 evidence trail that cannot name who approved something is not an evidence trail.
+ * The row stays; `listUsers` filters on `deletedAt: null`, and the session callback treats a
+ * deleted user as unauthenticated, so they lose access immediately.
+ *
+ * The email is released for reuse by suffixing the stored one, since it is uniquely indexed and a
+ * departed employee's address is sometimes reissued.
+ */
+export async function deleteUserService(actor: ActorMeta, input: { userId: string }) {
+  if (input.userId === actor.actorId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot delete your own account." });
+  }
+
+  return db.$transaction(async (tx) => {
+    const user = await tx.user.findUniqueOrThrow({
+      where: { id: input.userId },
+      select: { email: true, deletedAt: true },
+    });
+
+    if (user.deletedAt) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "That user is already deleted." });
+    }
+
+    const deletedAt = new Date();
+    await tx.user.update({
+      where: { id: input.userId },
+      data: {
+        deletedAt,
+        deletedBy: actor.actorId,
+        isActive: false,
+        // Free the unique email for reuse while keeping the original readable in the audit trail.
+        email: `${user.email}#deleted-${deletedAt.getTime()}`,
+        // A deleted account must not remain signable-in even if the row is later restored by
+        // hand, so its credentials go with it.
+        totpSecret: null,
+        totpEnabled: false,
+      },
+    });
+
+    // Role grants are removed rather than soft-deleted: they confer access, and leaving them
+    // attached to a deleted user is a trap for any future query that forgets the deletedAt filter.
+    await tx.userRole.deleteMany({ where: { userId: input.userId } });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "delete",
+      entityType: "User",
+      entityId: input.userId,
+      summary: `Deleted ${user.email}`,
+      diff: { deletedAt: { from: null, to: deletedAt.toISOString() } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return { ok: true as const };
+  });
+}

@@ -11,7 +11,7 @@ import {
   recordFailedLogin,
   recordSuccessfulLogin,
 } from "@/server/core/auth/login-throttle";
-import { resolveUserPermissions, resolveUserRoleKeys } from "@/server/core/rbac/permissions";
+import { resolveSessionUser } from "@/server/core/rbac/permissions";
 
 // Auth.js v5's CredentialsSignin subclasses carry a `.code` the client can branch on (e.g. to
 // show a TOTP field) without leaking *why* through the generic OAuth-style error message.
@@ -121,10 +121,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!userId) return session;
 
       try {
-        const dbUser = await db.user.findUnique({
-          where: { id: userId },
-          select: { isActive: true, deletedAt: true, totpEnabled: true, mustChangePassword: true },
-        });
+        // One round-trip, not three — this runs on every request, so each extra query is paid on
+        // every page load and every tRPC batch. See resolveSessionUser's note.
+        const dbUser = await resolveSessionUser(userId);
 
         // Deactivated or deleted since the token was issued: surface as unauthenticated rather
         // than trusting stale claims. middleware.ts checks `session.user.id`, not just session
@@ -136,14 +135,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return session;
         }
 
-        const [roleKeys, permissions] = await Promise.all([
-          resolveUserRoleKeys(userId),
-          resolveUserPermissions(userId),
-        ]);
-
         session.user.id = userId;
-        session.user.roleKeys = roleKeys;
-        session.user.permissions = [...permissions];
+        session.user.roleKeys = dbUser.roleKeys;
+        session.user.permissions = [...dbUser.permissions];
         session.user.totpEnabled = dbUser.totpEnabled;
         session.user.mustChangePassword = dbUser.mustChangePassword;
 

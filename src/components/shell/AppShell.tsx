@@ -43,12 +43,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         collapsed ? "w-16" : "w-60",
       )}
     >
-      <div className="flex h-14 shrink-0 items-center gap-2 px-3">
-        <Link href="/" aria-label="AIES home" className="flex items-center">
+      {/* Taller than the top bar so the wordmark can run the full width of the sidebar. The
+          lockup is 2.44:1, so filling a 15rem sidebar (less padding) puts it at ~52px tall — the
+          header height follows from that rather than the other way round. */}
+      <div
+        className={cn(
+          "flex shrink-0 items-center border-b border-white/10",
+          collapsed ? "h-20 justify-center px-2" : "h-24 px-4",
+        )}
+      >
+        <Link href="/" aria-label="AIES home" className="flex w-full items-center justify-center">
           {collapsed ? (
-            <Logo variant="mark" height={28} />
+            <Logo variant="mark" height={36} />
           ) : (
-            <Logo variant="mono-white" height={26} />
+            // w-full + h-auto lets it scale to the sidebar rather than a fixed pixel height, so
+            // it stays edge-to-edge if the sidebar width is ever changed.
+            <Logo variant="mono-white" height={52} className="h-auto w-full" />
           )}
         </Link>
       </div>
