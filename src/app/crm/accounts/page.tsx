@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DateCell } from "@/components/ui/cells";
 import {
   DataTable,
   DEFAULT_TABLE_STATE,
@@ -12,7 +11,14 @@ import {
 import { EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { trpc } from "@/lib/trpc/client";
-import { CreateAccountDialog } from "./CreateAccountDialog";
+import { AccountDialog } from "./AccountDialog";
+
+interface AccountFlag {
+  kind: string;
+  severity: "blocking" | "warning" | "info";
+  label: string;
+  detail?: string;
+}
 
 type AccountRow = {
   id: string;
@@ -21,7 +27,8 @@ type AccountRow = {
   accountType: string;
   status: string;
   industry: string | null;
-  createdAt: Date;
+  primaryContact: { id: string; name: string; mobile: string | null; email: string | null } | null;
+  flags: AccountFlag[];
   _count: { sites: number; contacts: number };
 };
 
@@ -33,9 +40,18 @@ const STATUS_TONE: Record<string, StatusTone> = {
   blacklisted: "failed",
 };
 
+/** Severity → the §6.4 badge scale. `blocking` is danger because it stops a sale; `warning` is the
+ *  orange "needs your attention" accent Spec.md §6.3 reserves for exactly this. */
+const FLAG_TONE: Record<AccountFlag["severity"], StatusTone> = {
+  blocking: "failed",
+  warning: "pending",
+  info: "draft",
+};
+
 export default function AccountsPage() {
   const [state, setState] = useState<DataTableState>(DEFAULT_TABLE_STATE);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const list = trpc.crm.listAccounts.useQuery({
     search: state.search || undefined,
@@ -45,13 +61,22 @@ export default function AccountsPage() {
     sortDir: state.sortDir,
   });
 
+  const openCreate = () => {
+    setEditingId(null);
+    setDialogOpen(true);
+  };
+  const openEdit = (id: string) => {
+    setEditingId(id);
+    setDialogOpen(true);
+  };
+
   const columns = useMemo<Column<AccountRow>[]>(
     () => [
       {
         key: "code",
         header: "Code",
         sortable: true,
-        width: "9rem",
+        width: "8rem",
         cell: (row) => <span className="tabular font-medium">{row.code}</span>,
         exportValue: (row) => row.code,
       },
@@ -68,11 +93,48 @@ export default function AccountsPage() {
         exportValue: (row) => row.name,
       },
       {
-        key: "accountType",
-        header: "Type",
-        sortable: true,
-        cell: (row) => <span className="capitalize">{row.accountType}</span>,
-        exportValue: (row) => row.accountType,
+        key: "contact",
+        header: "Primary contact",
+        cell: (row) =>
+          row.primaryContact ? (
+            <div className="min-w-0">
+              <p className="truncate">{row.primaryContact.name}</p>
+              <p className="truncate text-xs text-text-muted">
+                {/* Mobile first: it is what a salesperson actually uses. */}
+                {row.primaryContact.mobile ?? row.primaryContact.email ?? "—"}
+              </p>
+            </div>
+          ) : (
+            <span className="text-xs text-text-muted">None</span>
+          ),
+        exportValue: (row) =>
+          row.primaryContact
+            ? `${row.primaryContact.name} ${row.primaryContact.mobile ?? row.primaryContact.email ?? ""}`.trim()
+            : "",
+      },
+      {
+        key: "flags",
+        header: "Needs attention",
+        cell: (row) =>
+          row.flags.length === 0 ? (
+            <span className="text-xs text-text-muted">—</span>
+          ) : (
+            <div className="flex flex-col items-start gap-1">
+              {row.flags.slice(0, 2).map((flag) => (
+                <StatusBadge
+                  key={`${flag.kind}-${flag.label}`}
+                  tone={FLAG_TONE[flag.severity]}
+                  title={flag.detail}
+                >
+                  {flag.label}
+                </StatusBadge>
+              ))}
+              {row.flags.length > 2 && (
+                <span className="text-xs text-text-muted">+{row.flags.length - 2} more</span>
+              )}
+            </div>
+          ),
+        exportValue: (row) => row.flags.map((f) => f.label).join("; "),
       },
       {
         key: "status",
@@ -86,26 +148,22 @@ export default function AccountsPage() {
         exportValue: (row) => row.status,
       },
       {
-        key: "sites",
-        header: "Sites",
+        key: "actions",
+        header: "",
         align: "right",
-        cell: (row) => <span className="tabular">{row._count.sites}</span>,
-        exportValue: (row) => row._count.sites,
-      },
-      {
-        key: "contacts",
-        header: "Contacts",
-        align: "right",
-        cell: (row) => <span className="tabular">{row._count.contacts}</span>,
-        exportValue: (row) => row._count.contacts,
-      },
-      {
-        key: "createdAt",
-        header: "Added",
-        sortable: true,
-        defaultHidden: true,
-        cell: (row) => <DateCell value={row.createdAt} />,
-        exportValue: (row) => row.createdAt.toISOString().slice(0, 10),
+        cell: (row) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              openEdit(row.id);
+            }}
+          >
+            Edit
+          </Button>
+        ),
+        exportValue: () => "",
       },
     ],
     [],
@@ -116,7 +174,7 @@ export default function AccountsPage() {
       <PageHeader
         title="Accounts"
         description="Customers and prospects. Each account owns its sites, contacts and inquiries."
-        actions={<Button onClick={() => setCreateOpen(true)}>New account</Button>}
+        actions={<Button onClick={openCreate}>New account</Button>}
       />
 
       <DataTable<AccountRow>
@@ -128,6 +186,7 @@ export default function AccountsPage() {
         onStateChange={setState}
         isLoading={list.isPending}
         exportFilename="aies-accounts"
+        onRowClick={(row) => openEdit(row.id)}
         emptyState={
           <EmptyState
             title={state.search ? "No accounts match that search." : "No accounts yet."}
@@ -136,17 +195,16 @@ export default function AccountsPage() {
                 ? "Try a shorter search — code, name, legal name and TIN are all searched."
                 : "Add the first customer or prospect to start logging inquiries against it."
             }
-            action={
-              state.search ? null : <Button onClick={() => setCreateOpen(true)}>New account</Button>
-            }
+            action={state.search ? null : <Button onClick={openCreate}>New account</Button>}
           />
         }
       />
 
-      <CreateAccountDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={() => void list.refetch()}
+      <AccountDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        accountId={editingId}
+        onSaved={() => void list.refetch()}
       />
     </div>
   );

@@ -6,9 +6,18 @@ import {
   deleteAccountService,
   getAccountService,
   listAccountsService,
+  setPrimaryContactService,
   updateAccountService,
   type ActorMeta,
 } from "@/server/core/crm/account-service";
+import {
+  ACCREDITATION_STATUSES,
+  accreditationRequirementSchema,
+  getAccreditationForAccount,
+  listAccreditationsService,
+  startAccreditationService,
+  updateAccreditationService,
+} from "@/server/core/crm/accreditation-service";
 import { findDuplicateAccounts } from "@/server/core/crm/duplicates";
 import { p, router, type Context } from "@/server/api/trpc";
 
@@ -96,4 +105,50 @@ export const crmRouter = router({
   deleteAccount: p("crm.delete")
     .input(z.object({ accountId: z.string() }))
     .mutation(({ ctx, input }) => deleteAccountService(actorMeta(ctx), input)),
+
+  setPrimaryContact: p("crm.edit")
+    .input(
+      z.object({
+        accountId: z.string(),
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        position: z.string().nullish(),
+        mobile: z.string().nullish(),
+        email: z.string().email().nullish().or(z.literal("")),
+        phone: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setPrimaryContactService(actorMeta(ctx), input)),
+
+  // ---- accreditation (specs/01-crm-inquiry.md §5b) --------------------------------------------
+  // §9 puts this with admin_manager (PD), visible to president and vice_president.
+
+  listAccreditations: p("accreditation.manage").query(() => listAccreditationsService()),
+
+  getAccreditation: p("crm.view")
+    .input(z.object({ accountId: z.string() }))
+    .query(({ input }) => getAccreditationForAccount(input.accountId)),
+
+  startAccreditation: p("accreditation.manage")
+    .input(z.object({ accountId: z.string(), ownerId: z.string().nullish() }))
+    .mutation(({ ctx, input }) => startAccreditationService(actorMeta(ctx), input)),
+
+  updateAccreditation: p("accreditation.manage")
+    .input(
+      z.object({
+        accreditationId: z.string(),
+        status: z.enum(ACCREDITATION_STATUSES).optional(),
+        submittedAt: z.string().nullish(),
+        accreditedAt: z.string().nullish(),
+        expiresAt: z.string().nullish(),
+        referenceNumber: z.string().nullish(),
+        customerPortalUrl: z.string().nullish(),
+        customerContactId: z.string().nullish(),
+        rejectionReason: z.string().nullish(),
+        notes: z.string().nullish(),
+        ownerId: z.string().nullish(),
+        requirements: z.array(accreditationRequirementSchema).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updateAccreditationService(actorMeta(ctx), input)),
 });

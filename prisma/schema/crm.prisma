@@ -56,10 +56,11 @@ model CustomerAccount {
   deletedAt DateTime?
   deletedBy String?
 
-  parent   CustomerAccount?  @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
-  children CustomerAccount[] @relation("AccountHierarchy")
-  sites    Site[]
-  contacts Contact[]
+  parent         CustomerAccount?      @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children       CustomerAccount[]     @relation("AccountHierarchy")
+  sites          Site[]
+  contacts       Contact[]
+  accreditations AccreditationRecord[]
 
   @@index([ownerId, status])
   @@index([status, name])
@@ -126,4 +127,58 @@ model Contact {
   @@index([siteId])
   // §7 matches duplicate accounts partly on the domain of a contact's email address.
   @@index([email])
+}
+
+// specs/01-crm-inquiry.md §5b — customer accreditation.
+//
+// The direction matters and is easy to invert: this records AIES being accredited *by* a customer,
+// because Philippine industrial and utility buyers will not issue a PO to an unaccredited supplier.
+// It is NOT AIES approving its own vendors — that is ISO 9001 clause 8.4, spec 08 §5, and needs
+// module 03's Supplier.
+//
+// §5b's own framing: "This is real recurring work owned by the Admin Manager, and today it lives in
+// someone's memory and a folder."
+model AccreditationRecord {
+  id        String @id @default(cuid())
+  accountId String
+
+  // not_started | preparing | submitted | under_review | accredited | rejected | expired | renewal_due
+  status String @default("not_started")
+
+  submittedAt     DateTime?
+  accreditedAt    DateTime?
+  expiresAt       DateTime?
+  referenceNumber String?
+
+  // Where AIES uploads renewals for this customer, and who chases it. Plain id rather than a
+  // relation, consistent with Site.contactId.
+  customerPortalUrl String?
+  customerContactId String?
+
+  // §5b: "[{ document, required, providedFileId, submittedAt, acceptedAt, expiresAt, notes }]".
+  // Json because "every one asks for a slightly different set", so the checklist is data, not
+  // columns. The shape is validated by Zod at the service boundary
+  // (src/server/core/crm/accreditation-service.ts) — see AccreditationRequirement there.
+  //
+  // Cost of this choice: the 90/60/30 renewal sweep has to reach inside the array with
+  // jsonb_array_elements rather than an indexed column. Accepted because §5b is explicit about the
+  // shape, and the sweep runs once a day over a handful of rows per customer.
+  requirements Json @default("[]")
+
+  rejectionReason String?
+  notes           String?
+  ownerId         String
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account CustomerAccount @relation(fields: [accountId], references: [id])
+
+  // One live accreditation per customer. A customer either accredits you or does not; a second
+  // concurrent record would make "are we accredited?" unanswerable.
+  @@unique([accountId, deletedAt])
+  @@index([status, expiresAt])
+  @@index([ownerId])
 }

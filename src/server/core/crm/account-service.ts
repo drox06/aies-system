@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import { emit } from "@/server/core/events/emit";
+import { getAccountFlags } from "@/server/core/crm/account-health";
 import { allocateNumber } from "@/server/core/numbering/numbering";
 
 /**
@@ -319,12 +320,42 @@ export async function listAccountsService(
         ownerId: true,
         createdAt: true,
         _count: { select: { sites: true, contacts: true } },
+        // §5b wants the accreditation visible on the account. The primary contact rides along
+        // because a CRM row without a person to call is not much use.
+        contacts: {
+          where: { deletedAt: null, isPrimary: true },
+          take: 1,
+          select: { id: true, firstName: true, lastName: true, mobile: true, email: true },
+        },
       },
     }),
     db.customerAccount.count({ where }),
   ]);
 
-  return { rows, total };
+  // Batched across the page, not per row — see account-health.ts.
+  const flags = await getAccountFlags(rows.map((r) => r.id));
+
+  return {
+    rows: rows.map((row) => {
+      const primary = row.contacts[0] ?? null;
+      // Destructured off so the wire payload carries primaryContact instead of a one-item array.
+      const { contacts, ...rest } = row;
+      void contacts;
+      return {
+        ...rest,
+        primaryContact: primary
+          ? {
+              id: primary.id,
+              name: `${primary.firstName} ${primary.lastName}`.trim(),
+              mobile: primary.mobile,
+              email: primary.email,
+            }
+          : null,
+        flags: flags.get(row.id) ?? [],
+      };
+    }),
+    total,
+  };
 }
 
 export async function getAccountService(
@@ -348,4 +379,69 @@ export async function getAccountService(
     throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
   }
   return account;
+}
+
+/**
+ * Creates or updates the account's primary contact in one step.
+ *
+ * A named person with a mobile number is a `Contact`, not three more columns on the account —
+ * `CustomerAccount.phone`/`email` are the company switchboard, and §1 leans on knowing "who can
+ * actually say yes". Keeping one model means the same person can later be attached to a site, an
+ * inquiry, or an accreditation without being re-typed.
+ */
+export async function setPrimaryContactService(
+  actor: ActorMeta,
+  input: {
+    accountId: string;
+    firstName: string;
+    lastName: string;
+    position?: string | null;
+    mobile?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  },
+) {
+  return db.$transaction(async (tx) => {
+    const account = await tx.customerAccount.findFirst({
+      where: { id: input.accountId, deletedAt: null },
+      select: { id: true, code: true, name: true },
+    });
+    if (!account) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
+    }
+
+    const existing = await tx.contact.findFirst({
+      where: { accountId: input.accountId, deletedAt: null, isPrimary: true },
+      select: { id: true },
+    });
+
+    const data = {
+      firstName: input.firstName.trim(),
+      lastName: input.lastName.trim(),
+      position: input.position ?? null,
+      mobile: input.mobile ?? null,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+    };
+
+    const contact = existing
+      ? await tx.contact.update({ where: { id: existing.id }, data })
+      : await tx.contact.create({
+          data: { ...data, accountId: input.accountId, isPrimary: true },
+        });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: existing ? "update" : "create",
+      entityType: "Contact",
+      entityId: contact.id,
+      summary: `${existing ? "Updated" : "Added"} primary contact ${contact.firstName} ${contact.lastName} on ${account.code}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return contact;
+  });
 }
