@@ -1,0 +1,16 @@
+// specs/00-foundation.md §7.7. Populated by calling indexEntity() when a business module's
+// content changes (typically from that module's own event handler); queried with Postgres
+// full-text search, falling back to pg_trgm fuzzy matching for typos in part numbers/customer
+// names when the full-text query returns nothing.
+model SearchIndex {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  title      String
+  body       String   @default("")
+  href       String
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([entityType])
+}
