@@ -1,0 +1,14 @@
+// Transactional outbox (Spec.md §6): a row here is written in the same transaction as the
+// business change it accompanies, then relayed into a Job (jobs.prisma) by the cron drain —
+// guaranteeing the event is never lost or double-emitted on a crash or mid-flight timeout.
+model EventOutbox {
+  id        String    @id @default(cuid())
+  event     String
+  payload   Json
+  actorId   String?
+  requestId String?
+  createdAt DateTime  @default(now())
+  relayedAt DateTime?
+
+  @@index([relayedAt, createdAt])
+}
