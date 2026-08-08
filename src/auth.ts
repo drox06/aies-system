@@ -4,6 +4,7 @@ import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { authConfig } from "@/auth.config";
 import { db } from "@/lib/db";
+import { writeAuditLog } from "@/server/core/audit/audit";
 import { verifyTotp } from "@/server/core/auth/totp";
 import {
   isLockedOut,
@@ -80,6 +81,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         await recordSuccessfulLogin(user.id);
+
+        // specs/00-foundation.md §5 lists "login" among the audited actions, and the module's own
+        // review gate (docs/BUILD-PROTOCOL.md §7) checks that a sign-in, a user creation and a
+        // role assignment all appear in the trail. Without this the trail can show what an account
+        // *did* but never that it was used, which is the first question asked after an incident.
+        //
+        // Deliberately outside a transaction and non-fatal, unlike every other audit write: those
+        // guard a business change that must roll back with them (#5), whereas the login has
+        // already happened by the time we get here. Refusing the sign-in because the log write
+        // failed would lock everyone out of a working app to protect a record of them using it.
+        try {
+          await writeAuditLog(db, {
+            actorId: user.id,
+            actorLabel: user.name,
+            action: "login",
+            entityType: "User",
+            entityId: user.id,
+            summary: `${user.name} signed in`,
+            // No diff: nothing changed, and the credentials must never reach the log.
+          });
+        } catch (error) {
+          console.error("[auth] login succeeded but the audit write failed:", error);
+        }
 
         return { id: user.id, email: user.email, name: user.name };
       },
