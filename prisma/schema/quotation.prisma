@@ -1,0 +1,304 @@
+// Module 02 — Quotation. specs/02-quotation.md §2.
+//
+// §1 is the design brief and it is unusually direct: "Everything AIES sells is quoted
+// individually. The quotation is where margin is decided, where scope is defined, and where the
+// company's technical credibility is expressed... This module deserves more care than any other."
+//
+// Three consequences run through every model below.
+//
+// **Money is Decimal, never Float.** A quotation is a legal offer; a centavo of binary rounding is
+// a number the customer can dispute. Costs, prices and totals are Decimal(14,2); quantities carry
+// three decimals for part-units; rates and percentages carry more precision than they display,
+// because a rate is multiplied before it is rounded.
+//
+// **Historical facts are stored, not recomputed.** `costFxRate` is the rate used at the moment of
+// quoting, not today's rate (§4: "Never overwrite a historical rate"). The same applies to
+// `lineCost` and `lineMargin`: recomputing them later from a changed markup would silently rewrite
+// what the company decided last March.
+//
+// **Cost and margin are permission-gated at the service layer** (Spec.md §4.3), not hidden in the
+// UI. They live on the model in the open; `finance.view_cost` decides whether they reach the wire.
+
+model Quotation {
+  id String @id @default(cuid())
+
+  // QTN-{YY}{MM}-{####} from the numbering service, shared across a revision chain. R0 is the
+  // original; the displayed document number appends "R{revision}" for revision > 0 (§2).
+  number   String
+  revision Int    @default(0)
+
+  // The root of the revision chain. Null on R0, so the chain is "everything with this
+  // parentQuotationId, plus the row it points at".
+  parentQuotationId String?
+
+  // §10 consumes `inquiry.quoting_started`, so most quotations arrive from an inquiry — but not
+  // all: §9's "duplicate quotation to a different account" produces one with no inquiry behind it.
+  inquiryId String?
+  accountId String
+  siteId    String?
+  contactId String?
+
+  title       String
+  // §1: "where scope is defined". The technical narrative is the artefact the customer actually
+  // reads, and §7 puts it on the PDF above the line table.
+  scopeOfWork String
+  exclusions  String?
+  assumptions String?
+
+  // draft | pending_approval | approved | sent | under_negotiation | accepted | rejected |
+  // expired | superseded | cancelled. Enforced by quotation-lifecycle.ts, not by this column.
+  status String @default("draft")
+
+  currency    String  @default("PHP")
+  // The rate used to convert supplier FX cost to PHP *at the time of quoting*. Six decimals
+  // because a rate is multiplied across every line before anything is rounded.
+  fxRate      Decimal @default(1) @db.Decimal(12, 6)
+  // §4's "quote at BSP rate + 3%" buffer. Stored separately from the rate so the PDF and the
+  // margin panel can show it explicitly — §4: "it is a margin decision, not a hidden fudge."
+  fxBufferPct Decimal @default(0) @db.Decimal(7, 4)
+
+  validUntil DateTime
+
+  deliveryTermIncoterm String?
+  deliveryLeadTime     String?
+  // Plain id rather than a relation until PaymentTerm has rows; see the model below.
+  paymentTermsId       String?
+  warrantyTerms        String?
+
+  // Commercial summary, all denominated in `currency`.
+  subtotal       Decimal @default(0) @db.Decimal(14, 2)
+  discountAmount Decimal @default(0) @db.Decimal(14, 2)
+  // exclusive | inclusive | zero_rated | exempt (§4).
+  vatMode        String  @default("exclusive")
+  vatRatePct     Decimal @default(12) @db.Decimal(7, 4)
+  vatAmount      Decimal @default(0) @db.Decimal(14, 2)
+  total          Decimal @default(0) @db.Decimal(14, 2)
+
+  // Permission-gated on the way out (§4's margin panel, Spec.md §4.3).
+  totalCost    Decimal @default(0) @db.Decimal(14, 2)
+  marginAmount Decimal @default(0) @db.Decimal(14, 2)
+  marginPct    Decimal @default(0) @db.Decimal(7, 4)
+
+  preparedById String
+  approvedById String?
+  approvedAt   DateTime?
+
+  sentAt           DateTime?
+  sentToContactIds String[]  @default([])
+
+  decisionAt      DateTime?
+  rejectionReason String?
+
+  // §5's revision reason — ISO 9001 clause 8.2.4 evidence for changes to requirements.
+  revisionReason String?
+  revisionNote   String?
+
+  // Spec.md §10 requires optimistic locking on quotations by name. §12: "Concurrent edit of one
+  // quotation by two users raises a version conflict rather than a silent overwrite."
+  version Int @default(0)
+
+  customFields Json @default("{}")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account  CustomerAccount        @relation(fields: [accountId], references: [id])
+  inquiry  Inquiry?               @relation(fields: [inquiryId], references: [id])
+  site     Site?                  @relation(fields: [siteId], references: [id])
+  contact  Contact?               @relation(fields: [contactId], references: [id])
+  parent   Quotation?             @relation("QuotationRevisions", fields: [parentQuotationId], references: [id])
+  children Quotation[]            @relation("QuotationRevisions")
+  lines    QuotationLine[]
+  rfqs     SupplierQuoteRequest[]
+
+  // One row per revision of a number.
+  @@unique([number, revision])
+  @@index([accountId, status])
+  @@index([status, validUntil])
+  @@index([preparedById, status])
+  @@index([inquiryId])
+}
+
+model QuotationLine {
+  id          String  @id @default(cuid())
+  quotationId String
+  lineNo      Int
+  // §2: group by "Supply" / "Installation" / "Spares". Free text rather than an enum — the
+  // grouping is presentational and every job groups differently.
+  groupLabel  String?
+
+  // product | service | labour | travel | freight | misc
+  itemType String @default("product")
+
+  productId       String?
+  description     String
+  longDescription String?
+  manufacturer    String?
+  modelNumber     String?
+  partNumber      String?
+
+  quantity Decimal @default(1) @db.Decimal(14, 3)
+  unit     String  @default("pc")
+
+  // As quoted by the principal, in their currency, with the rate used at the time (§4).
+  unitCost     Decimal @default(0) @db.Decimal(14, 2)
+  costCurrency String  @default("PHP")
+  costFxRate   Decimal @default(1) @db.Decimal(12, 6)
+
+  // §4 supports both pricing modes: markup on cost, or a directly entered price with implied
+  // margin. `markupPct` is null when the price was typed rather than derived — which is itself
+  // information, so it is not defaulted to zero.
+  markupPct       Decimal? @db.Decimal(7, 4)
+  unitPrice       Decimal  @default(0) @db.Decimal(14, 2)
+  lineDiscountPct Decimal? @db.Decimal(7, 4)
+
+  // Computed at save time and stored, because they are what the customer was told. See the header
+  // comment on recomputation.
+  lineTotal  Decimal @default(0) @db.Decimal(14, 2)
+  lineCost   Decimal @default(0) @db.Decimal(14, 2)
+  lineMargin Decimal @default(0) @db.Decimal(14, 2)
+
+  // §3.5: "The link is what lets anyone later answer 'where did this cost come from?'"
+  supplierQuoteLineId String?
+
+  leadTimeDays Int?
+  // §7: optional/alternate lines are shown but excluded from the total.
+  isOptional   Boolean @default(false)
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id])
+
+  @@unique([quotationId, lineNo])
+  @@index([quotationId])
+  @@index([productId])
+}
+
+// §3 — the RFQ sent to a principal. "Make that coordination a first-class record instead of an
+// email nobody can find."
+model SupplierQuoteRequest {
+  id     String @id @default(cuid())
+  number String @unique
+
+  quotationId String?
+  inquiryId   String?
+  // Plain id, no relation: module 03 owns `Supplier` and does not exist yet. Module 01's appointed
+  // `PrincipalProspect` is the interim source of who to ask — same deferral as
+  // PrincipalProspect.supplierId, and it gets a foreign key when module 03 lands.
+  supplierId  String
+
+  // draft | sent | responded | declined | expired
+  status String @default("draft")
+
+  sentAt      DateTime?
+  dueBy       DateTime?
+  respondedAt DateTime?
+
+  requestBody   String
+  responseNotes String?
+
+  currency     String?
+  validUntil   DateTime?
+  leadTimeDays Int?
+
+  // §3.4: the supplier's own PDF, attached as evidence of what they actually quoted.
+  responseFileId String?
+
+  requestedById String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  deletedBy     String?
+
+  quotation Quotation?          @relation(fields: [quotationId], references: [id])
+  lines     SupplierQuoteLine[]
+
+  @@index([supplierId, status])
+  // The §3.3 overdue sweep's exact query.
+  @@index([status, dueBy])
+  @@index([quotationId])
+}
+
+model SupplierQuoteLine {
+  id        String @id @default(cuid())
+  requestId String
+  lineNo    Int
+
+  description  String
+  manufacturer String?
+  modelNumber  String?
+
+  quantity     Decimal @default(1) @db.Decimal(14, 3)
+  unit         String  @default("pc")
+  unitCost     Decimal @default(0) @db.Decimal(14, 2)
+  currency     String  @default("PHP")
+  leadTimeDays Int?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  request SupplierQuoteRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, lineNo])
+  @@index([requestId])
+}
+
+// §9: "a light catalogue that grows from usage... The catalogue thus builds itself from real work
+// rather than requiring a data-entry project up front."
+model Product {
+  id  String  @id @default(cuid())
+  sku String? @unique
+
+  name         String
+  description  String?
+  manufacturer String
+  modelNumber  String?
+
+  // Free text rather than a Category model: §9 wants this to accrete from real quotes, and a
+  // mandatory category picker at creation time is exactly the friction that stops that happening.
+  category String?
+  unit     String  @default("pc")
+
+  defaultSupplierId String?
+
+  // The last cost actually seen, so §9's duplicate-quotation flow can flag stale pricing.
+  lastCost         Decimal?  @db.Decimal(14, 2)
+  lastCostCurrency String?
+  lastCostAt       DateTime?
+  defaultMarkupPct Decimal?  @db.Decimal(7, 4)
+
+  datasheetFileId String?
+  isActive        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines QuotationLine[]
+
+  @@index([manufacturer, modelNumber])
+  @@index([isActive, name])
+}
+
+// §2. Owned here because module 02 is the first module to need it; module 05 reads it for billing
+// and module 03 for supplier terms.
+model PaymentTerm {
+  id   String @id @default(cuid())
+  name String @unique
+
+  downpaymentPct Decimal @default(0) @db.Decimal(7, 4)
+  // e.g. "on delivery" | "on completion" | "on invoice" — what triggers the balance.
+  balanceTrigger String?
+  netDays        Int     @default(0)
+  description    String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

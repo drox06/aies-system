@@ -440,6 +440,29 @@ Also landed in the same commit: accounts are indexed for Ctrl+K on create and up
 from the index on soft delete. Inquiries had been indexed since session 2, so searching a customer's
 name found their inquiries but not the customer.
 
+## In progress — Module 02, Quotation
+
+specs/02-quotation.md §1: "This module deserves more care than any other." Planned as **4 sessions**:
+
+- **Session 1 — the spine.** Data model + migration (DONE), module manifest and §11 permissions,
+  QTN numbering with the revision suffix, the §4 costing engine as pure rules, and 
+  stripping on the way out. Consumes  to create the draft.
+- **Session 2 — the builder and revisions.** Line editing, grouping, optional lines, both pricing
+  modes, header discount, VAT modes, the margin panel, and §5's revision chain with its diff view.
+- **Session 3 — approval and issuance.** §6 through module 00's approvals engine (the
+   rule with  is already seeded), §7's branded PDF plus
+  the watermarked internal costing sheet, the send flow, and the auto-expire job.
+- **Session 4 — RFQ, negotiation, reuse.** §3's supplier RFQ sub-flow, §8's negotiation log and
+  what-if calculator, §9's duplicate/templates/self-building catalogue.
+
+### Done in session 1
+- [x]  — , , ,
+      , , , migration .
+      Money is  throughout;  and the computed line figures are stored rather
+      than recomputed, because §4 says never to overwrite a historical rate and a recomputed margin
+      would silently rewrite what the company decided months ago.
+- [x]  on  for the optimistic locking Spec.md §10 requires by name.
+
 ### Next concrete step
 **Module 02 — Quotation.** Read `specs/02-quotation.md` in full, then plan it into sessions the way
 module 01 was (it is the second-largest module in the pack: evaluation, supplier RFQ, costing, the

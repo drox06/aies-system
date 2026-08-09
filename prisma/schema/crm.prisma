@@ -62,6 +62,7 @@ model CustomerAccount {
   contacts       Contact[]
   accreditations AccreditationRecord[]
   inquiries      Inquiry[]
+  quotations     Quotation[]
 
   @@index([ownerId, status])
   @@index([status, name])
@@ -95,6 +96,7 @@ model Site {
   contacts    Contact[]
   inquiries   Inquiry[]
   inspections InspectionRequest[]
+  quotations  Quotation[]
 
   @@index([accountId, deletedAt])
 }
@@ -123,9 +125,10 @@ model Contact {
   deletedAt DateTime?
   deletedBy String?
 
-  account   CustomerAccount @relation(fields: [accountId], references: [id])
-  site      Site?           @relation(fields: [siteId], references: [id])
-  inquiries Inquiry[]
+  account    CustomerAccount @relation(fields: [accountId], references: [id])
+  site       Site?           @relation(fields: [siteId], references: [id])
+  inquiries  Inquiry[]
+  quotations Quotation[]
 
   @@index([accountId, deletedAt])
   @@index([siteId])
@@ -295,6 +298,7 @@ model Inquiry {
   contact     Contact?            @relation(fields: [contactId], references: [id])
   items       InquiryItem[]
   inspections InspectionRequest[]
+  quotations  Quotation[]
 
   @@index([ownerId, status])
   @@index([status, receivedAt])
