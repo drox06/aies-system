@@ -514,37 +514,58 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       schema that plainly contained them. Each is marked resolved; status is now 22 migrations,
       up to date, and a read-only diff confirms the database matches the datamodel exactly.
 
+### Done in session 2 (so far — the service layer; the UI is what remains)
+- [x] `quotation-line-service.ts`, and it is deliberately the **only** writer of `subtotal`,
+      `total`, `totalCost`, `marginAmount` and `marginPct`. All five are derived from the lines by
+      `computeCosting`, so a second writer would put the stored figures out of step with the lines
+      that justify them — and nobody would notice until a customer added the column up themselves.
+      It stores the *landed* unit cost the engine computed, not the raw input, so FX and the buffer
+      are applied exactly once.
+- [x] **Optimistic locking** (Spec.md §10, §12). `updateMany` with `where: { id, version }` rather
+      than `update`, because `update` throws on a missing row and that is indistinguishable from the
+      record having been deleted; zero rows affected means somebody saved first. **Verified
+      load-bearing** by removing the version predicate and watching the test fail.
+- [x] **Edits outside `draft` are refused in the service**, not the UI (§12), and the message says
+      to revise — §5 makes a sent quotation immutable and that is the shape of the whole model.
+- [x] **§5's revision chain.** Clones into n+1 as `draft` sharing the base number; requires a reason
+      from the picklist (the ISO 8.2.4 record of *why* the quote changed); numbers from the highest
+      revision in the chain rather than the one being revised, so revising R1 while R2 exists gives
+      R3 instead of colliding on `[number, revision]`. One root: R0 has no parent and every revision
+      points at it, so listing a chain is one query rather than a recursive walk.
+- [x] The prior revision is **not** superseded on creation. §5 supersedes "at the moment the new one
+      is sent", so a half-written revision cannot retire a quotation the customer is holding.
+      Session 3's send flow does that transition.
+- [x] **§5's diff**, pure so the builder and the PDF share it. Matches lines by **description, not
+      line number** — positional matching reports every line below an insertion as "changed", which
+      is unreadable exactly when somebody is reading it aloud on a negotiation call. Duplicate
+      descriptions pair in order.
+- [x] 14 tests covering three of §12's named cases.
+
 ### Next concrete step
-**Module 02 session 2 — the quote builder and revisions.** Read specs/02-quotation.md §§4, 5 and 9,
-then:
+**Finish module 02 session 2 — the quote builder UI.** The service layer underneath it is done and
+tested; this is the first module 02 screen, so it brings the nav entry with it.
 
-1. `quotation-line-service.ts`: replace a quotation's lines wholesale, recompute through
-   `computeCosting`, and persist header and line figures together. The engine is already written and
-   tested — this is the layer that stores what it returns, and it must be the **only** thing that
-   writes `subtotal` / `total` / `marginAmount`, or the stored figures and the displayed ones will
-   drift.
-2. **Optimistic locking.** Spec.md §10 names quotations specifically and §12 tests it: "concurrent
-   edit of one quotation by two users raises a version conflict rather than a silent overwrite."
-   Every write takes the caller's `version` and increments it in the same `UPDATE ... WHERE version
-   = ?`; zero rows affected means somebody else saved first.
-3. **Edits are refused outside `draft`** at the service layer, not the UI (§12). `isEditable` is
-   already the predicate.
-4. §5's revision chain: `reviseQuotationService` clones the record and its lines into revision n+1
-   as `draft`, sharing the base number, requiring a `revisionReason` from the picklist, and marking
-   the prior revision `superseded` **when the new one is sent** — not when it is created, or a
-   half-written revision would supersede a live quotation.
-5. §5's diff view: a pure function comparing two revisions — lines added, removed, quantity and
-   price changes, terms changed. Sales needs this in front of them on a negotiation call.
-6. `/quotations` list and `/quotations/[id]` builder, plus the nav entry **in the same change as the
-   pages** or the guard test fails. The margin panel is permission-gated on `finance.view_cost` and
-   reads the figures the server already stripped — it must not recompute them client-side, or an
-   unprivileged browser could reconstruct what the API refused to send.
+1. `/quotations` — list on the session-5 `DataTable`. Columns: display number (with `REV01`),
+   account, title, status, total, validity. Money right-aligned and tabular per Spec.md §6.5.
+2. `/quotations/[id]` — the builder. Line table with grouping (§2's `groupLabel`), optional lines
+   visibly separated and excluded from the total, and **both** pricing modes: a markup field and a
+   direct price field, where filling one derives the other. §4: "engineers think in price, finance
+   thinks in margin."
+3. Recompute in the browser through `computeCosting` — already on the UI-safe allow-list — so totals
+   move as the user types and match what the server will store byte for byte. Save sends the lines
+   and the `version`; a `CONFLICT` means somebody else saved and the UI must say so rather than
+   retrying.
+4. **Margin panel, gated on `finance.view_cost`.** It must render the figures the server sent and
+   **never recompute cost client-side** — the API strips cost for unprivileged callers, and a
+   browser that recalculated it from prices would hand back exactly what the gate refused.
+   Per-line heat colouring and the below-floor warning come from `linesBelowFloor`.
+5. Revision panel: the chain from `listRevisionsService`, a "Revise" action taking the §5 picklist,
+   and the diff view rendered from `diffRevisionsService`.
+6. **Add the nav entry in the same change as the pages**, or the guard test fails. Icon
+   `file-text`; map it in `src/components/shell/AppShell.tsx` first — the icon map is an allow-list.
 
-Sessions 3 and 4 remain as planned: approval and issuance, then RFQ, negotiation and reuse.
-
-**No longer blocked.** The company directed that the supplied `AIES Quotation 2026 - template.pdf`
-be disregarded and §7's own section list used as the template, and supplied the registered company
-details — both now in place (docs/DECISIONS.md #26).
+Then session 3 (approval, PDF, send, auto-expire) and session 4 (RFQ, negotiation, reuse) as
+planned.
 
 Notes for whoever picks this up:
   - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/
