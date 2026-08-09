@@ -442,26 +442,39 @@ name found their inquiries but not the customer.
 
 ## In progress — Module 02, Quotation
 
-specs/02-quotation.md §1: "This module deserves more care than any other." Planned as **4 sessions**:
+specs/02-quotation.md §1: "This module deserves more care than any other." Planned as
+**4 sessions**:
 
 - **Session 1 — the spine.** Data model + migration (DONE), module manifest and §11 permissions,
-  QTN numbering with the revision suffix, the §4 costing engine as pure rules, and 
-  stripping on the way out. Consumes  to create the draft.
+  QTN numbering with the revision suffix, the §4 costing engine as pure rules, and
+  `finance.view_cost` stripping on the way out. Consumes `inquiry.quoting_started` to create the
+  draft.
 - **Session 2 — the builder and revisions.** Line editing, grouping, optional lines, both pricing
   modes, header discount, VAT modes, the margin panel, and §5's revision chain with its diff view.
-- **Session 3 — approval and issuance.** §6 through module 00's approvals engine (the
-   rule with  is already seeded), §7's branded PDF plus
-  the watermarked internal costing sheet, the send flow, and the auto-expire job.
+- **Session 3 — approval and issuance.** §6 through module 00's approvals engine — the
+  `quotation.approve` rule with `escalateAfterHours: 24` is already seeded, so the §4.4 fallback to
+  the president needs no new machinery. Then §7's branded PDF plus the watermarked internal costing
+  sheet, the send flow, and the auto-expire job.
 - **Session 4 — RFQ, negotiation, reuse.** §3's supplier RFQ sub-flow, §8's negotiation log and
-  what-if calculator, §9's duplicate/templates/self-building catalogue.
+  what-if calculator, §9's duplicate / templates / self-building catalogue.
 
 ### Done in session 1
-- [x]  — , , ,
-      , , , migration .
-      Money is  throughout;  and the computed line figures are stored rather
-      than recomputed, because §4 says never to overwrite a historical rate and a recomputed margin
-      would silently rewrite what the company decided months ago.
-- [x]  on  for the optimistic locking Spec.md §10 requires by name.
+- [x] `prisma/schema/quotation.prisma` — `Quotation`, `QuotationLine`, `SupplierQuoteRequest`,
+      `SupplierQuoteLine`, `Product` and `PaymentTerm`, in migration
+      `20260809215615_quotation_core`. Money is `Decimal` throughout. `costFxRate` and the computed
+      line figures are **stored, not recomputed**: §4 says never to overwrite a historical rate, and
+      a recomputed margin would silently rewrite what the company decided months ago.
+- [x] `version` on `Quotation`, for the optimistic locking Spec.md §10 requires by name and §12
+      tests ("concurrent edit raises a version conflict rather than a silent overwrite").
+- [x] Applied by the hand-written-migration route. `prisma migrate dev` wanted to reset the whole
+      schema — it needs a shadow database, cannot create one on Supabase, and offers the real one
+      instead. A **read-only** `migrate diff --from-url` proved the database already matched the
+      datamodel apart from the new tables, so the SQL came from that, was applied with
+      `db execute`, and marked with `migrate resolve`. Additive only.
+- [x] Repaired the migration ledger. This morning's wipe (docs/DECISIONS.md #24) had also dropped
+      Prisma's `_prisma_migrations` table, so all 21 earlier migrations read as unapplied against a
+      schema that plainly contained them. Each is marked resolved; status is now 22 migrations,
+      up to date, and a read-only diff confirms the database matches the datamodel exactly.
 
 ### Next concrete step
 **Module 02 — Quotation.** Read `specs/02-quotation.md` in full, then plan it into sessions the way
