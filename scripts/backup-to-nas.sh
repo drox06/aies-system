@@ -38,6 +38,17 @@ trap 'fail $LINENO' ERR
 command -v pg_dump >/dev/null || { log "pg_dump not found"; exit 1; }
 command -v rclone  >/dev/null || { log "rclone not found";  exit 1; }
 
+# pg_dump refuses to dump a server newer than itself, and Synology's packaged Postgres client is
+# routinely several major versions behind Supabase's 16. The error it gives ("server version
+# mismatch") arrives *after* the task has been scheduled and appears to be a connection problem, so
+# it is checked up front where the message can say what to do about it.
+PG_DUMP_MAJOR="$(pg_dump --version | sed -n 's/.* \([0-9][0-9]*\).*/\1/p')"
+if [ -n "${PG_DUMP_MAJOR}" ] && [ "${PG_DUMP_MAJOR}" -lt 16 ]; then
+  log "pg_dump is major version ${PG_DUMP_MAJOR}; Supabase runs Postgres 16."
+  log "A client older than the server cannot dump it. Install a 16+ client (see DEPLOYMENT.md §5)."
+  exit 1
+fi
+
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}"
 
@@ -56,7 +67,14 @@ rclone sync "${RCLONE_REMOTE}" "${STAGING}/storage" --create-empty-src-dirs --st
 # The manifest is what makes the pair identifiable at restore time (Spec.md §7.5 step 5): the dump
 # and the storage sync are taken at different instants, and knowing which is which matters when
 # reconciling a file that exists in one and not the other.
-DUMP_BYTES="$(stat -c %s "${STAGING}/database.dump" 2>/dev/null || stat -f %z "${STAGING}/database.dump")"
+# Quoted with a fallback: an empty value here would produce invalid JSON in the manifest, and a
+# manifest that cannot be parsed is a backup nobody can identify at restore time.
+DUMP_BYTES="$(stat -c %s "${STAGING}/database.dump" 2>/dev/null \
+  || stat -f %z "${STAGING}/database.dump" 2>/dev/null || echo 0)"
+if [ "${DUMP_BYTES}" -lt 1024 ]; then
+  log "Dump is only ${DUMP_BYTES} bytes — refusing to mark this backup complete."
+  exit 1
+fi
 STORAGE_FILES="$(find "${STAGING}/storage" -type f | wc -l | tr -d ' ')"
 STORAGE_BYTES="$(du -sb "${STAGING}/storage" 2>/dev/null | cut -f1 || echo unknown)"
 

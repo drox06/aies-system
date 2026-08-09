@@ -128,6 +128,18 @@ Verify at [mail-tester.com](https://www.mail-tester.com) — aim for 10/10 befor
 Postgres client — on DSM 7 the simplest route is the Community package source, or run them from a
 Docker container via **Container Manager**.
 
+> **The Postgres client must be version 16 or newer.** Supabase runs Postgres 16, and `pg_dump`
+> refuses to dump a server newer than itself. Synology's packaged client is routinely several major
+> versions behind, and the error — `server version mismatch` — arrives only when the scheduled task
+> first runs, where it reads like a connection fault. Check with `pg_dump --version` before
+> scheduling anything; the script now refuses to start on an older client rather than failing
+> obscurely at 02:00. If Package Center has nothing recent enough, run the dump from a
+> `postgres:16-alpine` container via Container Manager, which is the more reliable route anyway.
+
+> **DSM Task Scheduler runs with a minimal `PATH`.** A binary you installed and tested over SSH can
+> still be "not found" when the task runs. Either use absolute paths in the task command, or export
+> a `PATH` that includes them — see the task settings below.
+
 **Configure rclone** for the Supabase storage bucket (S3-compatible):
 ```
 rclone config
@@ -142,17 +154,34 @@ script**:
 - Schedule: daily at **02:00** (after the Manila working day, before the morning).
 - Task Settings → Run command:
   ```bash
+  # PATH first: Task Scheduler does not inherit your SSH shell's environment.
+  export PATH="/usr/local/bin:/opt/bin:/usr/bin:/bin:$PATH"
   export DIRECT_URL='postgresql://...:5432/postgres'
   export BACKUP_ROOT='/volume1/aies-backups'
   export RCLONE_REMOTE='aies-storage:aies-files'
   /volume1/aies-backups/bin/backup-to-nas.sh
   ```
+- **`DIRECT_URL`, not the pooled URL.** `pg_dump` needs a real session; the pooler will refuse or
+  truncate. It is the `:5432` host, not `:6543`.
 - **Tick "Send run details by email" and "only when the script terminates abnormally".** A backup
   job that fails silently is the most common way companies discover they have no backups.
 
 `scripts/backup-to-nas.sh` writes to `<date>.partial` and renames only on success, so an
 interrupted run can never be mistaken for a good backup. It also runs `pg_restore --list` against
-the dump before accepting it — a dump that cannot be read is not a backup.
+the dump before accepting it, refuses a dump under 1 KB, and refuses to run at all on a `pg_dump`
+older than the server — a dump that cannot be read is not a backup, and neither is one that was
+never written.
+
+**Prove it before trusting it.** Run the task once by hand (Task Scheduler → select → *Run*), then:
+
+```bash
+ls -la /volume1/aies-backups/$(date +%F)/     # database.dump, storage/, manifest.json, toc.txt
+cat /volume1/aies-backups/$(date +%F)/manifest.json
+```
+
+A `.partial` directory left behind means it failed; the log says on which line. The backup is not
+finished being set up until §8's restore drill has been done once — until then it is an untested
+assumption, not a backup.
 
 ---
 
