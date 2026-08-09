@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card } from "@/components/ui/layout";
-import { Input, Label, Textarea } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { INSPECTION_OUTPUTS } from "@/server/core/crm/inquiry-lifecycle";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -28,9 +28,12 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
   const [assignedToId, setAssignedToId] = useState("");
+  const [dueAt, setDueAt] = useState("");
   const [findings, setFindings] = useState("");
 
-  const users = trpc.admin.listUsers.useQuery(undefined, { enabled: open });
+  // Technicians and the operations manager only. The old picker called admin.listUsers, which
+  // needs `admin.manage_users` — so for everyone except the president it returned nothing.
+  const assignees = trpc.crm.inspectionAssignees.useQuery(undefined, { enabled: open });
 
   const invalidate = () => {
     void utils.crm.getInquiry.invalidate({ inquiryId: inquiry.id });
@@ -38,6 +41,7 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
   };
 
   const request = trpc.crm.requestInspection.useMutation({ onSuccess: invalidate });
+  const assign = trpc.crm.assignInspection.useMutation({ onSuccess: invalidate });
   const complete = trpc.crm.completeInspection.useMutation({ onSuccess: invalidate });
   const cancel = trpc.crm.cancelInspection.useMutation({ onSuccess: invalidate });
 
@@ -81,6 +85,23 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
             </StatusBadge>
           </div>
           {item.questions && <p className="mt-1 text-xs whitespace-pre-wrap">{item.questions}</p>}
+          <AssignmentRow
+            request={item}
+            assignees={assignees.data ?? []}
+            busy={assign.isPending}
+            onAssign={async (userId, due) => {
+              try {
+                await assign.mutateAsync({
+                  inspectionRequestId: item.id,
+                  assignedToId: userId,
+                  dueAt: due,
+                });
+                toastSuccess("Assigned — they have been notified.");
+              } catch (error) {
+                toastError(error);
+              }
+            }}
+          />
           {item.requiredOutputs.length > 0 && (
             <p className="mt-1 text-xs text-text-muted">
               Bring back: {item.requiredOutputs.join(", ").replace(/_/g, " ")}
@@ -208,23 +229,38 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               />
             </div>
           </div>
-          <div>
-            <Label htmlFor="insp-assignee">Assign to</Label>
-            {/* §5: "Until module 04 exists, the request is a task assigned to a user with a due
-                date." Module 04 replaces this with a real scheduled field task. */}
-            <select
-              id="insp-assignee"
-              className="h-9 w-full rounded border border-border bg-surface px-2 text-sm"
-              value={assignedToId}
-              onChange={(e) => setAssignedToId(e.target.value)}
-            >
-              <option value="">Nobody yet</option>
-              {(users.data ?? []).map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
+          {/* §5: "Until module 04 exists, the request is a task assigned to a user with a due
+              date." Both halves are here — module 04 replaces them with a scheduled field task. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="insp-assignee">Assign to</Label>
+              <Select
+                id="insp-assignee"
+                value={assignedToId}
+                onChange={(e) => setAssignedToId(e.target.value)}
+              >
+                <option value="">Nobody yet</option>
+                {(assignees.data ?? []).map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {assignees.data?.length === 0
+                  ? "Nobody holds the technician or operations-manager role yet."
+                  : "They are notified immediately, with the purpose and what to bring back."}
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="insp-due">Needed by</Label>
+              <Input
+                id="insp-due"
+                type="date"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
+              />
+            </div>
           </div>
           <Button
             size="sm"
@@ -239,11 +275,13 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
                   windowStart: windowStart ? new Date(windowStart) : null,
                   windowEnd: windowEnd ? new Date(windowEnd) : null,
                   assignedToId: assignedToId || null,
+                  dueAt: dueAt ? new Date(dueAt) : null,
                 });
                 toastSuccess("Inspection requested — the acknowledgement clock is paused.");
                 setOpen(false);
                 setPurpose("");
                 setQuestions("");
+                setDueAt("");
               } catch (error) {
                 toastError(error);
               }
@@ -254,5 +292,92 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * Who is going, and by when — on every request, with a way to change it.
+ *
+ * An open inspection with nobody assigned is the state §5 is trying to prevent, so it says so
+ * plainly rather than showing an empty field. Reassignment notifies the new person; the previous
+ * holder is not told, deliberately.
+ */
+function AssignmentRow({
+  request,
+  assignees,
+  busy,
+  onAssign,
+}: {
+  request: {
+    id: string;
+    status: string;
+    assignedToId: string | null;
+    dueAt: string | Date | null;
+  };
+  assignees: { id: string; name: string }[];
+  busy: boolean;
+  onAssign: (userId: string, dueAt: Date | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [userId, setUserId] = useState(request.assignedToId ?? "");
+  const [due, setDue] = useState(
+    request.dueAt ? new Date(request.dueAt).toISOString().slice(0, 10) : "",
+  );
+
+  const assignedName = assignees.find((a) => a.id === request.assignedToId)?.name ?? null;
+  const closed = request.status === "completed" || request.status === "cancelled";
+
+  return (
+    <div className="mt-1.5 text-xs">
+      <span className={assignedName ? "text-text-muted" : "text-warning"}>
+        {assignedName ? (
+          <>
+            Assigned to <span className="font-medium">{assignedName}</span>
+            {request.dueAt && (
+              <>
+                {" "}
+                · needed by <DateCell value={request.dueAt} />
+              </>
+            )}
+          </>
+        ) : (
+          "Nobody is assigned to this visit yet."
+        )}
+      </span>
+      {!closed && (
+        <Button size="sm" variant="ghost" className="ml-2" onClick={() => setEditing((v) => !v)}>
+          {assignedName ? "Reassign" : "Assign"}
+        </Button>
+      )}
+
+      {editing && !closed && (
+        <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_9rem_auto]">
+          <Select aria-label="Assign to" value={userId} onChange={(e) => setUserId(e.target.value)}>
+            <option value="">Choose…</option>
+            {assignees.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </Select>
+          <Input
+            aria-label="Needed by"
+            type="date"
+            value={due}
+            onChange={(e) => setDue(e.target.value)}
+          />
+          <Button
+            size="sm"
+            disabled={busy || userId.length === 0}
+            onClick={async () => {
+              await onAssign(userId, due ? new Date(due) : null);
+              setEditing(false);
+            }}
+          >
+            Save
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

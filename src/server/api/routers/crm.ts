@@ -45,9 +45,12 @@ import {
   upsertRequirementTemplateService,
 } from "@/server/core/crm/inquiry-service";
 import {
+  assignInspectionService,
   cancelInspectionService,
   completeInspectionService,
   createInspectionRequestService,
+  listInspectionAssigneesService,
+  listMyInspectionsService,
 } from "@/server/core/crm/inspection-service";
 import { EXCLUSIVITY_TERMS, PRINCIPAL_STAGES } from "@/server/core/crm/principal-lifecycle";
 import {
@@ -365,6 +368,29 @@ export const crmRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => createInspectionRequestService(actorMeta(ctx), input)),
+
+  /**
+   * Who a site inspection may be given to.
+   *
+   * Gated on `inspection.request`, not `admin.manage_users`: the form that needs this list is used
+   * by whoever raises the inspection, and only the president holds the admin permission. Before
+   * this existed the dropdown was empty for everyone else.
+   */
+  inspectionAssignees: p("inspection.request").query(() => listInspectionAssigneesService()),
+
+  /** Open inspections assigned to the caller — the technician's own list. */
+  myInspections: p("crm.view").query(({ ctx }) => listMyInspectionsService(ctx.user.id)),
+
+  /** Assign or reassign an open inspection, notifying whoever takes it on. */
+  assignInspection: p("inspection.request")
+    .input(
+      z.object({
+        inspectionRequestId: z.string(),
+        assignedToId: z.string(),
+        dueAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => assignInspectionService(actorMeta(ctx), input)),
 
   completeInspection: p("crm.edit")
     .input(

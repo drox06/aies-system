@@ -26,7 +26,17 @@ export const crmManifest = defineManifest({
   // (accreditation → admin_manager, principal prospects → marketing_manager, both also visible to
   // president and vice_president) and Spec.md §4.3 otherwise.
   permissions: [
-    { key: "crm.view", label: "View CRM records", group: "CRM", defaultRoles: OWNERS_AND_SALES() },
+    {
+      key: "crm.view",
+      label: "View CRM records",
+      group: "CRM",
+      // Technical staff are included because §5 sends them to site: an inspection request is
+      // assigned to a technician, and somebody who cannot open the inquiry cannot read the
+      // questions the visit is supposed to answer. They do **not** get `crm.view_all`, so record
+      // scoping still applies — see inquiryScopeWhere, which lets them reach exactly the inquiries
+      // they have been assigned an inspection on and nothing else.
+      defaultRoles: [...OWNERS_AND_SALES(), "operations_manager", "technician"],
+    },
     {
       key: "crm.view_all",
       label: "View all CRM records, not just their own",

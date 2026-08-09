@@ -33,6 +33,118 @@ registerNotificationType({
   defaultChannels: { inApp: true, email: false, digest: false },
 });
 
+/**
+ * The roles that may be sent to site (§5: "sales needs the technical team to inspect a site").
+ *
+ * Spec.md §4.1 puts field execution with `technician` and dispatch with `operations_manager` (DJ).
+ * `technician` is seeded-but-unassigned today (§4.2), so in practice this resolves to DJ until AIES
+ * hires — which is correct rather than a gap, and means the list is right on the day they do.
+ *
+ * An allow-list rather than "every active user": a site inspection assigned to the finance officer
+ * is not a typo anyone catches, it is a visit that never happens.
+ */
+export const INSPECTION_ASSIGNEE_ROLES = ["technician", "operations_manager"] as const;
+
+export interface InspectionAssignee {
+  id: string;
+  name: string;
+  roles: string[];
+}
+
+/**
+ * Who an inspection may be assigned to.
+ *
+ * Exists because the form previously used `admin.listUsers`, which is gated on
+ * `admin.manage_users` — a permission only the president holds. Everyone else opened the assignee
+ * dropdown and found it empty, so in practice nobody but EA could assign an inspection at all.
+ * Gated on `inspection.request` instead: if you may raise one, you may see who can take it.
+ */
+export async function listInspectionAssigneesService(): Promise<InspectionAssignee[]> {
+  const users = await db.user.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      roles: { some: { role: { key: { in: [...INSPECTION_ASSIGNEE_ROLES] } } } },
+    },
+    select: { id: true, name: true, roles: { select: { role: { select: { key: true } } } } },
+    orderBy: { name: "asc" },
+  });
+
+  return users.map((user) => ({
+    id: user.id,
+    name: user.name,
+    roles: user.roles.map((r) => r.role.key),
+  }));
+}
+
+/** Shared by create and reassign, so the two cannot drift on who is eligible. */
+async function assertAssignable(userId: string): Promise<{ id: string; name: string }> {
+  const user = await db.user.findFirst({
+    where: {
+      id: userId,
+      isActive: true,
+      deletedAt: null,
+      roles: { some: { role: { key: { in: [...INSPECTION_ASSIGNEE_ROLES] } } } },
+    },
+    select: { id: true, name: true },
+  });
+  if (!user) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "A site inspection can only be assigned to a technician or the operations manager. " +
+        "That user holds neither role, or is inactive.",
+    });
+  }
+  return user;
+}
+
+/**
+ * Tells the assigned technician what they have been asked to do.
+ *
+ * The body carries the purpose, the due date, the window and the required outputs, because a
+ * notification saying only "you have been assigned an inspection" makes the recipient open the
+ * record just to find out whether it is urgent — and §5's whole point is that a visit answering the
+ * wrong question costs another visit.
+ */
+async function notifyAssignee(
+  recipientId: string,
+  request: {
+    purpose: string;
+    dueAt: Date | null;
+    windowStart: Date | null;
+    windowEnd: Date | null;
+    requiredOutputs: string[];
+  },
+  inquiry: { id: string; number: string },
+): Promise<void> {
+  const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const window =
+    request.windowStart || request.windowEnd
+      ? `Window ${day(request.windowStart) ?? "any"} to ${day(request.windowEnd) ?? "any"}.`
+      : null;
+
+  await notify({
+    recipientId,
+    type: INSPECTION_REQUESTED_NOTIFICATION_TYPE,
+    title: `Site inspection assigned to you — ${inquiry.number}`,
+    body: [
+      request.purpose,
+      request.dueAt ? `Needed by ${day(request.dueAt)}.` : null,
+      window,
+      request.requiredOutputs.length > 0
+        ? `Bring back: ${request.requiredOutputs.join(", ").replace(/_/g, " ")}.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    // Points at the inquiry, which is where the panel and the site access notes live. The recipient
+    // can now open it: inquiryScopeWhere admits an assigned inspector.
+    entityType: INQUIRY_ENTITY_TYPE,
+    entityId: inquiry.id,
+  });
+}
+
 export interface CreateInspectionInput {
   inquiryId: string;
   siteId?: string | null;
@@ -83,6 +195,10 @@ export async function createInspectionRequestService(
     });
   }
 
+  // Validated before anything is written, so an ineligible assignee fails the whole request rather
+  // than leaving an inspection nobody was told about.
+  const assignee = input.assignedToId ? await assertAssignable(input.assignedToId) : null;
+
   const inquiry = await db.inquiry.findFirst({
     where: { id: input.inquiryId, deletedAt: null },
     select: { id: true, number: true, status: true, accountId: true, siteId: true },
@@ -109,8 +225,11 @@ export async function createInspectionRequestService(
         requiredOutputs: input.requiredOutputs ?? [],
         windowStart: input.windowStart ?? null,
         windowEnd: input.windowEnd ?? null,
-        assignedToId: input.assignedToId ?? null,
+        assignedToId: assignee?.id ?? null,
         dueAt: input.dueAt ?? null,
+        // Assigned at creation means it is already somebody's scheduled work; unassigned means it
+        // is raised and waiting for a dispatcher.
+        status: assignee ? "scheduled" : "requested",
         requestedById: actor.actorId,
       },
     });
@@ -155,20 +274,89 @@ export async function createInspectionRequestService(
   // own message back, telling them exactly which move is missing.
   await transitionInquiryService(actor, { inquiryId: inquiry.id, to: "inspection_required" });
 
-  if (request.assignedToId) {
-    await notify({
-      recipientId: request.assignedToId,
-      type: INSPECTION_REQUESTED_NOTIFICATION_TYPE,
-      title: `Site inspection requested — ${inquiry.number}`,
-      body:
-        `${purpose}` +
-        (request.dueAt ? ` Needed by ${request.dueAt.toISOString().slice(0, 10)}.` : ""),
-      entityType: INQUIRY_ENTITY_TYPE,
-      entityId: inquiry.id,
-    });
+  if (assignee) {
+    await notifyAssignee(assignee.id, request, inquiry);
   }
 
   return request;
+}
+
+/**
+ * Assigns or reassigns an open inspection, and tells the new assignee.
+ *
+ * Separate from a generic update because an assignment is a handover: somebody is now expected to
+ * drive to a plant. The previous holder is deliberately not notified — "you no longer have to do
+ * this" is not worth an interruption — but the audit row records the change either way.
+ */
+export async function assignInspectionService(
+  actor: ActorMeta,
+  input: { inspectionRequestId: string; assignedToId: string; dueAt?: Date | null },
+) {
+  const assignee = await assertAssignable(input.assignedToId);
+
+  const request = await db.inspectionRequest.findFirst({
+    where: { id: input.inspectionRequestId, deletedAt: null },
+    include: { inquiry: { select: { id: true, number: true } } },
+  });
+  if (!request) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That inspection request no longer exists.",
+    });
+  }
+  if (request.status === "completed" || request.status === "cancelled") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `An inspection that is ${humanStatus(request.status)} cannot be reassigned.`,
+    });
+  }
+
+  const updated = await db.$transaction(async (tx) => {
+    const row = await tx.inspectionRequest.update({
+      where: { id: request.id },
+      data: {
+        assignedToId: assignee.id,
+        dueAt: input.dueAt === undefined ? request.dueAt : input.dueAt,
+        status: "scheduled",
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "inspection_assigned",
+      entityType: INQUIRY_ENTITY_TYPE,
+      entityId: request.inquiry.id,
+      summary: `Assigned the site inspection on ${request.inquiry.number} to ${assignee.name}`,
+      diff: { assignedToId: { from: request.assignedToId, to: assignee.id } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return row;
+  });
+
+  await notifyAssignee(assignee.id, updated, request.inquiry);
+  return updated;
+}
+
+/** Open inspections assigned to a user — what My Day shows a technician. */
+export async function listMyInspectionsService(userId: string) {
+  return db.inspectionRequest.findMany({
+    where: {
+      deletedAt: null,
+      assignedToId: userId,
+      status: { in: ["requested", "scheduled"] },
+    },
+    orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
+    include: {
+      inquiry: { select: { id: true, number: true, subject: true } },
+      // The access notes come along because they decide whether the visit can happen at all —
+      // gate pass lead time, induction, PPE.
+      site: { select: { name: true, accessNotes: true } },
+    },
+  });
 }
 
 /**

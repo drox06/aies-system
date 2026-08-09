@@ -44,7 +44,21 @@ export function inquiryScopeWhere(user: {
   permissions: ReadonlySet<string>;
 }): Prisma.InquiryWhereInput {
   if (user.permissions.has("crm.view_all")) return {};
-  return { ownerId: user.id };
+
+  // Owning the inquiry is the main route in. The second is §5's inspection request: a technician
+  // sent to a plant has to be able to read the inquiry to see the questions the visit must answer
+  // and the site's access constraints. Without this the assignment notification links to a record
+  // the recipient cannot open, which is worse than not notifying them at all.
+  //
+  // Deliberately not limited to *open* inspections. Completing one would otherwise revoke access
+  // to the record the technician had just written findings on, and looking back at your own past
+  // site visit is legitimate. Deleted requests do not count.
+  return {
+    OR: [
+      { ownerId: user.id },
+      { inspections: { some: { assignedToId: user.id, deletedAt: null } } },
+    ],
+  };
 }
 
 // ---- templates ----------------------------------------------------------------------------------

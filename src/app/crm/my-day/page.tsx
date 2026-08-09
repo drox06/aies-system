@@ -20,7 +20,9 @@ import { trpc } from "@/lib/trpc/client";
  */
 export default function MyDayPage() {
   const myDay = trpc.crm.myDay.useQuery();
+  const inspections = trpc.crm.myInspections.useQuery();
   const data = myDay.data;
+  const myInspections = inspections.data ?? [];
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -30,6 +32,58 @@ export default function MyDayPage() {
       />
 
       {myDay.isPending && <p className="text-sm text-text-muted">Loading…</p>}
+
+      {/* §5's site inspections, first because they are the only item here with a plant visit and a
+          gate pass behind them — everything else on this page can be done from a desk. A technician
+          sees this section and nothing else, since they own no inquiries. */}
+      {myInspections.length > 0 && (
+        <Card className="mb-4 p-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">Site inspections assigned to you</h2>
+            <span className="tabular text-xs text-text-muted">{myInspections.length}</span>
+          </div>
+          <ul className="mt-2 divide-y divide-border">
+            {myInspections.map((item) => (
+              <li key={item.id} className="py-2 text-sm">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <Link
+                    href={`/crm/inquiries/${item.inquiry.id}`}
+                    className="min-w-0 flex-1 truncate font-medium hover:underline"
+                  >
+                    <span className="tabular text-text-muted">{item.inquiry.number}</span>{" "}
+                    {item.purpose}
+                  </Link>
+                  {item.dueAt ? (
+                    <StatusBadge tone={new Date(item.dueAt) < new Date() ? "failed" : "pending"}>
+                      by <DateCell value={item.dueAt} />
+                    </StatusBadge>
+                  ) : (
+                    <StatusBadge tone="draft">no date set</StatusBadge>
+                  )}
+                </div>
+                {item.site?.name && (
+                  <p className="mt-0.5 text-xs text-text-muted">{item.site.name}</p>
+                )}
+                {item.questions && (
+                  <p className="mt-0.5 text-xs whitespace-pre-wrap">{item.questions}</p>
+                )}
+                {item.requiredOutputs.length > 0 && (
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    Bring back: {item.requiredOutputs.join(", ").replace(/_/g, " ")}
+                  </p>
+                )}
+                {/* The commonest cause of a wasted trip, so it is on the list rather than one
+                    click away. */}
+                {item.site?.accessNotes && (
+                  <p className="mt-1 rounded border border-border bg-surface-2 p-1.5 text-xs">
+                    <span className="font-medium">Site access:</span> {item.site.accessNotes}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {data && (
         <div className="space-y-4">
