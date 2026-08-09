@@ -345,7 +345,20 @@ function AssignmentRow({
         )}
       </span>
       {!closed && (
-        <Button size="sm" variant="ghost" className="ml-2" onClick={() => setEditing((v) => !v)}>
+        <Button
+          size="sm"
+          // Blue while nobody is going, ghost once somebody is. Spec.md §6.3 makes blue the UI
+          // primary for "every primary action", and on an unassigned request this *is* the action:
+          // a raised inspection with no name against it means the visit is not happening, and the
+          // inquiry's SLA clock is paused behind it. Reassigning is housekeeping, so it drops back
+          // to ghost rather than competing for attention at the same weight.
+          //
+          // The orange stays on the sentence rather than moving onto the button — §6.3 reserves it
+          // for "needs your attention" indicators, not for calls to action.
+          variant={assignedName ? "ghost" : "primary"}
+          className="ml-2"
+          onClick={() => setEditing((v) => !v)}
+        >
           {assignedName ? "Reassign" : "Assign"}
         </Button>
       )}
