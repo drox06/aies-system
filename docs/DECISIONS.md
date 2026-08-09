@@ -726,3 +726,66 @@ approval rules, numbering formats, requirement templates, and demo data.
 **Neither `git` nor the codebase was at risk** — this destroyed data, not source. Everything needed
 to rebuild the schema and the seed was in the repository, which is why recovery took two commands.
 That is the argument for keeping seed scripts complete and current, and it paid for itself here.
+
+---
+
+## 25. Quotation numbers follow AIES's own convention, not Spec.md §5's
+
+**Module:** 02, session 1.
+
+Spec.md §5's table gives quotations `QTN-{YY}{MM}-{####}` → `QTN-2608-0042`, with `R{n}` appended
+for revisions. The company gave their actual convention instead:
+
+| | Format | Example |
+|---|---|---|
+| Local customers | `AIESLQ` + 2-digit year + 4-digit series | `AIESLQ260001` |
+| Indent / international | `AIESIQ` + 2-digit year + 4-digit series | `AIESIQ260001` |
+| Any revision | base + `REV` + 2-digit revision | `AIESLQ260001REV01` |
+
+**The spec loses, and it is not close.** These numbers are printed on quotations customers already
+hold and on documents referenced in existing correspondence. A document number is an external
+identifier, not an internal preference — Spec.md §5's own framing ("configurable per document type
+in system settings") says the table is a default, and this is exactly the case it anticipated.
+
+**Two document types, not one with a prefix argument.** `quotation_local` and `quotation_indent`
+are separate types in the numbering service, because the counter is scoped per document type.
+Sharing one would interleave the series — the fourth local quote of the year would be `AIESLQ260007`
+because three indent quotes happened in between. There is a test for this.
+
+**The January restart is emergent, so it is tested.** The counter's scope key is built from the
+format's own date tokens, so `{YY}` alone means the series restarts each year with nobody resetting
+anything. Nothing in the code says "reset in January", which is exactly why a test asserts it —
+a series that silently continued across years would not be discovered until 2027.
+
+**`REV00` is never printed.** The first issue of `AIESLQ260001` is just `AIESLQ260001`; a `REV00`
+suffix would invite the question "where is revision zero?". The suffix appears from revision 1.
+
+**`quoteType` is stored on the quotation** rather than parsed back off the prefix. A record whose
+stored type disagreed with its own number would be unresolvable, and the parse helper exists only
+so that a person pasting `AIESLQ260001REV02` into search finds the quotation.
+
+**The spec's `quotation` format is deleted from the seed**, not left inert. Left in place it would
+be the obvious document type to reach for, and would quietly allocate a `QTN-` number onto a
+document AIES would not recognise.
+
+---
+
+## 26. AIES's registered details live in code until module 09's settings exist
+
+**Module:** 02, session 1.
+
+Spec.md §11.2 item 1 lists the registered company details as genuinely open, to be "entered manually
+in system settings at first run", and warns that "every PDF header depends on them". Module 09 owns
+that screen and does not exist. The company supplied the values, so they live in
+`src/server/core/company.ts` behind `getCompanyDetails()`.
+
+**Not a `SystemSetting` table invented here.** That would be a second settings mechanism for module
+09 to reconcile — the same trap that kept the ISO 8.4 supplier register and module 03's `Supplier`
+out of module 01. Constants in one file are findable and impossible to get half-migrated.
+
+**Read through the function, never the constant.** That is the seam: when module 09 lands,
+`getCompanyDetails()` becomes a settings read and no caller changes.
+
+The supplied address read "Manadaluyong City"; it is stored as **Mandaluyong City**. Flagged to the
+company rather than corrected silently — if the original spelling was deliberate, this is the line
+to change.

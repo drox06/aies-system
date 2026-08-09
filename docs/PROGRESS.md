@@ -471,6 +471,20 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       instead. A **read-only** `migrate diff --from-url` proved the database already matched the
       datamodel apart from the new tables, so the SQL came from that, was applied with
       `db execute`, and marked with `migrate resolve`. Additive only.
+- [x] **The §4 costing engine**, pure and in integer centavos — not float (0.1 is not
+      representable, and forty lines of drift becomes a total ending .99999998 on a signed
+      document) and not Prisma's `Decimal` (exact, but it would drag the Prisma runtime into the
+      browser). Both pricing modes, the FX buffer, line and header discounts, all four VAT modes,
+      optional lines excluded from totals *and* margin, the margin floor, and §8's what-if
+      calculator. 17 tests, every expected figure worked out by hand per §12.
+- [x] **The company's own quotation numbering**, replacing Spec.md §5's placeholder:
+      `AIESLQ260001` for local, `AIESIQ260001` for indent/international, `REV01` appended from the
+      first revision. Two independent series, each restarting each January — both emergent from the
+      numbering service's scope key, and therefore both tested. `quoteType` stored on the record.
+      docs/DECISIONS.md #25. 13 tests.
+- [x] **AIES's registered details** behind `getCompanyDetails()`, ready for §7's PDF header.
+      Constants until module 09's settings screen exists, deliberately rather than inventing a
+      second settings mechanism. docs/DECISIONS.md #26.
 - [x] Repaired the migration ledger. This morning's wipe (docs/DECISIONS.md #24) had also dropped
       Prisma's `_prisma_migrations` table, so all 21 earlier migrations read as unapplied against a
       schema that plainly contained them. Each is marked resolved; status is now 22 migrations,

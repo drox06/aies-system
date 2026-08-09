@@ -22,10 +22,16 @@
 model Quotation {
   id String @id @default(cuid())
 
-  // QTN-{YY}{MM}-{####} from the numbering service, shared across a revision chain. R0 is the
-  // original; the displayed document number appends "R{revision}" for revision > 0 (§2).
+  // The company's own convention, not Spec.md §5's placeholder: AIESLQ{YY}{####} for local
+  // customers and AIESIQ{YY}{####} for indent/international, with `REV01` appended from revision 1.
+  // Two independent series, each restarting each January. See docs/DECISIONS.md #25 and
+  // src/server/core/quotation/quotation-number.ts.
   number   String
   revision Int    @default(0)
+
+  // local | indent. Decides which series the number came from, so it is stored rather than parsed
+  // back off the prefix — a quote type that disagreed with its own number would be unresolvable.
+  quoteType String @default("local")
 
   // The root of the revision chain. Null on R0, so the chain is "everything with this
   // parentQuotationId, plus the row it points at".

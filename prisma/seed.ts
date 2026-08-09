@@ -264,7 +264,15 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // for a customer relationship, not a dated document, so the counter never resets.
   { documentType: "account", format: "ACC-{####}", label: "Account code" },
   { documentType: "inquiry", format: "INQ-{YY}{MM}-{####}", label: "Inquiry" },
-  { documentType: "quotation", format: "QTN-{YY}{MM}-{####}", label: "Quotation" },
+  // The company's own convention, replacing Spec.md §5's QTN-{YY}{MM}-{####} placeholder. Two
+  // independent series so a local quote and an indent quote never share a counter; each restarts
+  // in January because the scope key comes from the format's own {YY}. docs/DECISIONS.md #25.
+  { documentType: "quotation_local", format: "AIESLQ{YY}{####}", label: "Quotation (local)" },
+  {
+    documentType: "quotation_indent",
+    format: "AIESIQ{YY}{####}",
+    label: "Quotation (indent / international)",
+  },
   { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
   { documentType: "supplier_po", format: "PO-{YY}-{#####}", label: "Supplier PO" },
   { documentType: "ticket", format: "TKT-{YY}-{#####}", label: "Ticket" },
@@ -292,6 +300,10 @@ async function seedNumberingFormats() {
       create: f,
     });
   }
+
+  // The spec's placeholder format, superseded by the two above. Deleted rather than left inert so
+  // nobody allocates against it by reaching for the obvious document type name.
+  await db.numberingFormat.deleteMany({ where: { documentType: "quotation" } });
 
   console.log(`Seeded ${NUMBERING_FORMATS.length} numbering formats.`);
 }
