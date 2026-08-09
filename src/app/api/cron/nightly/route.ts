@@ -3,6 +3,7 @@ import {
   sweepAccreditationRenewals,
   sweepStalledRenewals,
 } from "@/server/core/crm/accreditation-renewal";
+import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 
 /**
  * Once daily. specs/00-foundation.md §9.1 asks for `/api/cron/nightly`; this is the first thing
@@ -40,6 +41,16 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] stalled renewal sweep failed:", error);
     results.stalledRenewals = { error: String(error) };
+  }
+
+  // specs/01-crm-inquiry.md §3's acknowledgement SLA. Nightly rather than hourly on purpose: the
+  // deadline is a whole business day, so an escalation that arrives the next morning is on time,
+  // and an hourly sweep would only add 23 chances to send a duplicate.
+  try {
+    results.inquirySla = await sweepInquirySla();
+  } catch (error) {
+    console.error("[cron/nightly] inquiry SLA sweep failed:", error);
+    results.inquirySla = { error: String(error) };
   }
 
   return NextResponse.json(results);

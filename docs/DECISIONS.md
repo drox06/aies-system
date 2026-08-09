@@ -492,3 +492,80 @@ permit exists once with one expiry and each accreditation references it. Do not 
 
 **Migration** `20260808213546_accreditation_drop_requirements` drops the column. Destructive by
 design; the data it held is on the customers' portals.
+
+---
+
+## 20. The lifecycle diagram is transcribed literally, including what it does not draw
+
+**Ambiguity.** specs/01-crm-inquiry.md §3 gives the inquiry lifecycle as a diagram. A diagram shows
+the edges it draws; it does not say whether the ones it omits are forbidden or merely unremarkable.
+Two omissions matter in practice: there is no `new → disqualified` edge, and no way back out of
+`won` / `lost` / `disqualified`.
+
+**Chose:** transcribe it literally. `ALLOWED_TRANSITIONS` contains exactly the edges §3 draws, so
+junk has to be acknowledged and moved to `evaluating` before it can be disqualified, and a closed
+inquiry cannot be reopened.
+
+**Why.** Spec.md §11.3 asks for the most conservative reading, and here the conservative reading is
+also the operationally safer one. The failure this module exists to remove is inquiries
+disappearing — Spec.md §1.2 lists "lost inquiries" as a consequence to be designed out. A one-click
+discard on an inquiry nobody has read is precisely how that happens, and it would be
+indistinguishable in the data from an inquiry that was properly assessed and rejected. Two extra
+clicks is a small price for a disqualification that somebody demonstrably looked at.
+
+Reopening is refused for the same reason in reverse: an inquiry that was won, then reopened, then
+lost has no honest status history, and §3's whole purpose is to make the pipeline report mean
+something. The error message says "Log a new inquiry instead", which is the correct answer — the
+customer came back, and that is a new event with its own date.
+
+**Also chosen:** `quoted`, `won` and `lost` are marked `systemOnly`. §3 says "`won` / `lost` are set
+by the quotation outcome, not manually — the inquiry mirrors its quotation", and `quoted` mirrors
+`quotation.sent` by the same logic. Until module 02 exists these three are unreachable, which is
+correct rather than a gap: an inquiry marked won by hand with no quotation behind it is a number
+nobody can audit. `transitionInquiryService` takes a `bySystem` flag for module 02 to use, and the
+router deliberately does **not** expose it — otherwise anyone with `crm.edit` could post
+`{ to: "won", bySystem: true }` and book a sale that never happened.
+
+**Revisit** when module 02 lands: it subscribes to `quotation.sent` / `accepted` / `rejected` and
+calls the transition service with `bySystem: true`. Nothing in the state machine changes.
+
+---
+
+## 21. The SLA working calendar is Philippine regular holidays only, and the pause is built before it can bite
+
+**Ambiguity.** specs/01-crm-inquiry.md §3 sets the acknowledgement SLA at "1 business day,
+configurable". Spec.md §10 describes a configurable working calendar in system settings.
+`SystemSetting` belongs to module 09 and does not exist, so neither the calendar nor the "1" is
+configurable yet.
+
+**Chose:** `src/server/core/calendar/business-days.ts`, with weekends plus the seven Philippine
+**regular** holidays that fall on a fixed date. The movable regular holidays (Maundy Thursday, Good
+Friday, the two Eids, Chinese New Year) are set by presidential proclamation annually and cannot be
+computed; the "special non-working days" (Ninoy Aquino Day, All Saints', 31 December) are
+no-work-no-pay days many private firms work through. Both are omitted, and `setHolidayProvider`
+exists so module 09 replaces the source without any caller changing.
+
+**Why that direction of error.** A missing non-working day makes the deadline *earlier*, so an
+inquiry escalates sooner than it strictly must. Erring the other way would let a genuinely late
+inquiry sit quietly, which is the exact failure §3 exists to prevent. One business day means the
+same clock time on the next working day, which needs no office-hours model: a full working day
+forward is a full working day forward whatever time the clock started.
+
+**No timezone library.** The Philippines has not observed daylight saving since 1978, so Asia/Manila
+is a fixed UTC+8. Dates are stored as UTC instants per Spec.md §6.6 and the offset is applied only
+to decide which calendar day an instant falls on. A tz database would be a dependency to maintain
+for an offset that has not moved in half a century — Spec.md §2's "every dependency added must be
+justified" cuts against it.
+
+**The pause, stated honestly.** §5 says the SLA clock pauses during `inspection_required`, and §10
+asks for that behaviour by name. But §3's own diagram only reaches `inspection_required` from
+`evaluating`, which is downstream of `acknowledged` — so an unacknowledged inquiry cannot be in that
+state, and the pause **cannot currently affect the acknowledgement escalation**. It is built and
+tested anyway, for two reasons: §10 requires it, and module 02's quotation-turnaround SLA will be
+the first clock it actually moves. `assessInquirySla` also refuses to escalate anything sitting in
+`inspection_required` regardless of the arithmetic, so the pause survives any future loosening of
+the transition map.
+
+Paused time is banked in *business* milliseconds, not wall time. A pause raised Friday afternoon and
+closed Monday morning gives back only the working part; banking wall time would hand the inquiry two
+free days of budget that were never spent.

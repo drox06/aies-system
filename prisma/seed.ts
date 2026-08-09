@@ -3,8 +3,9 @@
 // one has dev-mode globalThis caching meant for the Next.js request lifecycle, which a one-shot
 // script doesn't need.
 import { hash } from "@node-rs/argon2";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { registry } from "../src/server/core/manifests";
+import { SEED_REQUIREMENT_TEMPLATES } from "../src/server/core/crm/requirements";
 
 const db = new PrismaClient();
 
@@ -295,11 +296,36 @@ async function seedNumberingFormats() {
   console.log(`Seeded ${NUMBERING_FORMATS.length} numbering formats.`);
 }
 
+/**
+ * specs/01-crm-inquiry.md §4's requirements checklists, one per service type.
+ *
+ * `update` deliberately writes only `label`, never `fields`. §4 says these are "editable in
+ * settings", so re-running the seed after somebody has added a question to the installation
+ * template must not throw their edit away — which is exactly what a full upsert would do, silently,
+ * on the next deploy.
+ */
+async function seedRequirementTemplates() {
+  for (const template of SEED_REQUIREMENT_TEMPLATES) {
+    await db.requirementTemplate.upsert({
+      where: { serviceType: template.serviceType },
+      update: { label: template.label },
+      create: {
+        serviceType: template.serviceType,
+        label: template.label,
+        fields: template.fields as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  console.log(`Seeded ${SEED_REQUIREMENT_TEMPLATES.length} requirements templates.`);
+}
+
 async function main() {
   await seedRolesAndPermissions();
   await seedUsers();
   await seedApprovalRules();
   await seedNumberingFormats();
+  await seedRequirementTemplates();
 }
 
 main()

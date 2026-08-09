@@ -123,7 +123,6 @@ export const crmManifest = defineManifest({
    * page, not as an obvious error. A nav entry is a promise that the route works, and
    * tests/server/core/modules/crm-manifest.test.ts now enforces it. Add each remaining entry in
    * the session that builds its page:
-   *   - Inquiries  /crm/inquiries  icon "inbox"      crm.view                  order 11
    *   - Principals /crm/principals icon "handshake"  principal_prospect.manage order 13
    * Their icons are already mapped in src/components/shell/AppShell.tsx.
    */
@@ -134,6 +133,13 @@ export const crmManifest = defineManifest({
       icon: "building",
       permission: "crm.view",
       order: 10,
+    },
+    {
+      label: "Inquiries",
+      href: "/crm/inquiries",
+      icon: "inbox",
+      permission: "crm.view",
+      order: 11,
     },
     {
       label: "Accreditations",

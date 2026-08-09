@@ -61,6 +61,7 @@ model CustomerAccount {
   sites          Site[]
   contacts       Contact[]
   accreditations AccreditationRecord[]
+  inquiries      Inquiry[]
 
   @@index([ownerId, status])
   @@index([status, name])
@@ -90,8 +91,10 @@ model Site {
   deletedAt DateTime?
   deletedBy String?
 
-  account  CustomerAccount @relation(fields: [accountId], references: [id])
-  contacts Contact[]
+  account     CustomerAccount     @relation(fields: [accountId], references: [id])
+  contacts    Contact[]
+  inquiries   Inquiry[]
+  inspections InspectionRequest[]
 
   @@index([accountId, deletedAt])
 }
@@ -120,8 +123,9 @@ model Contact {
   deletedAt DateTime?
   deletedBy String?
 
-  account CustomerAccount @relation(fields: [accountId], references: [id])
-  site    Site?           @relation(fields: [siteId], references: [id])
+  account   CustomerAccount @relation(fields: [accountId], references: [id])
+  site      Site?           @relation(fields: [siteId], references: [id])
+  inquiries Inquiry[]
 
   @@index([accountId, deletedAt])
   @@index([siteId])
@@ -195,4 +199,252 @@ model AccreditationRecord {
   @@unique([accountId, deletedAt])
   @@index([status, expiresAt])
   @@index([ownerId])
+}
+
+// specs/01-crm-inquiry.md §2 and §3 — the inquiry.
+//
+// §1.2's problem table names "no CRM or pipeline tool → no forecast, no follow-up discipline, lost
+// inquiries" as a thing the system must remove, and §3 answers it with an SLA on the very first
+// transition. Almost everything unusual in this model is in service of that one rule.
+model Inquiry {
+  id     String @id @default(cuid())
+  // INQ-{YY}{MM}-{####}, seeded in prisma/seed.ts's numbering formats.
+  number String @unique
+
+  // All three optional per §2. An inquiry genuinely can arrive before anyone knows which account it
+  // belongs to — a call from a plant engineer who gives a site but not a company — and forcing the
+  // link at creation is how you get junk accounts created to satisfy a NOT NULL.
+  accountId String?
+  siteId    String?
+  contactId String?
+
+  // email | website | linkedin | phone | walk_in | referral | existing_customer | trade_show.
+  // `email` and `website` are unreachable today: Spec.md §3.4 removed inbound ingest, and §8 says
+  // to keep the values so nothing changes when they return.
+  source    String  @default("phone")
+  sourceRef String?
+
+  // Distinct from createdAt: an inquiry logged on Monday for a call taken on Friday has an SLA
+  // clock that started Friday. Backdating is honest here and the SLA derivation depends on it.
+  receivedAt  DateTime @default(now())
+  subject     String
+  description String?
+
+  // §4's checklist answers, keyed by the template field's key. Deliberately schemaless: every
+  // service type asks different questions and the templates are editable.
+  requirements Json @default("{}")
+
+  industry       String?
+  estimatedValue Decimal?  @db.Decimal(14, 2)
+  currency       String    @default("PHP")
+  requiredByDate DateTime?
+
+  // new | acknowledged | evaluating | inspection_required | quoting | quoted | won | lost |
+  // disqualified. Transitions are enforced by inquiry-lifecycle.ts, not by this column.
+  status String @default("new")
+
+  ownerId    String
+  assignedAt DateTime?
+
+  // Light BANT (§2: "optional"). Json because a half-answered qualification is the normal case and
+  // four nullable columns would imply otherwise.
+  qualification Json?
+
+  // §3: "lostReason is a required, configurable picklist. Without enforced loss reasons the
+  // pipeline reports are worthless."
+  lostReason       String?
+  lostToCompetitor String?
+
+  // ---- SLA (§3) ----------------------------------------------------------------------------
+  // The deadline itself is NOT stored. It is derived from receivedAt + the working calendar, the
+  // same reasoning as the accreditation status: a stored deadline is a second copy of a fact that
+  // goes stale the moment the SLA setting changes, and nothing runs before a page is opened.
+  acknowledgedAt DateTime?
+
+  // §5: "Inquiry status is inspection_required while open; SLA clock pauses." Paused time is
+  // accumulated in *business* milliseconds so a pause spanning a weekend does not consume budget
+  // the customer would never have counted.
+  slaPausedAt DateTime?
+  slaPausedMs Int       @default(0)
+
+  // Stamped when the escalation notification goes out, so the nightly sweep escalates once rather
+  // than every night until someone acts. Clearing it is not a supported operation: an inquiry that
+  // breached its SLA breached it.
+  slaEscalatedAt DateTime?
+
+  // ---- §4 completeness gate ------------------------------------------------------------------
+  // "or the user explicitly overrides with a reason (logged)". Stored as well as audited: the audit
+  // log is the evidence, this is what the screen shows the next person who opens the record.
+  requirementsOverrideReason String?
+  requirementsOverrideBy     String?
+  requirementsOverrideAt     DateTime?
+
+  // §6's follow-up engine: "Nothing is allowed to sit with no next step." Not yet swept — that is
+  // session 3 — but captured now so the field exists before there is history to backfill.
+  nextFollowUpAt DateTime?
+
+  customFields Json @default("{}")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account     CustomerAccount?    @relation(fields: [accountId], references: [id])
+  site        Site?               @relation(fields: [siteId], references: [id])
+  contact     Contact?            @relation(fields: [contactId], references: [id])
+  items       InquiryItem[]
+  inspections InspectionRequest[]
+
+  @@index([ownerId, status])
+  @@index([status, receivedAt])
+  @@index([accountId, deletedAt])
+  // The nightly SLA sweep's exact query: unacknowledged, never escalated, not deleted.
+  @@index([acknowledgedAt, slaEscalatedAt, deletedAt])
+}
+
+// What the customer asked for, before anyone has costed it (§2).
+//
+// Separate from module 02's quotation lines on purpose: this is the customer's words, and the
+// quotation's are AIES's. Overwriting one with the other loses the ability to answer "is what we
+// quoted actually what they asked for?", which is where scope disputes start.
+model InquiryItem {
+  id        String @id @default(cuid())
+  inquiryId String
+  lineNo    Int
+
+  description String
+  quantity    Decimal @default(1) @db.Decimal(14, 3)
+  unit        String  @default("pc")
+
+  manufacturer   String?
+  modelNumber    String?
+  specifications Json?
+
+  // supply | installation | commissioning | calibration | pm | corrective | inspection.
+  // Drives which §4 requirements template applies, so an inquiry with three line types asks for
+  // all three checklists.
+  serviceType String?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@unique([inquiryId, lineNo])
+  @@index([inquiryId])
+}
+
+// Calls, meetings, site visits — the relationship record (§2).
+//
+// This is NOT module 00's activity feed. That feed merges comments with audit rows and answers
+// "what happened to this record?"; this model answers "when did we last actually talk to these
+// people?", which §1 says is the salesperson's real question ("who haven't I talked to in 60
+// days?"). A phone call is not an audit event — nothing in the system changed — so it needs its own
+// row.
+//
+// Polymorphic by entityType/entityId, matching AuditLog and Comment, because the same call can be
+// about an account, an inquiry or a quotation and a foreign key per target would mean a schema
+// change for every new one.
+model Activity {
+  id         String @id @default(cuid())
+  entityType String
+  entityId   String
+
+  // call | meeting | site_visit | email | note | demo
+  type        String
+  subject     String
+  body        String?
+  occurredAt  DateTime
+  durationMin Int?
+
+  // Plain arrays rather than join tables: these are read whole, never queried across, and a join
+  // table for "who was on the call" would be three more models nobody reads independently.
+  participantIds String[] @default([])
+  contactIds     String[] @default([])
+
+  outcome     String?
+  nextStepDue DateTime?
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedBy   String?
+
+  @@index([entityType, entityId, occurredAt])
+  @@index([createdById, occurredAt])
+}
+
+// specs/01-crm-inquiry.md §4 — "a requirements checklist template per service type, editable in
+// settings".
+//
+// A model rather than a constant precisely because §4 says editable: the whole value is that the
+// engineer who keeps being asked "what did they not tell us?" can add the question themselves. A
+// code constant would put that behind a deploy.
+model RequirementTemplate {
+  id          String @id @default(cuid())
+  // supply | installation | commissioning | calibration | pm | corrective | inspection — matches
+  // InquiryItem.serviceType, which is how a template is selected.
+  serviceType String @unique
+  label       String
+
+  // [{ key, label, type, required, help?, options? }]. Json because the field list is the thing
+  // being edited; a Field model would make adding a question a two-table transaction and buy
+  // nothing, since nothing queries an individual field.
+  fields Json @default("[]")
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// specs/01-crm-inquiry.md §5 — sales asking the technical team to look at a site before a quotation
+// can be written.
+//
+// §5: "Module 04 subscribes and creates a scheduled field task... Until module 04 exists, the
+// request is a task assigned to a user with a due date." So this model carries the assignment
+// itself. When module 04 lands it consumes `inspection.requested` and this becomes the request of
+// record with the field task alongside it — which is why assignedToId and dueAt are nullable
+// rather than required: module 04 will own scheduling.
+model InspectionRequest {
+  id        String  @id @default(cuid())
+  inquiryId String
+  siteId    String?
+
+  purpose         String
+  // §5's "specific questions to answer" and "required outputs (photos, tag list, measurements)".
+  // The point of both is that a site visit which answers the wrong question costs another visit.
+  questions       String?
+  requiredOutputs String[] @default([])
+
+  // The requested window, not a fixed date: sites grant access when they grant it.
+  windowStart DateTime?
+  windowEnd   DateTime?
+
+  // requested | scheduled | completed | cancelled
+  status       String    @default("requested")
+  assignedToId String?
+  dueAt        DateTime?
+
+  completedAt  DateTime?
+  // The completed report, attached back to the inquiry per §5. A FileObject id from module 00
+  // storage; module 04 will replace this with a real field report.
+  reportFileId String?
+  findings     String?
+
+  requestedById String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  deletedBy     String?
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id])
+  site    Site?   @relation(fields: [siteId], references: [id])
+
+  @@index([inquiryId])
+  @@index([assignedToId, status])
+  @@index([status, dueAt])
 }

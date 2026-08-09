@@ -1,7 +1,8 @@
 # Build Progress
 
-Last updated: 2026-08-08
-Current module: 01 — CRM and Inquiry Intake (session 1 of 3 complete: accounts + accreditation)
+Last updated: 2026-08-09
+Current module: 01 — CRM and Inquiry Intake (sessions 1-2 of 3 complete: accounts +
+accreditation, then the inquiry)
 Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
 
 ## Done
@@ -187,9 +188,9 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
 - **Session 1 — accounts and accreditation. DONE, see below.** Manifest, permissions, core data
   model, accounts UI, and — pulled forward from session 3 at the company's request — the whole of
   §5b customer accreditation including its renewal workflow.
-- **Session 2 — inquiry.** `Inquiry` / `InquiryItem` / `Activity`, the §3 lifecycle state machine,
-  §4 requirements templates and the completeness gate, the §3 SLA escalation job, and the §5
-  inspection request.
+- **Session 2 — inquiry. DONE, see below.** `Inquiry` / `InquiryItem` / `Activity`, the §3
+  lifecycle state machine, §4 requirements templates and the completeness gate, the §3 SLA
+  escalation job with its working calendar, and the §5 inspection request.
 - **Session 3 — the rest.** §5c principal prospects, §6 kanban / My Day / Account 360 /
   follow-up engine, and the §7 merge tool. (§5b accreditation moved to session 1.)
 
@@ -281,31 +282,90 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
       reintroduced.
 - [x] 240 tests across 41 files; lint, typecheck and `next build` clean.
 
+### Done in session 2 — the inquiry
+- [x] `Inquiry` / `InquiryItem` / `Activity` per §2, plus `RequirementTemplate` (§4) and
+      `InspectionRequest` (§5), in migration `20260809050852_crm_inquiry_items_activities`.
+- [x] **A working calendar**, because §3's SLA is meaningless without one:
+      `src/server/core/calendar/business-days.ts`. Weekends plus the seven fixed-date Philippine
+      *regular* holidays. The movable ones are proclaimed annually and cannot be computed, and the
+      "special non-working days" are no-work-no-pay days many firms work through — both are omitted,
+      and the omission errs towards escalating *sooner*, which is the safe direction. No timezone
+      library: Asia/Manila has been a fixed UTC+8 since 1978. `setHolidayProvider` is the seam for
+      module 09's settings. See docs/DECISIONS.md #21.
+- [x] **§3's lifecycle as a real state machine** (`inquiry-lifecycle.ts`, pure — no Prisma, so the
+      UI imports the same rules the server enforces and the buttons cannot drift from the checks).
+      §3's diagram is transcribed literally, including what it does not draw: no
+      `new → disqualified` shortcut, and no reopening a closed inquiry. `quoted` / `won` / `lost`
+      are `systemOnly` — §3 says the quotation sets them — and the router deliberately does not
+      expose the `bySystem` flag, or anyone with `crm.edit` could book a sale that never happened.
+      See docs/DECISIONS.md #20.
+- [x] `lostReason` enforced as a picklist on `lost`, per §3's "without enforced loss reasons the
+      pipeline reports are worthless".
+- [x] Every status change writes an audit row — which is also what puts it in the activity feed,
+      since module 00's feed merges audit rows by entity. §8's named events
+      (`inquiry.acknowledged`, `inquiry.quoting_started`, `inquiry.lost`) are emitted alongside the
+      generic `inquiry.status_changed`, so a subscriber does not have to filter every change.
+- [x] **§4 requirements templates**, seeded for all seven service types and editable per §4's
+      "editable in settings". Answers are namespaced `{serviceType}.{key}` — an inquiry with a
+      supply line and an installation line asks both checklists, and a bare key would let one
+      answer mark the other answered. `required: true` is spent only where a quotation genuinely
+      cannot be priced without the answer; a gate that blocks on nice-to-haves gets overridden
+      every time and stops meaning anything.
+- [x] **The completeness gate blocks `quoting`**, and names the unanswered fields rather than
+      showing a count — "6 of 9" tells you that you are stuck without telling you what to go and
+      ask. Override needs a real reason (at least a sentence), recorded on the record *and* in the
+      audit log. The seed writes `label` but never `fields` on update, so re-seeding cannot throw
+      away a question somebody added.
+- [x] **§3's SLA escalation**, added to `/api/cron/nightly`. Unacknowledged past its deadline →
+      president and vice-president, resolved **by role**. `slaEscalatedAt` makes it fire once, not
+      nightly forever. The deadline is **derived, never stored**, the same call as the
+      accreditation status: a stored `slaDueAt` goes stale the moment somebody corrects a backdated
+      `receivedAt`.
+- [x] **§5 inspection requests** with site, window, purpose, questions and required outputs.
+      Raising one moves the inquiry through `transitionInquiryService` rather than writing the
+      status directly, so it passes the same §3 legality check and produces the same audit row.
+      Completing or cancelling returns it to `evaluating` and banks the paused time in *business*
+      milliseconds — banking wall time would hand back a weekend that was never spent.
+- [x] `/crm/inquiries` list (SLA state per row) and `/crm/inquiries/[id]` record page (status
+      actions, requirements checklist, inspection panel, activity feed), with the Inquiries nav
+      entry added **in the same change** as the pages, per the guard test.
+- [x] Inquiries are indexed for Ctrl+K on create and update — the first entity type in the system
+      to call `indexEntity()`, so the search plumbing built in module 00 session 4 now has
+      something real to find.
+- [x] `Activity` (§2's relationship record) with `activity.logged`, and `lastContactByAccount()` —
+      the query behind §6's "accounts not contacted in N days" — built now so the model can be
+      checked against its purpose rather than assumed to fit.
+- [x] 298 tests across 45 files; lint, typecheck and `next build` clean. §10's three named cases
+      are covered: the SLA fires "at the right time and not before" (asserted on both sides of the
+      minute), pauses during `inspection_required`, and the requirements gate blocks `quoting`
+      until complete or overridden. **The gate test was verified to fail when the gate is removed.**
+- [x] `npm run demo:crm` now also loads four inquiries covering the states that differ.
+
 ### Next concrete step
-**Module 01 session 2 — the inquiry.** Read specs/01-crm-inquiry.md §§3–5, then:
-1. `prisma/schema/crm.prisma`: add `Inquiry`, `InquiryItem`, `Activity` per §2, then migrate.
-   `INQ-{YY}{MM}-{####}` is already seeded in the numbering formats.
-2. The §3 lifecycle as an explicit state machine with allowed transitions, not free-form status
-   writes — `lostReason` is a required picklist on `lost`, and every change writes to the audit log
-   and the activity feed.
-3. §4 requirements templates per service type, with the completeness gate blocking `quoting` unless
-   overridden with a logged reason.
-4. The §3 SLA escalation job (new → acknowledged within 1 business day, escalating to VP and
-   president), added to the existing `/api/cron/nightly`. The clock **pauses** during
-   `inspection_required` (§5) — that is the part worth testing.
-5. Add the Inquiries nav entry **in the same change as its page**, or the nav-integrity test fails.
+**Module 01 session 3 — the rest.** Read specs/01-crm-inquiry.md §§5c, 6, 7, then:
+1. §5c `PrincipalProspect` and its pipeline, plus the `/crm/principals` page. Add the nav entry
+   **in the same change as the page** or the guard test fails. Appointing converts to a module 03
+   `Supplier`, which does not exist — build the conversion behind the event, not the model.
+2. §6's kanban pipeline (drag to advance calls the same `transitionInquiryService`, never a direct
+   status write), My Day, and Account 360.
+3. §6's follow-up engine. `Inquiry.nextFollowUpAt` already exists and is unswept; the "needs a next
+   step" list is any non-terminal inquiry with it null.
+4. §7's admin merge tool — duplicate *detection* landed in session 1, the merge did not.
 
 Notes for whoever picks this up:
   - `allocateNumber` takes **no** transaction client, so a number is allocated before the
     transaction opens and a rollback burns it. Module 00's contract permits gaps; fine for internal
     codes, but revisit before anything the BIR counts.
   - Soft delete needs **both** `deletedAt` and `deletedBy`.
-  - Business-day arithmetic for the SLA needs the §10 working calendar, which does **not** exist
-    yet (`SystemSetting` is unbuilt). Either build the calendar first or use plain calendar days
-    and record the shortcut — do not silently pretend weekends are working days.
+  - The kanban must call `transitionInquiryService`. A drag that writes `status` directly would
+    bypass §3's map, the lost-reason rule, the §4 gate and the SLA pause in one gesture.
   - If `prisma migrate dev` hangs on an advisory lock, or `prisma generate` fails with `EPERM`,
     the dev server is holding it — stop the dev server first. Dropping a column also needs
     `migrate diff` + a hand-written migration, since `migrate dev` refuses non-interactively.
+  - A client component importing a *service* pulls Prisma and `node:crypto` into the browser bundle
+    and fails `next build` outright. Constants the UI needs belong in the pure rules files
+    (`inquiry-lifecycle.ts`, `accreditation-rules.ts`, `requirements.ts`). This happened this
+    session with `INSPECTION_OUTPUTS`; `npm run typecheck` did **not** catch it, only the build did.
 
 ## Not started
 - [ ] Modules 02–10
@@ -341,9 +401,9 @@ found six defects that 186 automated tests did not, so this distinction is worth
 
 - The sidebar's white logo plate and the 20px lucide icons (module 00 session 5). The browser pane
   had signed itself out, so these were confirmed by computed geometry and a clean compile only.
-- **All of module 01's UI**: `/crm/accounts` (list, create/edit dialog, duplicate warning, primary
-  contact, Accreditation Status column) and `/crm/accreditations` (register, certificate upload,
-  acknowledge button). Verified by 240 tests and a production build only. `npm run demo:crm` loads
+- **All of module 01's UI**: `/crm/accounts`, `/crm/accreditations`, and now `/crm/inquiries`
+  (list with SLA state) and `/crm/inquiries/[id]` (status actions, requirements checklist,
+  inspection panel). Verified by 240 tests and a production build only. `npm run demo:crm` loads
   six accounts covering the states that differ, so a manual pass has something to look at. The
   Accreditation Status column was checked by calling `getAccountFlags` directly against that data —
   DEMO-0001 green *Accredited*, 0002 and 0004 orange *Renewal due*, 0003 red *Accreditation
@@ -428,6 +488,19 @@ found six defects that 186 automated tests did not, so this distinction is worth
   fields), so the renewal workflow's "customer is blacklisted or dormant" test uses an
   `accountRestricted` 1/0 mirror alongside the readable `accountStatus`. Extending the condition
   language to strings is a module 00 change nothing has yet needed.
-- **Nothing indexes CRM records for search.** `indexEntity()` is not called on account create or
-  update, so the Ctrl+K palette still finds nothing. Worth doing when inquiries land, since that is
-  when search starts to earn its keep.
+- **Accounts are still not indexed for search.** Inquiries now are (session 2), so Ctrl+K finds
+  those — but `account-service.ts` never calls `indexEntity()`, so searching a customer name finds
+  its inquiries and not the account itself. One call in each of create/update, mirroring
+  `reindexInquiry`.
+- **The SLA is not configurable.** §3 says "1 business day, configurable";
+  `INQUIRY_ACK_SLA_BUSINESS_DAYS` is a constant because `SystemSetting` belongs to module 09. The
+  holiday list has the same problem and already has its seam (`setHolidayProvider`). See
+  docs/DECISIONS.md #21.
+- **§3's SLA pause cannot currently bite.** §5 pauses the clock during `inspection_required`, but
+  §3's own transition map only reaches that state after acknowledgement, by which point the
+  acknowledgement SLA is already satisfied. The mechanism is built and tested because §10 asks for
+  it by name and module 02's quotation-turnaround clock will be the first to use it. See
+  docs/DECISIONS.md #21.
+- **`quoted` / `won` / `lost` are unreachable until module 02.** Deliberate — §3 says the
+  quotation sets them. Module 02 calls `transitionInquiryService` with `bySystem: true` from its
+  `quotation.sent` / `accepted` / `rejected` subscribers.

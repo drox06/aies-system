@@ -18,7 +18,37 @@ import {
   updateAccreditationService,
 } from "@/server/core/crm/accreditation-service";
 import { acknowledgeRenewalService } from "@/server/core/crm/accreditation-renewal";
+import {
+  ACTIVITY_ENTITY_TYPES,
+  ACTIVITY_TYPES,
+  listActivitiesService,
+  logActivityService,
+} from "@/server/core/crm/activity-service";
 import { findDuplicateAccounts } from "@/server/core/crm/duplicates";
+import {
+  INQUIRY_SOURCES,
+  INQUIRY_STATUSES,
+  INSPECTION_OUTPUTS,
+  LOST_REASONS,
+  SERVICE_TYPES,
+} from "@/server/core/crm/inquiry-lifecycle";
+import {
+  assignInquiryService,
+  createInquiryService,
+  getInquiryService,
+  listInquiriesService,
+  listRequirementTemplatesService,
+  overrideRequirementsService,
+  setInquiryItemsService,
+  transitionInquiryService,
+  updateInquiryService,
+  upsertRequirementTemplateService,
+} from "@/server/core/crm/inquiry-service";
+import {
+  cancelInspectionService,
+  completeInspectionService,
+  createInspectionRequestService,
+} from "@/server/core/crm/inspection-service";
 import { p, router, type Context } from "@/server/api/trpc";
 
 function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
@@ -160,4 +190,213 @@ export const crmRouter = router({
   acknowledgeRenewal: p("accreditation.manage")
     .input(z.object({ accreditationId: z.string() }))
     .mutation(({ ctx, input }) => acknowledgeRenewalService(actorMeta(ctx), input)),
+
+  // ---- inquiries (specs/01-crm-inquiry.md §§2-5) -----------------------------------------------
+
+  listInquiries: p("crm.view")
+    .input(
+      z
+        .object({
+          search: z.string().optional(),
+          status: z.enum(INQUIRY_STATUSES).optional(),
+          ownerId: z.string().optional(),
+          accountId: z.string().optional(),
+          page: z.number().int().positive().optional(),
+          pageSize: z.number().int().positive().max(100).optional(),
+          sortKey: z.string().nullish(),
+          sortDir: z.enum(["asc", "desc"]).optional(),
+        })
+        .optional(),
+    )
+    .query(({ ctx, input }) => listInquiriesService(ctx.user, input ?? {})),
+
+  getInquiry: p("crm.view")
+    .input(z.object({ inquiryId: z.string() }))
+    .query(({ ctx, input }) => getInquiryService(ctx.user, input.inquiryId)),
+
+  createInquiry: p("crm.create")
+    .input(
+      z.object({
+        subject: z.string().min(1),
+        description: z.string().nullish(),
+        accountId: z.string().nullish(),
+        siteId: z.string().nullish(),
+        contactId: z.string().nullish(),
+        source: z.enum(INQUIRY_SOURCES).optional(),
+        sourceRef: z.string().nullish(),
+        receivedAt: z.coerce.date().nullish(),
+        industry: z.string().nullish(),
+        estimatedValue: z.string().nullish(),
+        currency: z.string().optional(),
+        requiredByDate: z.coerce.date().nullish(),
+        requirements: z.record(z.string(), z.unknown()).optional(),
+        ownerId: z.string().nullish(),
+        items: z
+          .array(
+            z.object({
+              description: z.string().min(1),
+              quantity: z.string().optional(),
+              unit: z.string().optional(),
+              manufacturer: z.string().nullish(),
+              modelNumber: z.string().nullish(),
+              serviceType: z.enum(SERVICE_TYPES).nullish(),
+              notes: z.string().nullish(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createInquiryService(actorMeta(ctx), input)),
+
+  updateInquiry: p("crm.edit")
+    .input(
+      z.object({
+        inquiryId: z.string(),
+        subject: z.string().min(1).optional(),
+        description: z.string().nullish(),
+        accountId: z.string().nullish(),
+        siteId: z.string().nullish(),
+        contactId: z.string().nullish(),
+        source: z.enum(INQUIRY_SOURCES).optional(),
+        receivedAt: z.coerce.date().nullish(),
+        industry: z.string().nullish(),
+        estimatedValue: z.string().nullish(),
+        requiredByDate: z.coerce.date().nullish(),
+        nextFollowUpAt: z.coerce.date().nullish(),
+        qualification: z.unknown().optional(),
+        requirements: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updateInquiryService(actorMeta(ctx), input)),
+
+  setInquiryItems: p("crm.edit")
+    .input(
+      z.object({
+        inquiryId: z.string(),
+        items: z.array(
+          z.object({
+            description: z.string().min(1),
+            quantity: z.string().optional(),
+            unit: z.string().optional(),
+            manufacturer: z.string().nullish(),
+            modelNumber: z.string().nullish(),
+            serviceType: z.enum(SERVICE_TYPES).nullish(),
+            notes: z.string().nullish(),
+          }),
+        ),
+      }),
+    )
+    .mutation(({ ctx, input }) => setInquiryItemsService(actorMeta(ctx), input)),
+
+  /**
+   * The §3 state machine's only door.
+   *
+   * `bySystem` is deliberately **not** in this input schema. It exists so module 02 can mirror a
+   * quotation outcome onto the inquiry, and exposing it here would let anyone with `crm.edit` post
+   * `{ to: "won", bySystem: true }` and mark a sale that never happened.
+   */
+  transitionInquiry: p("crm.edit")
+    .input(
+      z.object({
+        inquiryId: z.string(),
+        to: z.enum(INQUIRY_STATUSES),
+        lostReason: z.enum(LOST_REASONS).nullish(),
+        lostToCompetitor: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => transitionInquiryService(actorMeta(ctx), input)),
+
+  assignInquiry: p("inquiry.assign")
+    .input(z.object({ inquiryId: z.string(), ownerId: z.string() }))
+    .mutation(({ ctx, input }) => assignInquiryService(actorMeta(ctx), input)),
+
+  overrideRequirements: p("crm.edit")
+    .input(z.object({ inquiryId: z.string(), reason: z.string().min(10) }))
+    .mutation(({ ctx, input }) => overrideRequirementsService(actorMeta(ctx), input)),
+
+  listRequirementTemplates: p("crm.view").query(() => listRequirementTemplatesService()),
+
+  /** §4: "editable in settings". Sits with the permission that already governs system-wide config
+   *  rather than `crm.edit` — changing a template changes the gate for everybody. */
+  upsertRequirementTemplate: p("admin.manage_custom_fields")
+    .input(
+      z.object({
+        serviceType: z.enum(SERVICE_TYPES),
+        label: z.string().min(1),
+        fields: z.array(
+          z.object({
+            key: z.string().min(1),
+            label: z.string().min(1),
+            type: z.enum(["text", "number", "select", "boolean"]),
+            required: z.boolean(),
+            help: z.string().optional(),
+            options: z.array(z.string()).optional(),
+          }),
+        ),
+        isActive: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => upsertRequirementTemplateService(actorMeta(ctx), input)),
+
+  // ---- inspection requests (§5) ----------------------------------------------------------------
+
+  requestInspection: p("inspection.request")
+    .input(
+      z.object({
+        inquiryId: z.string(),
+        siteId: z.string().nullish(),
+        purpose: z.string().min(1),
+        questions: z.string().nullish(),
+        requiredOutputs: z.array(z.enum(INSPECTION_OUTPUTS)).optional(),
+        windowStart: z.coerce.date().nullish(),
+        windowEnd: z.coerce.date().nullish(),
+        assignedToId: z.string().nullish(),
+        dueAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createInspectionRequestService(actorMeta(ctx), input)),
+
+  completeInspection: p("crm.edit")
+    .input(
+      z.object({
+        inspectionRequestId: z.string(),
+        findings: z.string().nullish(),
+        reportFileId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => completeInspectionService(actorMeta(ctx), input)),
+
+  cancelInspection: p("crm.edit")
+    .input(z.object({ inspectionRequestId: z.string(), reason: z.string().nullish() }))
+    .mutation(({ ctx, input }) => cancelInspectionService(actorMeta(ctx), input)),
+
+  // ---- activities (§2) -------------------------------------------------------------------------
+
+  listActivities: p("crm.view")
+    .input(
+      z.object({
+        entityType: z.enum(ACTIVITY_ENTITY_TYPES),
+        entityId: z.string(),
+        limit: z.number().int().positive().max(200).optional(),
+      }),
+    )
+    .query(({ input }) => listActivitiesService(input)),
+
+  logActivity: p("crm.create")
+    .input(
+      z.object({
+        entityType: z.enum(ACTIVITY_ENTITY_TYPES),
+        entityId: z.string(),
+        type: z.enum(ACTIVITY_TYPES),
+        subject: z.string().min(1),
+        body: z.string().nullish(),
+        occurredAt: z.coerce.date().nullish(),
+        durationMin: z.number().int().positive().nullish(),
+        participantIds: z.array(z.string()).optional(),
+        contactIds: z.array(z.string()).optional(),
+        outcome: z.string().nullish(),
+        nextStepDue: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => logActivityService(actorMeta(ctx), input)),
 });

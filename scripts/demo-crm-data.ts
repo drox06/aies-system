@@ -44,6 +44,24 @@ async function clean() {
   });
   const recordIds = records.map((r) => r.id);
 
+  const inquiries = await db.inquiry.findMany({
+    where: {
+      OR: [
+        { accountId: { in: ids } },
+        { number: { startsWith: "INQ-" }, subject: { startsWith: DEMO_TAG } },
+      ],
+    },
+    select: { id: true },
+  });
+  const inquiryIds = inquiries.map((i) => i.id);
+
+  await db.inspectionRequest.deleteMany({ where: { inquiryId: { in: inquiryIds } } });
+  await db.inquiryItem.deleteMany({ where: { inquiryId: { in: inquiryIds } } });
+  await db.notification.deleteMany({ where: { entityId: { in: inquiryIds } } });
+  await db.searchIndex.deleteMany({ where: { entityId: { in: inquiryIds } } });
+  await db.auditLog.deleteMany({ where: { entityId: { in: inquiryIds } } });
+  await db.inquiry.deleteMany({ where: { id: { in: inquiryIds } } });
+
   await db.notification.deleteMany({ where: { entityId: { in: recordIds } } });
   await db.approvalAction.deleteMany({ where: { request: { entityId: { in: recordIds } } } });
   await db.approvalRequest.deleteMany({ where: { entityId: { in: recordIds } } });
@@ -193,8 +211,122 @@ async function main() {
     console.log(`${account.code}  ${s.name}\n            ${s.note}`);
   }
 
+  await seedInquiries(ea.id);
+
   console.log("\nDone. Accounts are owned by EA, accreditations by PD.");
   console.log("Certificate links will 404 — the file ids are placeholders, not real uploads.");
+}
+
+/**
+ * specs/01-crm-inquiry.md §§3-5, positioned so each screen state is visible.
+ *
+ * Written straight to the table rather than through `createInquiryService`, because the service
+ * refuses most of what needs demonstrating: it will not backdate an SLA into breach, and it will
+ * not put an inquiry in `inspection_required` without walking the whole diagram. The point of demo
+ * data is to *show* the end states, so it sets them.
+ *
+ * One consequence worth knowing before reading the screen: `slaEscalatedAt` is left null on the
+ * overdue one, so the nightly sweep still has something to find.
+ */
+async function seedInquiries(ownerId: string) {
+  const accounts = await db.customerAccount.findMany({
+    where: { code: { startsWith: DEMO_TAG } },
+    orderBy: { code: "asc" },
+    select: { id: true, code: true, name: true },
+  });
+  if (accounts.length === 0) return;
+
+  const scenarios = [
+    {
+      subject: `${DEMO_TAG}Replace 2 x DN100 electromagnetic flow meters`,
+      status: "new",
+      receivedDaysAgo: 0,
+      serviceType: "supply",
+      note: "New, inside its SLA — the acknowledgement column shows a due date.",
+    },
+    {
+      subject: `${DEMO_TAG}Pressure transmitter calibration, 12 units`,
+      status: "new",
+      receivedDaysAgo: 6,
+      serviceType: "calibration",
+      note: "New and overdue — shows OVERDUE, and the nightly sweep will escalate it to KJ and EA.",
+    },
+    {
+      subject: `${DEMO_TAG}Install and commission chlorine dosing skid`,
+      status: "evaluating",
+      receivedDaysAgo: 3,
+      acknowledgedDaysAgo: 3,
+      serviceType: "installation",
+      note: "Evaluating with the checklist unanswered — 'Hand to quotation' is blocked.",
+    },
+    {
+      subject: `${DEMO_TAG}Retrofit level instrumentation, clarifier 3`,
+      status: "inspection_required",
+      receivedDaysAgo: 5,
+      acknowledgedDaysAgo: 5,
+      pausedDaysAgo: 2,
+      serviceType: "installation",
+      // The acknowledgement column reads "Acknowledged", *not* "Clock paused" — and that is
+      // correct. Once an inquiry is acknowledged the §3 SLA is satisfied and there is nothing left
+      // to pause. See docs/DECISIONS.md #21: with §3's own transition map, `inspection_required` is
+      // only reachable after acknowledgement, so the pause cannot affect this clock. The open
+      // request itself shows on the record page's inspection panel.
+      note: "Parked on a site inspection — see the inspection panel on the record page.",
+    },
+  ];
+
+  let sequence = 1;
+  for (const [index, scenario] of scenarios.entries()) {
+    const account = accounts[index % accounts.length]!;
+    const inquiry = await db.inquiry.create({
+      data: {
+        // Not allocated through the numbering service: that would consume real INQ- sequence
+        // numbers for throwaway data, and Spec.md §5 says numbers are never reused.
+        number: `INQ-DEMO-${String(sequence++).padStart(4, "0")}`,
+        subject: scenario.subject,
+        description: "Demo record. Safe to delete with `npm run demo:crm -- --clean`.",
+        accountId: account.id,
+        ownerId,
+        source: "phone",
+        status: scenario.status,
+        receivedAt: daysFromNow(-scenario.receivedDaysAgo),
+        acknowledgedAt:
+          scenario.acknowledgedDaysAgo === undefined
+            ? null
+            : daysFromNow(-scenario.acknowledgedDaysAgo),
+        slaPausedAt:
+          scenario.pausedDaysAgo === undefined ? null : daysFromNow(-scenario.pausedDaysAgo),
+        estimatedValue: `${(index + 1) * 185000}`,
+        items: {
+          create: [
+            {
+              lineNo: 1,
+              description: scenario.subject.replace(DEMO_TAG, ""),
+              quantity: "2",
+              unit: "unit",
+              serviceType: scenario.serviceType,
+            },
+          ],
+        },
+      },
+    });
+
+    if (scenario.status === "inspection_required") {
+      await db.inspectionRequest.create({
+        data: {
+          inquiryId: inquiry.id,
+          purpose: "Confirm tank penetrations and cable routing before quoting",
+          questions: "Is there an existing 4-20 mA loop back to the PLC, and what is its tag?",
+          requiredOutputs: ["photos", "tag_list", "measurements"],
+          windowStart: daysFromNow(3),
+          windowEnd: daysFromNow(10),
+          requestedById: ownerId,
+        },
+      });
+    }
+
+    console.log(`${inquiry.number}  ${scenario.subject}\n            ${scenario.note}`);
+  }
 }
 
 main()
