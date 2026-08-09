@@ -57,6 +57,8 @@ import {
   transitionPrincipalService,
   updatePrincipalService,
 } from "@/server/core/crm/principal-service";
+import { mergeAccountsService, previewMergeService } from "@/server/core/crm/merge-service";
+import { getMyDayService, getPipelineService } from "@/server/core/crm/pipeline-service";
 import { p, router, type Context } from "@/server/api/trpc";
 
 function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
@@ -389,6 +391,29 @@ export const crmRouter = router({
       }),
     )
     .query(({ input }) => listActivitiesService(input)),
+
+  // ---- pipeline views (§6) and merge (§7) -------------------------------------------------------
+
+  /** §6's kanban. Scoped like every other CRM read. */
+  pipeline: p("crm.view").query(({ ctx }) => getPipelineService(ctx.user)),
+
+  /** §6's My Day. Always the caller's own work, even for someone holding `crm.view_all`. */
+  myDay: p("crm.view").query(({ ctx }) => getMyDayService(ctx.user)),
+
+  previewMerge: p("crm.merge")
+    .input(z.object({ survivorId: z.string(), mergedId: z.string() }))
+    .query(({ input }) => previewMergeService(input)),
+
+  /** §7's merge. `crm.merge` sits with president and vice-president — it cannot be undone. */
+  mergeAccounts: p("crm.merge")
+    .input(
+      z.object({
+        survivorId: z.string(),
+        mergedId: z.string(),
+        reason: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => mergeAccountsService(actorMeta(ctx), input)),
 
   // ---- principal prospects (specs/01-crm-inquiry.md §5c) ---------------------------------------
   // §9 puts this with marketing_manager (EM), visible to president and vice_president.

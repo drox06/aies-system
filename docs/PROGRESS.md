@@ -1,8 +1,7 @@
 # Build Progress
 
 Last updated: 2026-08-09
-Current module: 01 — CRM and Inquiry Intake (sessions 1-2 of 3 complete: accounts +
-accreditation, then the inquiry)
+Current module: 01 — CRM and Inquiry Intake (all 3 sessions built; review gate not yet run)
 Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
 
 ## Done
@@ -191,8 +190,8 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
 - **Session 2 — inquiry. DONE, see below.** `Inquiry` / `InquiryItem` / `Activity`, the §3
   lifecycle state machine, §4 requirements templates and the completeness gate, the §3 SLA
   escalation job with its working calendar, and the §5 inspection request.
-- **Session 3 — the rest.** §5c principal prospects, §6 kanban / My Day / Account 360 /
-  follow-up engine, and the §7 merge tool. (§5b accreditation moved to session 1.)
+- **Session 3 — the rest. DONE, see below.** §5c principal prospects, §6 kanban / My Day /
+  Account 360 / follow-up engine, and the §7 merge tool. (§5b accreditation moved to session 1.)
 
 ### Done in session 1
 - [x] `src/server/core/modules/crm.manifest.ts` — all 12 permissions from §9 and all 9 emitted
@@ -341,31 +340,85 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
       until complete or overridden. **The gate test was verified to fail when the gate is removed.**
 - [x] `npm run demo:crm` now also loads four inquiries covering the states that differ.
 
+### Done in session 3 — principals, the pipeline views, and merge
+- [x] **A lint rule that stops a component importing server code.** Session 2 lost a build to a
+      client component importing a service for one constant, dragging Prisma and `node:crypto` into
+      the browser bundle; typecheck did not catch it. `eslint.config.mjs` now allow-lists the pure
+      modules a component may import and rejects everything else under `src/server/`. Verified by
+      reintroducing the original defect plus `@/lib/db` and a numbering import — all three blocked.
+- [x] **§5c principal supplier acquisition.** `PrincipalProspect` + migration
+      `20260809…_crm_principal_prospects`, an explicit stage machine, a board at `/crm/principals`,
+      and the nightly agreement / price-list expiry sweep. The pipeline deliberately differs from
+      §3's in one way: it allows parking as `dormant` and reviving to wherever the conversation left
+      off, because a manufacturer going quiet is normal where an inquiry going quiet is the failure
+      the module exists to remove. Backward moves are still refused.
+- [x] Appointing emits `principal.appointed` with a payload complete enough for module 03 to build
+      the `Supplier` without re-keying (§5c). The model is **not** created here — that would leave
+      module 03 something to reconcile rather than something to build. An appointed prospect sits
+      with `supplierId` null until then, and the panel says so on screen. docs/DECISIONS.md #22.
+- [x] Appointment is gated on the signed agreement **and** its expiry date: an appointment with no
+      agreement behind it is a claim nobody can check.
+- [x] Price lists are AIES's cost side, so their file-access checker is narrower than the rest of
+      CRM — `principal_prospect.manage` or `finance.view_cost`, per Spec.md §4.3.
+- [x] **§6 kanban** at `/crm/pipeline`. Native HTML5 drag, no library (Spec.md §2). Drag is an
+      enhancement, never the only route: every card is also a link to its record page where the same
+      transitions are ordinary buttons, because HTML5 drag is neither keyboard-operable nor usable
+      with gloves (§6.6). Dropping calls `transitionInquiryService` — §3's map, the lost-reason rule
+      and the §4 gate all still apply.
+- [x] **§6 My Day** at `/crm/my-day`: overdue follow-ups, awaiting your action, needs a next step,
+      and accounts not contacted in 60 days. Always the caller's own work even for someone holding
+      `crm.view_all` — a president opening My Day wants their own list, not all five people's.
+- [x] "Not contacted" counts logged calls, meetings and site visits — **not** `updatedAt`. Editing a
+      customer's address is not talking to them, and a CRM that counts it reports everything fine
+      right up until the customer goes elsewhere. Pinned by a test that edits a stale account and
+      confirms it stays on the list.
+- [x] **§6 follow-up engine** in `/api/cron/nightly`: one notification per owner per day, not one
+      per record. Eleven overdue follow-ups is one prompt to open My Day, not eleven badges.
+- [x] **§6 Account 360** at `/crm/accounts/[id]`: details, accreditation (derived, with the
+      "cannot issue a PO" warning §5b asks for), open inquiries with an inquiry-level win rate,
+      sites, contacts, and a contact-history log with an inline "log contact" form. The five
+      sections belonging to unbuilt modules are **not** stubbed as empty cards — one line names what
+      is coming and which module brings it.
+- [x] **§7 merge tool.** Repoints sites, contacts, inquiries, sub-accounts, activities and comments
+      in one transaction, then runs an orphan check **before commit** so §10's "no orphans" is
+      enforced at runtime rather than only asserted in a test. The duplicate is soft-deleted and
+      reparented onto the survivor so it stays findable; its accreditation is retired rather than
+      moved, because the record is unique per account and "are we accredited?" has one answer. The
+      merge is audited against **both** ids — a single row on the survivor leaves the duplicate's
+      page silent.
+- [x] `MERGE_TARGETS` is a list, not a sequence of hand-written updates: the failure mode is
+      forgetting one, and module 02's `Quotation.accountId` goes in that list.
+- [x] 343 tests across 49 files; lint, typecheck and `next build` clean. §10's remaining named cases
+      are covered — merge repoints with no orphans, and the half of "appointing creates exactly one
+      supplier" this module owns (exactly one event, no second appointment, idempotent relink).
+
 ### Next concrete step
-**Module 01 session 3 — the rest.** Read specs/01-crm-inquiry.md §§5c, 6, 7, then:
-1. §5c `PrincipalProspect` and its pipeline, plus the `/crm/principals` page. Add the nav entry
-   **in the same change as the page** or the guard test fails. Appointing converts to a module 03
-   `Supplier`, which does not exist — build the conversion behind the event, not the model.
-2. §6's kanban pipeline (drag to advance calls the same `transitionInquiryService`, never a direct
-   status write), My Day, and Account 360.
-3. §6's follow-up engine. `Inquiry.nextFollowUpAt` already exists and is unswept; the "needs a next
-   step" list is any non-terminal inquiry with it null.
-4. §7's admin merge tool — duplicate *detection* landed in session 1, the merge did not.
+**Module 01's review gate (docs/BUILD-PROTOCOL.md §7), then module 02.**
+
+1. Run the gate: `npm test`, `npm run lint`, `npm run typecheck`, `next build`, migrations applied
+   to a fresh database in CI.
+2. **The manual pass is the part that matters and has never been done for this module.** Nothing in
+   module 01 has been looked at on screen. Module 00's manual pass found six defects that 186
+   automated tests did not. `npm run demo:crm` loads the data; the states worth scrutinising are
+   listed under "Not visually verified" below.
+3. Only then tag `module-01-complete` and start module 02 (specs/02-quotation.md), which is also
+   where the deferred module-00 gate item lands: "a non-privileged role cannot see cost fields in
+   the serialised response" needs a cost field to exist.
 
 Notes for whoever picks this up:
-  - `allocateNumber` takes **no** transaction client, so a number is allocated before the
-    transaction opens and a rollback burns it. Module 00's contract permits gaps; fine for internal
-    codes, but revisit before anything the BIR counts.
-  - Soft delete needs **both** `deletedAt` and `deletedBy`.
-  - The kanban must call `transitionInquiryService`. A drag that writes `status` directly would
-    bypass §3's map, the lost-reason rule, the §4 gate and the SLA pause in one gesture.
-  - If `prisma migrate dev` hangs on an advisory lock, or `prisma generate` fails with `EPERM`,
-    the dev server is holding it — stop the dev server first. Dropping a column also needs
-    `migrate diff` + a hand-written migration, since `migrate dev` refuses non-interactively.
-  - A client component importing a *service* pulls Prisma and `node:crypto` into the browser bundle
-    and fails `next build` outright. Constants the UI needs belong in the pure rules files
-    (`inquiry-lifecycle.ts`, `accreditation-rules.ts`, `requirements.ts`). This happened this
-    session with `INSPECTION_OUTPUTS`; `npm run typecheck` did **not** catch it, only the build did.
+  - Module 02 subscribes to nothing yet. When it lands, add `quotation.sent` / `accepted` /
+    `rejected` to the CRM manifest's `consumes` and call `transitionInquiryService` with
+    `bySystem: true`. `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces.
+  - **Never use `Promise.all` inside a Prisma interactive transaction.** It holds one connection,
+    and parallel queries on it surface as "Can't reach database server", which reads like an outage
+    and is not one. This cost real time in session 3. Outside a transaction it is fine.
+  - A client component importing a *service* fails `next build` and not typecheck. The lint rule
+    added this session catches it now; add new pure modules to `UI_SAFE_SERVER_MODULES`.
+  - A server-side import cycle (an access checker reading its entityType from the service that
+    imports it) fails `next build` with "Cannot access 'X' before initialization" and is caught by
+    nothing else. Shared constants go in the pure file. docs/DECISIONS.md #23.
+  - `npm run build` can fail with `EINVAL: readlink '.next/…'`. That is OneDrive converting build
+    output into cloud placeholders mid-build, not Next.js. `rm -rf .next` first.
 
 ## Not started
 - [ ] Modules 02–10
@@ -401,9 +454,11 @@ found six defects that 186 automated tests did not, so this distinction is worth
 
 - The sidebar's white logo plate and the 20px lucide icons (module 00 session 5). The browser pane
   had signed itself out, so these were confirmed by computed geometry and a clean compile only.
-- **All of module 01's UI**: `/crm/accounts`, `/crm/accreditations`, and now `/crm/inquiries`
-  (list with SLA state) and `/crm/inquiries/[id]` (status actions, requirements checklist,
-  inspection panel). Verified by 240 tests and a production build only. `npm run demo:crm` loads
+- **All of module 01's UI**, now eight routes: `/crm/my-day`, `/crm/pipeline`, `/crm/accounts`,
+  `/crm/accounts/[id]`, `/crm/inquiries`, `/crm/inquiries/[id]`, `/crm/accreditations`,
+  `/crm/principals`. **Not one of them has been looked at on screen.** The kanban's drag-and-drop
+  in particular has never been exercised by a human hand — it is the one interaction in the module
+  that automated tests cannot reach at all. Verified by 240 tests and a production build only. `npm run demo:crm` loads
   six accounts covering the states that differ, so a manual pass has something to look at. The
   Accreditation Status column was checked by calling `getAccountFlags` directly against that data —
   DEMO-0001 green *Accredited*, 0002 and 0004 orange *Renewal due*, 0003 red *Accreditation
@@ -488,6 +543,10 @@ found six defects that 186 automated tests did not, so this distinction is worth
   fields), so the renewal workflow's "customer is blacklisted or dormant" test uses an
   `accountRestricted` 1/0 mirror alongside the readable `accountStatus`. Extending the condition
   language to strings is a module 00 change nothing has yet needed.
+- **The §7 merge has no undo.** It is transactional and audited against both accounts, and the
+  duplicate is soft-deleted rather than destroyed, so the data survives — but there is no button to
+  reverse it. §7 says the tool is for admins and `crm.merge` sits with president and vice-president
+  only. Revisit if it is ever used in anger.
 - **Accounts are still not indexed for search.** Inquiries now are (session 2), so Ctrl+K finds
   those — but `account-service.ts` never calls `indexEntity()`, so searching a customer name finds
   its inquiries and not the account itself. One call in each of create/update, mirroring

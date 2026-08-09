@@ -5,6 +5,7 @@ import {
 } from "@/server/core/crm/accreditation-renewal";
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 import { sweepPrincipalExpiries } from "@/server/core/crm/principal-service";
+import { sweepFollowUps } from "@/server/core/crm/pipeline-service";
 
 /**
  * Once daily. specs/00-foundation.md §9.1 asks for `/api/cron/nightly`; this is the first thing
@@ -60,6 +61,14 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] principal expiry sweep failed:", error);
     results.principalExpiries = { error: String(error) };
+  }
+
+  // specs/01-crm-inquiry.md §6's follow-up engine. One notification per owner, not per record.
+  try {
+    results.followUps = await sweepFollowUps();
+  } catch (error) {
+    console.error("[cron/nightly] follow-up sweep failed:", error);
+    results.followUps = { error: String(error) };
   }
 
   return NextResponse.json(results);

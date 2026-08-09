@@ -133,6 +133,22 @@ export const crmManifest = defineManifest({
    */
   nav: [
     {
+      // §6's My Day first: it is the screen a salesperson should open before anything else, and
+      // nav order is a statement about what the app thinks the day starts with.
+      label: "My day",
+      href: "/crm/my-day",
+      icon: "sun",
+      permission: "crm.view",
+      order: 8,
+    },
+    {
+      label: "Pipeline",
+      href: "/crm/pipeline",
+      icon: "columns",
+      permission: "crm.view",
+      order: 9,
+    },
+    {
       label: "Accounts",
       href: "/crm/accounts",
       icon: "building",

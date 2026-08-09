@@ -7,9 +7,11 @@ import {
   BadgeCheck,
   Building2,
   ClipboardCheck,
+  Columns3,
   Handshake,
   House,
   Inbox,
+  Sunrise,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -249,6 +251,8 @@ const ICONS: Record<string, LucideIcon> = {
   check: ClipboardCheck,
   users: Users,
   // Module 01 (specs/01-crm-inquiry.md).
+  sun: Sunrise,
+  columns: Columns3,
   building: Building2,
   inbox: Inbox,
   "badge-check": BadgeCheck,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   DataTable,
@@ -12,6 +13,7 @@ import { EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { trpc } from "@/lib/trpc/client";
 import { AccountDialog } from "./AccountDialog";
+import { MergeDialog } from "./MergeDialog";
 
 interface AccountFlag {
   kind: string;
@@ -52,6 +54,8 @@ const FLAG_TONE: Record<AccountFlag["severity"], StatusTone> = {
 };
 
 export default function AccountsPage() {
+  const router = useRouter();
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [state, setState] = useState<DataTableState>(DEFAULT_TABLE_STATE);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -183,7 +187,16 @@ export default function AccountsPage() {
       <PageHeader
         title="Accounts"
         description="Customers and prospects. Each account owns its sites, contacts and inquiries."
-        actions={<Button onClick={openCreate}>New account</Button>}
+        actions={
+          <div className="flex items-center gap-2">
+            {/* §7's merge. Gated server-side on `crm.merge`; the button is shown to everyone
+                because hiding it is not access control (Spec.md §4.3) and a 403 explains itself. */}
+            <Button variant="ghost" onClick={() => setMergeOpen(true)}>
+              Merge duplicates
+            </Button>
+            <Button onClick={openCreate}>New account</Button>
+          </div>
+        }
       />
 
       <DataTable<AccountRow>
@@ -195,7 +208,7 @@ export default function AccountsPage() {
         onStateChange={setState}
         isLoading={list.isPending}
         exportFilename="aies-accounts"
-        onRowClick={(row) => openEdit(row.id)}
+        onRowClick={(row) => router.push(`/crm/accounts/${row.id}`)}
         emptyState={
           <EmptyState
             title={state.search ? "No accounts match that search." : "No accounts yet."}
@@ -207,6 +220,12 @@ export default function AccountsPage() {
             action={state.search ? null : <Button onClick={openCreate}>New account</Button>}
           />
         }
+      />
+
+      <MergeDialog
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
+        onMerged={() => void list.refetch()}
       />
 
       <AccountDialog
