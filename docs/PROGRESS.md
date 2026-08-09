@@ -421,6 +421,11 @@ Notes for whoever picks this up:
   - **Never use `Promise.all` inside a Prisma interactive transaction.** It holds one connection,
     and parallel queries on it surface as "Can't reach database server", which reads like an outage
     and is not one. This cost real time in session 3. Outside a transaction it is fine.
+  - Use **`npm run build:check`** to verify a build locally, never `npm run build`. It writes to
+    `.next-build` so it cannot disturb a running dev server; `npm run build` writes `.next` and is
+    what CI and Vercel run. Mixing them leaves the browser showing
+    `ENOENT: .next/server/pages/_document.js` while the dev terminal looks fine. docs/DECISIONS.md
+    #17, which reverses its own earlier conclusion and explains why.
   - A client component importing a *service* fails `next build` and not typecheck. The lint rule
     added this session catches it now; add new pure modules to `UI_SAFE_SERVER_MODULES`.
   - A server-side import cycle (an access checker reading its entityType from the service that

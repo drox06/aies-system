@@ -391,7 +391,7 @@ Degrading to no access is the safer failure, and it is self-healing.
 **Note:** the error is logged with `console.error` rather than swallowed, so the underlying
 connection problem stays visible instead of being masked by the graceful degradation.
 
-## 17. Never run `npm run build` against a live dev server — the failure is silent and misleading
+## 17. `next build` and `next dev` must not share an output directory
 
 **Module:** 00, session 5
 **Cost:** hit twice in one session, and the second time it was mistaken for a broken login.
@@ -426,9 +426,38 @@ verification work is happening in a browser, do not restart the dev server under
 cache must be cleared mid-session, say so explicitly and expect a hard reload, because the person
 in the browser has no way to tell a dead bundle from a working one.
 
-**Not solvable by configuration.** `distDir` could separate the two, but that would diverge from
-what Vercel builds and trade a loud, well-understood local annoyance for a quiet difference
-between local and production output. The discipline is cheaper than the divergence.
+### Reversed in module 01 session 3 — it *was* solvable by configuration
+
+This entry originally closed with:
+
+> **Not solvable by configuration.** `distDir` could separate the two, but that would diverge from
+> what Vercel builds and trade a loud, well-understood local annoyance for a quiet difference
+> between local and production output. The discipline is cheaper than the divergence.
+
+That was a prediction about how reliably the discipline would hold, and it has now failed three
+times — the third while demonstrating module 01 to the company, which produced a full-screen
+`ENOENT: no such file or directory, open '.next/server/pages/_document.js'` in the browser while the
+dev server's own terminal output looked entirely healthy. That asymmetry is the expensive part: the
+place you would look for the fault reports success.
+
+Two things make the original objection weaker than it read at the time:
+
+1. **The proposal it rejected was to *replace* the default `distDir`.** What is implemented instead
+   is `distDir: process.env.NEXT_DIST_DIR ?? ".next"`. `NEXT_DIST_DIR` is set only by
+   `npm run build:check`. `npm run build` — what CI and Vercel run — is byte-for-byte unchanged, so
+   there is no divergence in the build that actually ships.
+2. **"A loud, well-understood local annoyance" is not what this is.** It is silent in the terminal
+   and misleading in the browser, and it has twice been mistaken for an application bug.
+
+**The residual is real and worth stating:** `build:check` does not exercise the exact `.next` path
+production uses, so a defect that depended on the output directory would not be caught locally. CI
+runs the real `npm run build` on every push, which is where that would surface. That is a fair
+trade; it was not obviously fair before the failure count reached three.
+
+**Use `npm run build:check` while developing.** `npm run build` stays the production command.
+
+Verified by running a full `build:check` against a live dev server and confirming the server still
+served the login page afterwards — precisely the sequence that broke it.
 
 ## 18. The CRM account model is `CustomerAccount`, because Auth.js already owns `Account`
 

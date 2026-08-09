@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:check": "node -e \"process.env.NEXT_DIST_DIR='.next-build';require('child_process').execSync('npx next build',{stdio:'inherit',env:process.env})\"",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
