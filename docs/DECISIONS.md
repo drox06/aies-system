@@ -626,8 +626,20 @@ component pulling `node:crypto` into the browser bundle; this is the same lesson
 side. The `no-restricted-imports` rule added after session 2 catches the client-side case only — it
 cannot see a server-to-server cycle, so this one is caught by `next build` and by nothing else.
 
-**Also worth recording:** two builds in this session failed with
-`EINVAL: invalid argument, readlink '.next/…'`. That is OneDrive, not Next.js — the repo lives under
-`C:\Users\Drox\OneDrive\Desktop\`, and OneDrive converts freshly written build output into cloud
-placeholders while the build is still running. `rm -rf .next` before building clears it. The real
-fix is moving the repo out of OneDrive.
+**Also worth recording, and now resolved:** two builds in this session failed with
+`EINVAL: invalid argument, readlink '.next/…'`. That was OneDrive, not Next.js. The repo lived
+under `C:\Users\Drox\OneDrive\Desktop\`, and OneDrive converts freshly written build output
+into cloud placeholders while the build is still running; `rm -rf .next` cleared it each time.
+
+**The repo has since been moved to `C:\dev\aies`, out of OneDrive entirely.** Build failures
+were the harmless symptom. The one that mattered was `.git`: OneDrive holding a lock on a pack
+file or on `index` mid-write can damage the repository, and that is the one thing in the tree
+which cannot be rebuilt from itself. GitHub remains the backup, so nothing was ever at risk of
+being lost — but recovery would have meant re-cloning rather than repairing.
+
+Verified after the move: `git fsck` clean, `HEAD` still `ac27e8c` and in sync with
+`origin/main`, `.env` and `node_modules` intact, and — the actual proof — `next build`
+succeeding against a *dirty* `.next`, which is precisely the operation that had failed twice.
+
+**Do not move it back.** If a future clone lands under OneDrive again, `EINVAL: readlink` on a
+`.next` path is the symptom to recognise.

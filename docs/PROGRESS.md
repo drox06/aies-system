@@ -417,8 +417,11 @@ Notes for whoever picks this up:
   - A server-side import cycle (an access checker reading its entityType from the service that
     imports it) fails `next build` with "Cannot access 'X' before initialization" and is caught by
     nothing else. Shared constants go in the pure file. docs/DECISIONS.md #23.
-  - `npm run build` can fail with `EINVAL: readlink '.next/…'`. That is OneDrive converting build
-    output into cloud placeholders mid-build, not Next.js. `rm -rf .next` first.
+  - The repo lives at **`C:\dev\aies`**, deliberately outside OneDrive. It used to sit under
+    `OneDrive\Desktop\AI Project\Module 1`, where `npm run build` intermittently died with
+    `EINVAL: readlink '.next/…'` — OneDrive turning build output into cloud placeholders
+    mid-build. Those failures were the harmless half; the risk that mattered was OneDrive
+    locking `.git` mid-write. Do not move it back. See docs/DECISIONS.md #23.
 
 ## Not started
 - [ ] Modules 02–10
