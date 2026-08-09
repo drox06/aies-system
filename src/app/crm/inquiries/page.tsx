@@ -114,6 +114,19 @@ export default function InquiriesPage() {
         header: "Acknowledgement",
         cell: (row) => {
           if (row.acknowledgedAt) {
+            // Once the inquiry has moved past acknowledgement the SLA is history, not a live
+            // problem — an inquiry sitting in `quoting` with a red "Acknowledged late" badge reads
+            // as something needing action when there is nothing to do about it. The fact is kept,
+            // because §3's whole point is that late acknowledgement should be visible, but it drops
+            // to quiet text so it stops competing with the statuses that are still actionable.
+            const settled = !["new", "acknowledged"].includes(row.status);
+            if (settled) {
+              return (
+                <span className="text-xs text-text-muted">
+                  {row.sla.breached ? "Acknowledged late" : "Acknowledged"}
+                </span>
+              );
+            }
             return (
               <StatusBadge tone={row.sla.breached ? "failed" : "approved"}>
                 {row.sla.breached ? "Acknowledged late" : "Acknowledged"}

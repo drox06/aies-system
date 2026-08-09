@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import { emit } from "@/server/core/events/emit";
 import { getAccountFlags } from "@/server/core/crm/account-health";
 import { allocateNumber } from "@/server/core/numbering/numbering";
+import { indexEntity, removeFromIndex } from "@/server/core/search/index-service";
 
 /**
  * Account writes. Kept out of the router for the reason established in module 00 session 3: a
@@ -17,6 +18,54 @@ export interface ActorMeta {
   ip?: string | null;
   userAgent?: string | null;
   requestId?: string | null;
+}
+
+export const ACCOUNT_ENTITY_TYPE = "CustomerAccount";
+
+/**
+ * Keeps Ctrl+K able to find accounts.
+ *
+ * Outside the transaction and deliberately non-fatal, mirroring `reindexInquiry`: the search index
+ * is a convenience, and a failed upsert into it must never roll back a created customer.
+ *
+ * Inquiries have been indexed since session 2 and accounts were not, which produced a genuinely
+ * confusing result — searching a customer's name found their inquiries but not the customer.
+ */
+export async function reindexAccount(accountId: string): Promise<void> {
+  try {
+    const account = await db.customerAccount.findUnique({
+      where: { id: accountId },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        legalName: true,
+        tin: true,
+        industry: true,
+        deletedAt: true,
+      },
+    });
+    if (!account) return;
+
+    // A soft-deleted account is gone as far as anybody searching is concerned. Leaving it indexed
+    // is how a merged duplicate keeps surfacing after somebody deliberately closed it.
+    if (account.deletedAt) {
+      await removeFromIndex(ACCOUNT_ENTITY_TYPE, account.id);
+      return;
+    }
+
+    await indexEntity({
+      entityType: ACCOUNT_ENTITY_TYPE,
+      entityId: account.id,
+      title: `${account.code} — ${account.name}`,
+      // Legal name and TIN are here because §7's duplicate problem means people search for the
+      // spelling they have, not the one that was typed.
+      body: [account.legalName, account.tin, account.industry].filter(Boolean).join(" "),
+      href: `/crm/accounts/${account.id}`,
+    });
+  } catch (error) {
+    console.error("[crm] failed to index account", accountId, error);
+  }
 }
 
 export interface CreateAccountInput {
@@ -54,7 +103,7 @@ export async function createAccountService(actor: ActorMeta, input: CreateAccoun
   // gap in a sequence has to be explainable.
   const code = await allocateNumber("account");
 
-  return db.$transaction(async (tx) => {
+  const account = await db.$transaction(async (tx) => {
     if (input.parentAccountId) {
       // A parent that does not exist would otherwise surface as an opaque foreign-key violation.
       const parent = await tx.customerAccount.findFirst({
@@ -114,6 +163,9 @@ export async function createAccountService(actor: ActorMeta, input: CreateAccoun
 
     return account;
   });
+
+  await reindexAccount(account.id);
+  return account;
 }
 
 export interface UpdateAccountInput extends Partial<CreateAccountInput> {
@@ -122,7 +174,7 @@ export interface UpdateAccountInput extends Partial<CreateAccountInput> {
 }
 
 export async function updateAccountService(actor: ActorMeta, input: UpdateAccountInput) {
-  return db.$transaction(async (tx) => {
+  const updated = await db.$transaction(async (tx) => {
     const before = await tx.customerAccount.findFirst({
       where: { id: input.accountId, deletedAt: null },
       select: {
@@ -193,12 +245,15 @@ export async function updateAccountService(actor: ActorMeta, input: UpdateAccoun
 
     return account;
   });
+
+  await reindexAccount(updated.id);
+  return updated;
 }
 
 /** Soft delete (Spec.md §10). Never a hard delete: inquiries, quotations and orders reference the
  *  account, and losing who a quotation was for destroys the record of the sale. */
 export async function deleteAccountService(actor: ActorMeta, input: { accountId: string }) {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const account = await tx.customerAccount.findFirst({
       where: { id: input.accountId, deletedAt: null },
       select: { id: true, code: true, name: true },
@@ -239,6 +294,10 @@ export async function deleteAccountService(actor: ActorMeta, input: { accountId:
 
     return { ok: true as const };
   });
+
+  // Removes it from the palette — see reindexAccount.
+  await reindexAccount(input.accountId);
+  return result;
 }
 
 /**

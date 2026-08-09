@@ -62,6 +62,15 @@ async function clean() {
   await db.auditLog.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.inquiry.deleteMany({ where: { id: { in: inquiryIds } } });
 
+  const principals = await db.principalProspect.findMany({
+    where: { companyName: { startsWith: DEMO_TAG } },
+    select: { id: true },
+  });
+  const principalIds = principals.map((p) => p.id);
+  await db.notification.deleteMany({ where: { entityId: { in: principalIds } } });
+  await db.auditLog.deleteMany({ where: { entityId: { in: principalIds } } });
+  await db.principalProspect.deleteMany({ where: { id: { in: principalIds } } });
+
   await db.notification.deleteMany({ where: { entityId: { in: recordIds } } });
   await db.approvalAction.deleteMany({ where: { request: { entityId: { in: recordIds } } } });
   await db.approvalRequest.deleteMany({ where: { entityId: { in: recordIds } } });
@@ -172,6 +181,11 @@ async function main() {
         status: s.accountStatus,
         ownerId: ea.id,
         tin: `${Math.floor(100 + Math.random() * 899)}-000-000-000`,
+        // Backdated so §6's "accounts not contacted in 60 days" has something to find. The rule
+        // only considers accounts older than the window — a customer added this morning is not
+        // neglected — so demo accounts created today could never appear on that list, which made
+        // My Day's most important section look broken when it was working correctly.
+        createdAt: daysFromNow(-120),
       },
     });
 
@@ -212,6 +226,8 @@ async function main() {
   }
 
   await seedInquiries(ea.id);
+  await seedPrincipals(ea.id);
+  await backfillSearchIndex();
 
   console.log("\nDone. Accounts are owned by EA, accreditations by PD.");
   console.log("Certificate links will 404 — the file ids are placeholders, not real uploads.");
@@ -327,6 +343,131 @@ async function seedInquiries(ownerId: string) {
 
     console.log(`${inquiry.number}  ${scenario.subject}\n            ${scenario.note}`);
   }
+}
+
+/**
+ * specs/01-crm-inquiry.md §5c, positioned so the board shows something in most columns and both
+ * expiry warnings are visible.
+ */
+async function seedPrincipals(ownerId: string) {
+  const scenarios = [
+    {
+      companyName: `${DEMO_TAG}Krohne Messtechnik`,
+      country: "Germany",
+      productLines: ["Electromagnetic flow meters", "Ultrasonic flow meters"],
+      stage: "appointed",
+      agreementDays: 300,
+      priceListDays: 120,
+      note: "Appointed and healthy.",
+    },
+    {
+      companyName: `${DEMO_TAG}Samson Controls`,
+      country: "Germany",
+      productLines: ["Control valves", "Positioners"],
+      stage: "appointed",
+      agreementDays: 45,
+      // Lapsed: the board should say "Price list lapsed" in red, and §5c calls costing from it a
+      // margin incident waiting to happen.
+      priceListDays: -10,
+      note: "Appointed, but the price list lapsed 10 days ago — must read as unsafe to quote.",
+    },
+    {
+      companyName: `${DEMO_TAG}Yokogawa Southeast Asia`,
+      country: "Singapore",
+      productLines: ["Pressure transmitters", "Temperature transmitters"],
+      stage: "agreement_draft",
+      agreementDays: null,
+      priceListDays: null,
+      note: "Agreement being drafted — appointing should be refused until one is attached.",
+    },
+    {
+      companyName: `${DEMO_TAG}Endress+Hauser`,
+      country: "Switzerland",
+      productLines: ["Level instruments", "Analytical instruments"],
+      stage: "samples_pricing",
+      agreementDays: null,
+      priceListDays: null,
+      note: "Mid-pipeline.",
+    },
+    {
+      companyName: `${DEMO_TAG}Azbil Philippines`,
+      country: "Philippines",
+      productLines: ["Burner controls"],
+      stage: "dormant",
+      agreementDays: null,
+      priceListDays: null,
+      note: "Parked — should sit under 'Declined and dormant', revivable.",
+    },
+  ];
+
+  for (const s of scenarios) {
+    const prospect = await db.principalProspect.create({
+      data: {
+        companyName: s.companyName,
+        country: s.country,
+        productLines: s.productLines,
+        stage: s.stage,
+        ownerId,
+        targetIndustries: ["Water", "Power"],
+        estimatedOpportunity: "2500000",
+        exclusivity: s.stage === "appointed" ? "territory" : "none",
+        distributorAgreementFileId: s.agreementDays === null ? null : "demo-agreement-file",
+        agreementSignedAt: s.agreementDays === null ? null : daysFromNow(-365),
+        agreementExpiresAt: s.agreementDays === null ? null : daysFromNow(s.agreementDays),
+        priceListFileId: s.priceListDays === null ? null : "demo-pricelist-file",
+        priceListValidUntil: s.priceListDays === null ? null : daysFromNow(s.priceListDays),
+      },
+    });
+    console.log(`${prospect.companyName}\n            ${s.note}`);
+  }
+}
+
+/**
+ * Makes everything the script created findable from Ctrl+K.
+ *
+ * Accounts are indexed on create by the service now, but these rows are written straight to the
+ * table (see seedInquiries for why), so nothing would index them.
+ */
+async function backfillSearchIndex() {
+  const accounts = await db.customerAccount.findMany({
+    where: { code: { startsWith: DEMO_TAG }, deletedAt: null },
+    select: { id: true, code: true, name: true, industry: true },
+  });
+  for (const account of accounts) {
+    await db.searchIndex.upsert({
+      where: { entityType_entityId: { entityType: "CustomerAccount", entityId: account.id } },
+      update: {},
+      create: {
+        entityType: "CustomerAccount",
+        entityId: account.id,
+        title: `${account.code} — ${account.name}`,
+        body: account.industry ?? "",
+        href: `/crm/accounts/${account.id}`,
+      },
+    });
+  }
+
+  const inquiries = await db.inquiry.findMany({
+    where: { number: { startsWith: "INQ-DEMO" }, deletedAt: null },
+    select: { id: true, number: true, subject: true },
+  });
+  for (const inquiry of inquiries) {
+    await db.searchIndex.upsert({
+      where: { entityType_entityId: { entityType: "Inquiry", entityId: inquiry.id } },
+      update: {},
+      create: {
+        entityType: "Inquiry",
+        entityId: inquiry.id,
+        title: `${inquiry.number} — ${inquiry.subject}`,
+        body: "",
+        href: `/crm/inquiries/${inquiry.id}`,
+      },
+    });
+  }
+
+  console.log(
+    `\nIndexed ${accounts.length} accounts and ${inquiries.length} inquiries for Ctrl+K.`,
+  );
 }
 
 main()

@@ -60,14 +60,20 @@ describe("checkPrincipalTransition", () => {
     expect(checkPrincipalTransition("dormant", "contacted").ok).toBe(true);
   });
 
-  it("treats appointed and declined as terminal, with different reasons", () => {
+  it("treats appointed as the one terminal stage", () => {
     const appointed = checkPrincipalTransition("appointed", "dormant");
     expect(appointed.ok).toBe(false);
     expect(appointed.reason).toContain("supplier");
+  });
 
-    const declined = checkPrincipalTransition("declined", "contacted");
-    expect(declined.ok).toBe(false);
-    expect(declined.reason).toContain("Start a new one");
+  it("lets a declined prospect be revived — declining is one click from every live stage", () => {
+    // Asked for as an emergency undo. Making it permanent meant a misclick could only be fixed by
+    // abandoning the record and retyping it, which loses the history that made it worth keeping.
+    expect(checkPrincipalTransition("declined", "contacted").ok).toBe(true);
+    expect(checkPrincipalTransition("declined", "agreement_draft").ok).toBe(true);
+    // Straight back to appointed is allowed too — the agreement gate in the service still applies,
+    // so an undo cannot smuggle in an appointment with no paperwork behind it.
+    expect(checkPrincipalTransition("declined", "appointed").ok).toBe(true);
   });
 
   it("rejects a stage that is not a stage", () => {
@@ -76,9 +82,18 @@ describe("checkPrincipalTransition", () => {
     expect(checkPrincipalTransition("identified", "identified").ok).toBe(false);
   });
 
-  it("offers no moves at all out of a terminal stage", () => {
+  it("offers no moves at all out of appointed", () => {
     expect(principalStagesFrom("appointed")).toEqual([]);
-    expect(principalStagesFrom("declined")).toEqual([]);
+  });
+
+  it("offers the whole progression out of declined and dormant", () => {
+    for (const parked of ["declined", "dormant"]) {
+      const options = principalStagesFrom(parked);
+      expect(options, parked).toContain("contacted");
+      expect(options, parked).toContain("appointed");
+      // Not itself, and not the other parked state's own value twice over.
+      expect(options, parked).not.toContain(parked);
+    }
   });
 
   it("offers exactly the legal moves from a live stage", () => {

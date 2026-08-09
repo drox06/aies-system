@@ -37,8 +37,16 @@ export const PRINCIPAL_STAGES = [
 
 export type PrincipalStage = (typeof PRINCIPAL_STAGES)[number];
 
-/** Stages from which nothing further happens without a deliberate reopen. */
-export const PRINCIPAL_TERMINAL_STAGES: readonly PrincipalStage[] = ["appointed", "declined"];
+/**
+ * The only stage nothing moves out of.
+ *
+ * `declined` used to be here too, on the reasoning that a manufacturer which said no is a new
+ * conversation rather than a resumed one. The company asked for it back as an emergency undo, and
+ * they are right: `declined` is one click away from every live stage, so a misclick is easy and
+ * previously permanent — the record had to be abandoned and retyped, losing its history. Reviving
+ * is audited like any other move, so the mistake and its correction both stay on the record.
+ */
+export const PRINCIPAL_TERMINAL_STAGES: readonly PrincipalStage[] = ["appointed"];
 
 export const EXCLUSIVITY_TERMS = ["none", "territory", "segment"] as const;
 
@@ -93,21 +101,19 @@ export function checkPrincipalTransition(from: string, to: string): PrincipalTra
   if (PRINCIPAL_TERMINAL_STAGES.includes(from as PrincipalStage)) {
     return {
       ok: false,
-      reason:
-        from === "appointed"
-          ? "This principal is already appointed. Manage it as a supplier from here."
-          : "This prospect was declined. Start a new one if the conversation reopens.",
+      reason: "This principal is already appointed. Manage it as a supplier from here.",
     };
   }
 
   if (to === "declined" || to === "dormant") return { ok: true };
 
-  // Reviving a dormant prospect: anywhere on the progression is fair, since it resumes wherever the
-  // conversation actually left off rather than restarting at the top.
-  if (from === "dormant") {
+  // Reviving a parked or declined prospect: anywhere on the progression is fair, since it resumes
+  // wherever the conversation actually left off rather than restarting at the top. `declined` is
+  // included so a misclick can be undone — see PRINCIPAL_TERMINAL_STAGES.
+  if (from === "dormant" || from === "declined") {
     return PROGRESSION.includes(to as PrincipalStage)
       ? { ok: true }
-      : { ok: false, reason: `A dormant prospect cannot move to ${humanStage(to)}.` };
+      : { ok: false, reason: `A ${humanStage(from)} prospect cannot move to ${humanStage(to)}.` };
   }
 
   const fromIndex = PROGRESSION.indexOf(from as PrincipalStage);
