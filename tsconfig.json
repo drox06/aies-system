@@ -31,5 +31,5 @@
     "next-env.d.ts",
     ".next-build/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next", "docker"]
+  "exclude": ["node_modules", ".next", "docker", ".next-build"]
 }

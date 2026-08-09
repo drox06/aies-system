@@ -78,6 +78,8 @@ const eslintConfig = [
     ignores: [
       "node_modules/**",
       ".next/**",
+      // build:check writes here (see next.config.ts). Generated output is not source.
+      ".next-build/**",
       "docker/**",
       "prisma/schema/**/*.prisma",
       "playwright-report/**",
