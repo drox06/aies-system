@@ -156,9 +156,9 @@ Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
         Demo@aies.local with role Technician"), `role_assigned=9`. That is exactly the protocol's
         "log in, create a user, assign a role, confirm the audit log caught all three".
   - [x] Six defects found by that pass, all fixed — see the session 5 feedback list below.
-  - [ ] **Deferred, with reason:** the gate's "a non-privileged role cannot see cost fields in the
-        serialised response" cannot be executed in module 00, because no cost or margin field
-        exists until module 02. `tests/server/core/rbac/field-gating.test.ts` covers the stripping
+  - [x] **Deferred, now closed by module 02 session 1.** The gate's "a non-privileged role cannot
+        see cost fields in the serialised response" could not be executed in module 00, because no
+        cost or margin field existed until module 02. `tests/server/core/rbac/field-gating.test.ts` covers the stripping
         logic and `permission-matrix.test.ts` asserts only president/vice_president hold
         `finance.view_cost`. **The serialised-response check is owed by module 02's gate.**
 
@@ -485,6 +485,30 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
 - [x] **AIES's registered details** behind `getCompanyDetails()`, ready for §7's PDF header.
       Constants until module 09's settings screen exists, deliberately rather than inventing a
       second settings mechanism. docs/DECISIONS.md #26.
+- [x] **The module manifest** with §11's permissions — eleven of the thirteen. `quotation.approve`
+      and `finance.view_cost` are foundation-owned (module 00 seeded them, the first because it
+      needed the 24-hour approval rule, the second because Spec.md §4.3 makes cost visibility a
+      system-wide rule). Redeclaring either would give one key two owners, which the registry's
+      collision check exists to catch. 31 permissions now seed: 8 foundation + 23 from manifests.
+- [x] **§2's status list as a transition map** (`quotation-lifecycle.ts`, pure). The shape worth
+      noticing is what is missing: nothing returns to `draft` from `sent`, because §5 makes a sent
+      quotation immutable and the way back is a revision. `accepted` and `expired` are system-only —
+      one mirrors module 03's `customer_po.received`, the other is §7's auto-expire job.
+- [x] **Consuming `inquiry.quoting_started`**, so an inquiry reaching `quoting` gets its draft
+      automatically — the loop the pipeline drag already opens. Idempotent, because module 00's
+      queue delivers at least once and a redelivery must not issue a second quotation number
+      against the same work. Subscribed through a dynamic import so registering the manifest does
+      not pull Prisma into `prisma/seed.ts` and the nav tests.
+- [x] **Cost and margin stripped from the serialised response** — header *and* lines. A margin panel
+      hidden in the UI while `lines[0].unitCost` still rides along in the JSON is a rendering choice
+      anyone can undo from the network tab.
+- [x] **Module 00's deferred review-gate item is now satisfied.** That gate asked for "a
+      non-privileged role cannot see cost fields in the serialised response" and could not be run,
+      because module 00 had no cost field. `tests/server/core/quotation/quotation-flow.test.ts`
+      inspects the payload for every field in both cost lists, and confirms the customer-facing
+      figures survive — a gate that stripped `total` as well would pass a naive test and produce an
+      unreadable quotation.
+- [x] 401 tests across 53 files; lint, typecheck and `build:check` clean.
 - [x] Repaired the migration ledger. This morning's wipe (docs/DECISIONS.md #24) had also dropped
       Prisma's `_prisma_migrations` table, so all 21 earlier migrations read as unapplied against a
       schema that plainly contained them. Each is marked resolved; status is now 22 migrations,
