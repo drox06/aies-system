@@ -515,27 +515,36 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       up to date, and a read-only diff confirms the database matches the datamodel exactly.
 
 ### Next concrete step
-**Module 02 — Quotation.** Read `specs/02-quotation.md` in full, then plan it into sessions the way
-module 01 was (it is the second-largest module in the pack: evaluation, supplier RFQ, costing, the
-quote builder, revisions, approval, and a PDF).
+**Module 02 session 2 — the quote builder and revisions.** Read specs/02-quotation.md §§4, 5 and 9,
+then:
 
-Two things are already waiting for it, both built and unreachable until it lands:
+1. `quotation-line-service.ts`: replace a quotation's lines wholesale, recompute through
+   `computeCosting`, and persist header and line figures together. The engine is already written and
+   tested — this is the layer that stores what it returns, and it must be the **only** thing that
+   writes `subtotal` / `total` / `marginAmount`, or the stored figures and the displayed ones will
+   drift.
+2. **Optimistic locking.** Spec.md §10 names quotations specifically and §12 tests it: "concurrent
+   edit of one quotation by two users raises a version conflict rather than a silent overwrite."
+   Every write takes the caller's `version` and increments it in the same `UPDATE ... WHERE version
+   = ?`; zero rows affected means somebody else saved first.
+3. **Edits are refused outside `draft`** at the service layer, not the UI (§12). `isEditable` is
+   already the predicate.
+4. §5's revision chain: `reviseQuotationService` clones the record and its lines into revision n+1
+   as `draft`, sharing the base number, requiring a `revisionReason` from the picklist, and marking
+   the prior revision `superseded` **when the new one is sent** — not when it is created, or a
+   half-written revision would supersede a live quotation.
+5. §5's diff view: a pure function comparing two revisions — lines added, removed, quantity and
+   price changes, terms changed. Sales needs this in front of them on a negotiation call.
+6. `/quotations` list and `/quotations/[id]` builder, plus the nav entry **in the same change as the
+   pages** or the guard test fails. The margin panel is permission-gated on `finance.view_cost` and
+   reads the figures the server already stripped — it must not recompute them client-side, or an
+   unprivileged browser could reconstruct what the API refused to send.
 
-1. **`inquiry.quoting_started`** is emitted whenever an inquiry reaches `quoting`. Module 02
-   subscribes and creates the linked Quotation draft (§3).
-2. **`quoted` / `won` / `lost` are system-only transitions.** §3 says the quotation's outcome sets
-   them, so `transitionInquiryService` refuses them from a user and accepts them with
-   `bySystem: true`. Module 02 calls that from its `quotation.sent` / `accepted` / `rejected`
-   subscribers, and adds those three to the CRM manifest's `consumes` —
-   `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces.
+Sessions 3 and 4 remain as planned: approval and issuance, then RFQ, negotiation and reuse.
 
-Also owed by module 02's own gate: module 00 deferred "a non-privileged role cannot see cost fields
-in the serialised response" because no cost field existed. Module 02 creates them.
-
-**Blocked on input:** the company supplied `AIES Quotation 2026 - template.pdf` as the PDF template.
-Its text is in subsetted fonts with custom encodings and could not be extracted without adding a PDF
-parsing dependency, which Spec.md §2 requires justifying. Ask for a `.docx`, a plain-text export, or
-the field list before building the PDF template. Everything else in module 02 can proceed without it.
+**No longer blocked.** The company directed that the supplied `AIES Quotation 2026 - template.pdf`
+be disregarded and §7's own section list used as the template, and supplied the registered company
+details — both now in place (docs/DECISIONS.md #26).
 
 Notes for whoever picks this up:
   - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/
