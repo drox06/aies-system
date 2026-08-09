@@ -1,7 +1,7 @@
 # Build Progress
 
 Last updated: 2026-08-09
-Current module: 01 — CRM and Inquiry Intake (all 3 sessions built; review gate not yet run)
+Current module: 02 — Quotation. Module 01 is COMPLETE and tagged `module-01-complete`.
 Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
 
 ## Done
@@ -401,41 +401,80 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
       are covered — merge repoints with no orphans, and the half of "appointing creates exactly one
       supplier" this module owns (exactly one event, no second appointment, idempotent relink).
 
-### Next concrete step
-**Module 01's review gate (docs/BUILD-PROTOCOL.md §7), then module 02.**
+### Module 01 review gate (docs/BUILD-PROTOCOL.md §7) — PASSED, tagged `module-01-complete`
+- [x] `npm test` — 359 tests across 50 files. `npm run lint`, `npm run typecheck`,
+      `npm run build` all clean.
+- [x] Migrations apply cleanly to a fresh database — proven by CI, which stands up a fresh
+      `postgres:16-alpine` service and runs `prisma migrate deploy` on every push. **Do not try to
+      reproduce this locally against the real database**; see docs/DECISIONS.md #24, where doing so
+      destroyed every row in it.
+- [x] **Manual pass performed by the operator**, covering all eight routes. Findings:
+  - Kanban drag works, and an illegal move is refused with the reason. The one interaction no test
+    can reach, now exercised by hand.
+  - The §4 requirements gate blocked `quoting`, and the logged override released it — both halves
+    of §4 confirmed on screen.
+  - A site inspection was assigned, completed with findings, and returned the inquiry to
+    `evaluating`, resuming the SLA clock.
+  - Ctrl+K found an account and navigated to it.
+  - `DEMO-Samson Controls` read as "Price list lapsed"; appointing `DEMO-Yokogawa` was refused for
+    want of a signed agreement.
+- [x] Three defects found by that pass, all fixed in `41e825e` — see "Defects found by the module 01
+      manual pass" below.
+- [x] PROGRESS.md and DECISIONS.md current.
 
-1. Run the gate: `npm test`, `npm run lint`, `npm run typecheck`, `next build`, migrations applied
-   to a fresh database in CI.
-2. **The manual pass is the part that matters and has never been done for this module.** Nothing in
-   module 01 has been looked at on screen. Module 00's manual pass found six defects that 186
-   automated tests did not. `npm run demo:crm` loads the data; the states worth scrutinising are
-   listed under "Not visually verified" below.
-3. Only then tag `module-01-complete` and start module 02 (specs/02-quotation.md), which is also
-   where the deferred module-00 gate item lands: "a non-privileged role cannot see cost fields in
-   the serialised response" needs a cost field to exist.
+### Defects found by the module 01 manual pass
+1. **The acknowledgement badge kept shouting after the SLA stopped mattering.** An inquiry in
+   `quoting` still showed a red "Acknowledged late", which reads as needing action when nothing can
+   be done. Now quiet text once the inquiry is past `acknowledged`; the fact is kept, the alarm is
+   not.
+2. **`declined` was terminal, and it sits one click from every live stage.** A misclick could only
+   be fixed by abandoning the record and retyping it. Now revivable like `dormant`, including
+   straight back to `appointed` — the agreement gate still applies, so an undo cannot create an
+   appointment with no paperwork behind it. This reverses the reasoning in the original
+   implementation, at the company's request and correctly.
+3. **My Day's "not contacted in 60 days" looked broken and was working.** The rule ignores accounts
+   younger than the window, but demo accounts were created today, so the section could never
+   populate. Demo accounts are now backdated 120 days.
+
+Also landed in the same commit: accounts are indexed for Ctrl+K on create and update, and dropped
+from the index on soft delete. Inquiries had been indexed since session 2, so searching a customer's
+name found their inquiries but not the customer.
+
+### Next concrete step
+**Module 02 — Quotation.** Read `specs/02-quotation.md` in full, then plan it into sessions the way
+module 01 was (it is the second-largest module in the pack: evaluation, supplier RFQ, costing, the
+quote builder, revisions, approval, and a PDF).
+
+Two things are already waiting for it, both built and unreachable until it lands:
+
+1. **`inquiry.quoting_started`** is emitted whenever an inquiry reaches `quoting`. Module 02
+   subscribes and creates the linked Quotation draft (§3).
+2. **`quoted` / `won` / `lost` are system-only transitions.** §3 says the quotation's outcome sets
+   them, so `transitionInquiryService` refuses them from a user and accepts them with
+   `bySystem: true`. Module 02 calls that from its `quotation.sent` / `accepted` / `rejected`
+   subscribers, and adds those three to the CRM manifest's `consumes` —
+   `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces.
+
+Also owed by module 02's own gate: module 00 deferred "a non-privileged role cannot see cost fields
+in the serialised response" because no cost field existed. Module 02 creates them.
+
+**Blocked on input:** the company supplied `AIES Quotation 2026 - template.pdf` as the PDF template.
+Its text is in subsetted fonts with custom encodings and could not be extracted without adding a PDF
+parsing dependency, which Spec.md §2 requires justifying. Ask for a `.docx`, a plain-text export, or
+the field list before building the PDF template. Everything else in module 02 can proceed without it.
 
 Notes for whoever picks this up:
-  - Module 02 subscribes to nothing yet. When it lands, add `quotation.sent` / `accepted` /
-    `rejected` to the CRM manifest's `consumes` and call `transitionInquiryService` with
-    `bySystem: true`. `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces.
-  - **Never use `Promise.all` inside a Prisma interactive transaction.** It holds one connection,
-    and parallel queries on it surface as "Can't reach database server", which reads like an outage
-    and is not one. This cost real time in session 3. Outside a transaction it is fine.
-  - Use **`npm run build:check`** to verify a build locally, never `npm run build`. It writes to
-    `.next-build` so it cannot disturb a running dev server; `npm run build` writes `.next` and is
-    what CI and Vercel run. Mixing them leaves the browser showing
-    `ENOENT: .next/server/pages/_document.js` while the dev terminal looks fine. docs/DECISIONS.md
-    #17, which reverses its own earlier conclusion and explains why.
-  - A client component importing a *service* fails `next build` and not typecheck. The lint rule
-    added this session catches it now; add new pure modules to `UI_SAFE_SERVER_MODULES`.
-  - A server-side import cycle (an access checker reading its entityType from the service that
-    imports it) fails `next build` with "Cannot access 'X' before initialization" and is caught by
-    nothing else. Shared constants go in the pure file. docs/DECISIONS.md #23.
-  - The repo lives at **`C:\dev\aies`**, deliberately outside OneDrive. It used to sit under
-    `OneDrive\Desktop\AI Project\Module 1`, where `npm run build` intermittently died with
-    `EINVAL: readlink '.next/…'` — OneDrive turning build output into cloud placeholders
-    mid-build. Those failures were the harmless half; the risk that mattered was OneDrive
-    locking `.git` mid-write. Do not move it back. See docs/DECISIONS.md #23.
+  - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/
+    DECISIONS.md #24.
+  - Use **`npm run build:check`**, not `npm run build`, while a dev server is running.
+    docs/DECISIONS.md #17.
+  - **Never use `Promise.all` inside a Prisma interactive transaction** — one connection, and the
+    failure reads as "Can't reach database server".
+  - A client component importing a *service* fails `next build` and not typecheck; the lint rule in
+    `eslint.config.mjs` catches it now. Shared constants live in the pure rules files.
+  - `allocateNumber` takes no transaction client, so a rollback burns a number. Gaps are permitted
+    by Spec.md §5, but quotations are customer-facing — revisit before module 02 issues QTN numbers.
+  - The repo lives at `C:\dev\aies`, deliberately outside OneDrive.
 
 ## Not started
 - [ ] Modules 02–10

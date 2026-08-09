@@ -672,3 +672,57 @@ succeeding against a *dirty* `.next`, which is precisely the operation that had 
 
 **Do not move it back.** If a future clone lands under OneDrive again, `EINVAL: readlink` on a
 `.next` path is the symptom to recognise.
+
+---
+
+## 24. `prisma migrate diff --shadow-database-url` destroyed the development database
+
+**Module:** 01, review gate. **Cost:** every row in the database, and the module 00 gate evidence.
+
+While ticking off the review gate's "migration applies cleanly to a fresh database", I ran:
+
+```
+npx prisma migrate diff --from-migrations prisma/schema/migrations
+  --to-schema-datamodel prisma/schema --shadow-database-url <DIRECT_URL>
+```
+
+**Prisma resets whatever it is given as a shadow database.** It drops and recreates the schema
+there to compute a clean diff. `DIRECT_URL` is the live development database, so every table went
+to zero: users, roles, permissions, audit log, accounts, inquiries, accreditations, principals,
+notifications, numbering counters.
+
+**The command was also unnecessary.** `npx prisma migrate status` had already answered the question
+one line earlier — "Database schema is up to date!". The second command added no information and
+cost everything.
+
+**Recovered** by `npm run seed` and `npm run demo:crm`: roles, permissions, the five named users,
+approval rules, numbering formats, requirement templates, and demo data.
+
+**Not recovered, and not recoverable without a Supabase PITR restore:**
+
+- The operator's password and TOTP enrolment. Accounts came back on the seed default with
+  `mustChangePassword` set, so the authenticator had to be re-enrolled.
+- **The audit log**, including the evidence PROGRESS.md cited for module 00's review gate
+  (`login=2`, `create=1`, `role_assigned=9`). For an ISO 9001 system that trail *is* the record —
+  see Spec.md §1.3, "every record that constitutes objective evidence must be immutable once
+  approved, attributable to a named person, and timestamped". Losing it on a development database
+  is survivable. The same command against production would be a reportable incident.
+- **Numbering counters.** They restarted from 1, so the next account was `ACC-0001` — a number
+  already issued. Spec.md §5 says numbers are never reused.
+
+**Rules, in order of how much they would have helped:**
+
+1. **Never pass a real database URL as `--shadow-database-url`.** A shadow database is scratch
+   space by definition; Prisma will wipe it without asking. Point it at a throwaway database or do
+   not run the command.
+2. **`prisma migrate status` is the safe drift check.** It is read-only and it answers the review
+   gate's question. `migrate diff` against a shadow database answers a narrower question that has
+   not yet been worth asking.
+3. **CI already proves the gate item.** `.github/workflows` stands up a fresh `postgres:16-alpine`
+   service and runs `npx prisma migrate deploy` on every push, which is exactly "migrations apply
+   cleanly to a fresh database" — verified by a machine, on a database nobody cares about. There
+   was never a reason to reproduce it locally against real data.
+
+**Neither `git` nor the codebase was at risk** — this destroyed data, not source. Everything needed
+to rebuild the schema and the seed was in the repository, which is why recovery took two commands.
+That is the argument for keeping seed scripts complete and current, and it paid for itself here.
