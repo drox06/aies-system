@@ -9,8 +9,69 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 });
 
+/**
+ * Modules under `src/server/` that a component may import.
+ *
+ * An allow-list, not a deny-list. The rule this enforces was learned the expensive way: a client
+ * component imported `inspection-service.ts` for one string constant, which pulled in Prisma and
+ * the numbering service and therefore `node:crypto`, and `next build` failed outright with
+ * "Reading from node:crypto is not handled by plugins". `npm run typecheck` passed clean — only the
+ * production build caught it, at the very end of a session.
+ *
+ * A deny-list of `*-service` would have caught that one case and missed `@/lib/db`,
+ * `@/server/auth`, or a service that happens to be named something else. So: everything under
+ * `src/server/` is off-limits to a component except the files below, each of which is deliberately
+ * pure — no Prisma, no node builtins, nothing but rules and constants the UI genuinely shares with
+ * the server so the two cannot drift apart.
+ *
+ * Adding a file here is a real decision. It must import nothing that reaches the database.
+ */
+const UI_SAFE_SERVER_MODULES = [
+  "@/server/core/crm/inquiry-lifecycle",
+  "@/server/core/crm/accreditation-rules",
+  "@/server/core/crm/requirements",
+  "@/server/core/calendar/business-days",
+  // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
+  // weight — but it is listed rather than assumed, because a value import from here would.
+  "@/server/api/root",
+];
+
+/**
+ * `regex` rather than `group`, because gitignore-style `!` negation inside a `group` does not
+ * actually exempt the allowed paths here — it was tried, and it flagged every one of them. A
+ * negative lookahead leaves no room for interpretation.
+ */
+const RESTRICTED_SERVER_IMPORTS = new RegExp(
+  `^@/lib/db$|^@/server/(?!(?:${UI_SAFE_SERVER_MODULES.map((m) =>
+    m.replace("@/server/", "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  ).join("|")})$)`,
+).source;
+
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript", "prettier"),
+  {
+    // Components only. Route handlers under src/app/api are `.ts` and legitimately reach the
+    // database — `/api/cron/nightly` exists precisely to call services.
+    files: ["src/app/**/*.tsx", "src/components/**/*.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: RESTRICTED_SERVER_IMPORTS,
+              message:
+                "A component may not import server code. It pulls Prisma and node builtins into " +
+                "the browser bundle and fails `next build` — which typecheck does not catch. Put " +
+                "shared rules and constants in a pure file (inquiry-lifecycle.ts, " +
+                "accreditation-rules.ts, requirements.ts) and add it to UI_SAFE_SERVER_MODULES in " +
+                "eslint.config.mjs. Fetch data through tRPC.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     ignores: [
       "node_modules/**",
