@@ -34,66 +34,89 @@ registerNotificationType({
 });
 
 /**
- * The roles that may be sent to site (§5: "sales needs the technical team to inspect a site").
+ * The roles that make somebody an obvious candidate for a site visit — used to *label* the picker,
+ * not to restrict it.
  *
- * Spec.md §4.1 puts field execution with `technician` and dispatch with `operations_manager` (DJ).
- * `technician` is seeded-but-unassigned today (§4.2), so in practice this resolves to DJ until AIES
- * hires — which is correct rather than a gap, and means the list is right on the day they do.
+ * Spec.md §4.1 puts field execution with `technician` and dispatch with `operations_manager`. An
+ * earlier version of this file used the list as an allow-list, on the reasoning that a site
+ * inspection assigned to the finance officer is a visit that never happens.
  *
- * An allow-list rather than "every active user": a site inspection assigned to the finance officer
- * is not a typo anyone catches, it is a visit that never happens.
+ * The company overruled that, and they are right about their own business: Spec.md §1.2 lists
+ * "everyone does everything" as a fact of a five-person firm, and §4.3 says users hold multiple
+ * roles precisely because "a five-person company has no clean separation of duties". PD is
+ * admin_manager *and* finance_officer; KJ is vice_president *and* finance_officer. Refusing to let
+ * the president walk a site he is already visiting is the software inventing a rule the business
+ * does not have.
+ *
+ * So anyone active may be assigned, and this list only decides who is marked "technical" in the
+ * dropdown — which keeps the useful half of the original idea (you can see at a glance who the
+ * field people are) without the half that blocked real work.
  */
-export const INSPECTION_ASSIGNEE_ROLES = ["technician", "operations_manager"] as const;
+export const INSPECTION_TECHNICAL_ROLES = ["technician", "operations_manager"] as const;
 
 export interface InspectionAssignee {
   id: string;
   name: string;
   roles: string[];
+  /** True when they hold a field role — the dropdown marks these so the obvious choice is obvious. */
+  isTechnical: boolean;
 }
 
 /**
- * Who an inspection may be assigned to.
+ * Who an inspection may be assigned to: any active user.
  *
- * Exists because the form previously used `admin.listUsers`, which is gated on
+ * Exists as its own procedure because the form previously used `admin.listUsers`, which is gated on
  * `admin.manage_users` — a permission only the president holds. Everyone else opened the assignee
- * dropdown and found it empty, so in practice nobody but EA could assign an inspection at all.
- * Gated on `inspection.request` instead: if you may raise one, you may see who can take it.
+ * dropdown and found it empty, so in practice nobody but EA could assign an inspection at all. This
+ * is gated on `inspection.request` instead: if you may raise one, you may see who can take it.
+ *
+ * Field roles are flagged rather than filtered, so the technical staff sort to the top and are
+ * labelled, but nobody is barred. See INSPECTION_TECHNICAL_ROLES for why.
  */
 export async function listInspectionAssigneesService(): Promise<InspectionAssignee[]> {
   const users = await db.user.findMany({
-    where: {
-      isActive: true,
-      deletedAt: null,
-      roles: { some: { role: { key: { in: [...INSPECTION_ASSIGNEE_ROLES] } } } },
-    },
+    where: { isActive: true, deletedAt: null },
     select: { id: true, name: true, roles: { select: { role: { select: { key: true } } } } },
     orderBy: { name: "asc" },
   });
 
-  return users.map((user) => ({
-    id: user.id,
-    name: user.name,
-    roles: user.roles.map((r) => r.role.key),
-  }));
+  return (
+    users
+      .map((user) => {
+        const roles = user.roles.map((r) => r.role.key);
+        return {
+          id: user.id,
+          name: user.name,
+          roles,
+          isTechnical: roles.some((role) =>
+            INSPECTION_TECHNICAL_ROLES.includes(role as "technician"),
+          ),
+        };
+      })
+      // Field staff first, then alphabetical within each group. The list is not restricted, but the
+      // likely answer should still be the first thing you see.
+      .sort((a, b) =>
+        a.isTechnical === b.isTechnical ? a.name.localeCompare(b.name) : a.isTechnical ? -1 : 1,
+      )
+  );
 }
 
-/** Shared by create and reassign, so the two cannot drift on who is eligible. */
+/**
+ * Shared by create and reassign, so the two cannot drift on who is eligible.
+ *
+ * The only bar is being a real, active account. Assigning work to somebody who has been deactivated
+ * would send a notification nobody will ever read — which is the one case where silence is
+ * guaranteed and the visit is guaranteed not to happen.
+ */
 async function assertAssignable(userId: string): Promise<{ id: string; name: string }> {
   const user = await db.user.findFirst({
-    where: {
-      id: userId,
-      isActive: true,
-      deletedAt: null,
-      roles: { some: { role: { key: { in: [...INSPECTION_ASSIGNEE_ROLES] } } } },
-    },
+    where: { id: userId, isActive: true, deletedAt: null },
     select: { id: true, name: true },
   });
   if (!user) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message:
-        "A site inspection can only be assigned to a technician or the operations manager. " +
-        "That user holds neither role, or is inactive.",
+      message: "That user account is inactive or no longer exists, so it cannot be assigned work.",
     });
   }
   return user;

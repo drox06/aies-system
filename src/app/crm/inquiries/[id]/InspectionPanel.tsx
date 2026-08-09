@@ -31,9 +31,10 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
   const [dueAt, setDueAt] = useState("");
   const [findings, setFindings] = useState("");
 
-  // Technicians and the operations manager only. The old picker called admin.listUsers, which
-  // needs `admin.manage_users` — so for everyone except the president it returned nothing.
-  const assignees = trpc.crm.inspectionAssignees.useQuery(undefined, { enabled: open });
+  // Not gated on `open`. That flag belongs to the raise-a-new-request form, so gating the query on
+  // it meant the assignee list was never fetched for an *existing* request — the dropdown on the
+  // assignment row showed nothing but "Choose…" no matter who was eligible.
+  const assignees = trpc.crm.inspectionAssignees.useQuery();
 
   const invalidate = () => {
     void utils.crm.getInquiry.invalidate({ inquiryId: inquiry.id });
@@ -243,13 +244,12 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
                 {(assignees.data ?? []).map((user) => (
                   <option key={user.id} value={user.id}>
                     {user.name}
+                    {user.isTechnical ? " — field" : ""}
                   </option>
                 ))}
               </Select>
               <p className="mt-0.5 text-xs text-text-muted">
-                {assignees.data?.length === 0
-                  ? "Nobody holds the technician or operations-manager role yet."
-                  : "They are notified immediately, with the purpose and what to bring back."}
+                They are notified immediately, with the purpose and what to bring back.
               </p>
             </div>
             <div>
@@ -314,7 +314,7 @@ function AssignmentRow({
     assignedToId: string | null;
     dueAt: string | Date | null;
   };
-  assignees: { id: string; name: string }[];
+  assignees: { id: string; name: string; isTechnical: boolean }[];
   busy: boolean;
   onAssign: (userId: string, dueAt: Date | null) => Promise<void>;
 }) {
@@ -370,6 +370,7 @@ function AssignmentRow({
             {assignees.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
+                {user.isTechnical ? " — field" : ""}
               </option>
             ))}
           </Select>

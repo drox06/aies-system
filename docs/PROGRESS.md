@@ -320,11 +320,11 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
       nightly forever. The deadline is **derived, never stored**, the same call as the
       accreditation status: a stored `slaDueAt` goes stale the moment somebody corrects a backdated
       `receivedAt`.
-- [x] **§5 inspection requests** are assigned to a technician or the operations manager, with a due
+- [x] **§5 inspection requests** are assigned to any active user, with a due
       date, and that person is notified with the purpose, deadline, window and required outputs.
       Three things had to be fixed for that to be true rather than nominal: the assignee picker used
       `admin.listUsers` (president-only, so the dropdown was empty for everyone else); it listed
-      every user, so a site visit could be assigned to the finance officer; and `technician` /
+      every user through a president-only permission; and `technician` /
       `operations_manager` held no `crm.view`, so the notification linked to a record the
       recipient could not open. `inquiryScopeWhere` now also admits an assigned inspector, which a
       test proves is load-bearing. Assigned inspections appear on the assignee's My Day with the

@@ -7,7 +7,7 @@ import {
   createInspectionRequestService,
   listInspectionAssigneesService,
   listMyInspectionsService,
-  INSPECTION_ASSIGNEE_ROLES,
+  INSPECTION_TECHNICAL_ROLES,
 } from "@/server/core/crm/inspection-service";
 import { transitionInquiryService } from "@/server/core/crm/inquiry-service";
 
@@ -70,25 +70,44 @@ afterAll(async () => {
 });
 
 describe("who a site inspection may be assigned to", () => {
-  it("lists technicians and the operations manager, and nobody else", async () => {
+  it("offers every active user, not just the field roles", async () => {
+    // Spec.md §1.2 lists "everyone does everything" as a fact of a five-person firm, and §4.3 says
+    // users hold multiple roles because there is no clean separation of duties. Refusing to let the
+    // president walk a site he is already visiting would be the software inventing a rule the
+    // business does not have.
+    const technician = await makeUser("technician");
+    const finance = await makeUser("finance_officer");
+
+    const ids = (await listInspectionAssigneesService()).map((a) => a.id);
+    expect(ids).toContain(technician.id);
+    expect(ids).toContain(finance.id);
+  });
+
+  it("marks the field roles and sorts them first, so the likely answer leads", async () => {
     const technician = await makeUser("technician");
     const finance = await makeUser("finance_officer");
 
     const assignees = await listInspectionAssigneesService();
-    const ids = assignees.map((a) => a.id);
+    expect(assignees.find((a) => a.id === technician.id)?.isTechnical).toBe(true);
+    expect(assignees.find((a) => a.id === finance.id)?.isTechnical).toBe(false);
 
-    expect(ids).toContain(technician.id);
-    // A site inspection assigned to the finance officer is not a typo anyone catches — it is a
-    // visit that never happens.
-    expect(ids).not.toContain(finance.id);
+    // Every technical entry appears before every non-technical one.
+    const lastTechnical = assignees.map((a) => a.isTechnical).lastIndexOf(true);
+    const firstOther = assignees.map((a) => a.isTechnical).indexOf(false);
+    if (lastTechnical !== -1 && firstOther !== -1) {
+      expect(lastTechnical).toBeLessThan(firstOther);
+    }
+
+    // And the flag agrees with the role list it is derived from.
     for (const assignee of assignees) {
-      expect(
-        assignee.roles.some((r) => INSPECTION_ASSIGNEE_ROLES.includes(r as "technician")),
-      ).toBe(true);
+      const expected = assignee.roles.some((r) =>
+        INSPECTION_TECHNICAL_ROLES.includes(r as "technician"),
+      );
+      expect(assignee.isTechnical, assignee.name).toBe(expected);
     }
   });
 
-  it("excludes a deactivated technician", async () => {
+  it("excludes a deactivated user", async () => {
     const technician = await makeUser("technician");
     await db.user.update({ where: { id: technician.id }, data: { isActive: false } });
 
@@ -96,23 +115,41 @@ describe("who a site inspection may be assigned to", () => {
     expect(assignees.map((a) => a.id)).not.toContain(technician.id);
   });
 
-  it("refuses an ineligible assignee at creation, before anything is written", async () => {
-    const finance = await makeUser("finance_officer");
+  it("refuses a deactivated assignee at creation, before anything is written", async () => {
+    // The one remaining bar: assigning work to a dead account sends a notification nobody will ever
+    // read, which is the single case where the visit is guaranteed not to happen.
+    const gone = await makeUser("technician");
+    await db.user.update({ where: { id: gone.id }, data: { isActive: false } });
     const inquiry = await makeInquiryAtEvaluating();
 
     await expect(
       createInspectionRequestService(actor, {
         inquiryId: inquiry.id,
         purpose: "Survey the panel",
-        assignedToId: finance.id,
+        assignedToId: gone.id,
       }),
-    ).rejects.toThrow(/technician or the operations manager/);
+    ).rejects.toThrow(/inactive or no longer exists/);
 
     // Nothing created, and the inquiry was not parked.
     const requests = await db.inspectionRequest.count({ where: { inquiryId: inquiry.id } });
     expect(requests).toBe(0);
     const after = await db.inquiry.findUnique({ where: { id: inquiry.id } });
     expect(after?.status).toBe("evaluating");
+  });
+
+  it("lets a non-field user be assigned and notified", async () => {
+    const finance = await makeUser("finance_officer");
+    const inquiry = await makeInquiryAtEvaluating();
+
+    const request = await createInspectionRequestService(actor, {
+      inquiryId: inquiry.id,
+      purpose: "Meet the client on site while passing",
+      assignedToId: finance.id,
+    });
+    expect(request.assignedToId).toBe(finance.id);
+
+    const notifications = await db.notification.count({ where: { recipientId: finance.id } });
+    expect(notifications).toBe(1);
   });
 });
 
