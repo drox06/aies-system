@@ -4,6 +4,7 @@ import {
   sweepStalledRenewals,
 } from "@/server/core/crm/accreditation-renewal";
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
+import { sweepPrincipalExpiries } from "@/server/core/crm/principal-service";
 
 /**
  * Once daily. specs/00-foundation.md §9.1 asks for `/api/cron/nightly`; this is the first thing
@@ -51,6 +52,14 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] inquiry SLA sweep failed:", error);
     results.inquirySla = { error: String(error) };
+  }
+
+  // specs/01-crm-inquiry.md §5c's distributor-agreement and price-list expiries.
+  try {
+    results.principalExpiries = await sweepPrincipalExpiries();
+  } catch (error) {
+    console.error("[cron/nightly] principal expiry sweep failed:", error);
+    results.principalExpiries = { error: String(error) };
   }
 
   return NextResponse.json(results);

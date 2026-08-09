@@ -49,6 +49,14 @@ import {
   completeInspectionService,
   createInspectionRequestService,
 } from "@/server/core/crm/inspection-service";
+import { EXCLUSIVITY_TERMS, PRINCIPAL_STAGES } from "@/server/core/crm/principal-lifecycle";
+import {
+  createPrincipalService,
+  getPrincipalService,
+  listPrincipalsService,
+  transitionPrincipalService,
+  updatePrincipalService,
+} from "@/server/core/crm/principal-service";
 import { p, router, type Context } from "@/server/api/trpc";
 
 function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
@@ -381,6 +389,81 @@ export const crmRouter = router({
       }),
     )
     .query(({ input }) => listActivitiesService(input)),
+
+  // ---- principal prospects (specs/01-crm-inquiry.md §5c) ---------------------------------------
+  // §9 puts this with marketing_manager (EM), visible to president and vice_president.
+
+  listPrincipals: p("principal_prospect.manage")
+    .input(
+      z
+        .object({ stage: z.enum(PRINCIPAL_STAGES).optional(), search: z.string().optional() })
+        .optional(),
+    )
+    .query(({ input }) => listPrincipalsService(input ?? {})),
+
+  getPrincipal: p("principal_prospect.manage")
+    .input(z.object({ prospectId: z.string() }))
+    .query(({ input }) => getPrincipalService(input.prospectId)),
+
+  createPrincipal: p("principal_prospect.manage")
+    .input(
+      z.object({
+        companyName: z.string().min(1),
+        country: z.string().nullish(),
+        website: z.string().nullish(),
+        productLines: z.array(z.string()).optional(),
+        contactName: z.string().nullish(),
+        email: z.string().email().nullish().or(z.literal("")),
+        phone: z.string().nullish(),
+        targetIndustries: z.array(z.string()).optional(),
+        competingBrands: z.array(z.string()).optional(),
+        estimatedOpportunity: z.string().nullish(),
+        ownerId: z.string().nullish(),
+        notes: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createPrincipalService(actorMeta(ctx), input)),
+
+  updatePrincipal: p("principal_prospect.manage")
+    .input(
+      z.object({
+        prospectId: z.string(),
+        companyName: z.string().min(1).optional(),
+        country: z.string().nullish(),
+        website: z.string().nullish(),
+        productLines: z.array(z.string()).optional(),
+        contactName: z.string().nullish(),
+        email: z.string().email().nullish().or(z.literal("")),
+        phone: z.string().nullish(),
+        targetIndustries: z.array(z.string()).optional(),
+        competingBrands: z.array(z.string()).optional(),
+        estimatedOpportunity: z.string().nullish(),
+        exclusivity: z.enum(EXCLUSIVITY_TERMS).optional(),
+        distributorAgreementFileId: z.string().nullish(),
+        agreementSignedAt: z.coerce.date().nullish(),
+        agreementExpiresAt: z.coerce.date().nullish(),
+        priceListFileId: z.string().nullish(),
+        priceListReceivedAt: z.coerce.date().nullish(),
+        priceListValidUntil: z.coerce.date().nullish(),
+        trainingStatus: z.string().nullish(),
+        technicalContactId: z.string().nullish(),
+        notes: z.string().nullish(),
+        nextFollowUpAt: z.coerce.date().nullish(),
+        ownerId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updatePrincipalService(actorMeta(ctx), input)),
+
+  /** The §5c pipeline's only door. Appointing emits `principal.appointed` for module 03. */
+  transitionPrincipal: p("principal_prospect.manage")
+    .input(
+      z.object({
+        prospectId: z.string(),
+        to: z.enum(PRINCIPAL_STAGES),
+        reason: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => transitionPrincipalService(actorMeta(ctx), input)),
 
   logActivity: p("crm.create")
     .input(

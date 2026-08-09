@@ -26,6 +26,7 @@ export const ACTIVITY_ENTITY_TYPES = [
   "Contact",
   "Inquiry",
   "AccreditationRecord",
+  "PrincipalProspect",
 ] as const;
 
 export interface LogActivityInput {

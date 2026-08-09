@@ -569,3 +569,65 @@ the transition map.
 Paused time is banked in *business* milliseconds, not wall time. A pause raised Friday afternoon and
 closed Monday morning gives back only the working part; banking wall time would hand the inquiry two
 free days of budget that were never spent.
+
+---
+
+## 22. Principal events are declared even though §8 does not list them
+
+**Ambiguity.** specs/01-crm-inquiry.md §8 lists the module's emitted events and names no principal
+event at all. But §5c requires that "on `stage = appointed`, the prospect converts into a `Supplier`
+(module 03) with `isPrincipal = true`, carrying the agreement, price list, and contacts across. No
+re-keying." Those two statements cannot both be honoured without an event: Spec.md §3.6 requires
+cross-module side effects to go through the domain event bus.
+
+**Chose:** declare `principal.stage_changed` and `principal.appointed` in the CRM manifest. §8's
+list is read as the inquiry-side inventory rather than as an exhaustive contract — it was written
+alongside §3, and §5c was added as a separate concern.
+
+**Why not create the `Supplier` here.** Module 03 owns that model. Writing it from module 01 would
+leave module 03 something to reconcile rather than something to build — the same trap the ISO 8.4
+supplier register was deliberately kept out of in session 1 (see the known issues in PROGRESS.md).
+So `principal.appointed` carries the full payload module 03 needs, and that module subscribes and
+calls `linkPrincipalSupplierService` to write `supplierId` back.
+
+Until module 03 exists, an appointed prospect sits with `supplierId` null. That is an accurate
+description of reality — AIES has appointed them and the purchasing record does not exist yet — and
+the panel says so on screen rather than leaving a silent gap.
+
+**§10's "exactly one supplier" is half-testable now**, and the half this module owns is tested:
+appointing emits exactly one `principal.appointed`, appointing twice is refused, and
+`linkPrincipalSupplierService` is idempotent on redelivery (module 00's queue guarantees
+at-least-once, not exactly-once) while refusing a *different* second supplier. The other half is
+owed by module 03's gate.
+
+**Appointment is gated on the signed agreement and its expiry.** §5c treats the distributor
+agreement as the substance of the appointment, and an appointment with no agreement behind it is a
+claim nobody can check.
+
+---
+
+## 23. A file-access checker must not read its entityType from the service that imports it
+
+**What happened.** `principal-access.ts` took `PRINCIPAL_ENTITY_TYPE` from `principal-service.ts`,
+and `principal-service.ts` imported `./principal-access` for its registration side effect. That is a
+cycle, and because the checker calls `registerFileAccessChecker(PRINCIPAL_ENTITY_TYPE, ...)` at
+module-evaluation time it read the binding before the service had finished initialising.
+`next build` died with `ReferenceError: Cannot access 'k' before initialization` while collecting
+page data for `/api/cron/nightly`. `npm run typecheck` was clean.
+
+**Chose:** the entityType constant lives in the pure rules file (`principal-lifecycle.ts`), which is
+where `ACCREDITATION_ENTITY_TYPE` already lived in `accreditation-rules.ts` — that is why
+accreditation never hit this. The service re-exports it so existing call sites need no second
+import.
+
+**The general rule**, now written down twice in one session: a constant shared across a module
+boundary belongs in the module's pure file, not in its service. Session 2 learned it from a client
+component pulling `node:crypto` into the browser bundle; this is the same lesson from the server
+side. The `no-restricted-imports` rule added after session 2 catches the client-side case only — it
+cannot see a server-to-server cycle, so this one is caught by `next build` and by nothing else.
+
+**Also worth recording:** two builds in this session failed with
+`EINVAL: invalid argument, readlink '.next/…'`. That is OneDrive, not Next.js — the repo lives under
+`C:\Users\Drox\OneDrive\Desktop\`, and OneDrive converts freshly written build output into cloud
+placeholders while the build is still running. `rm -rf .next` before building clears it. The real
+fix is moving the repo out of OneDrive.

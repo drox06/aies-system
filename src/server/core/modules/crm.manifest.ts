@@ -105,6 +105,12 @@ export const crmManifest = defineManifest({
     "inquiry.lost",
     "inspection.requested",
     "activity.logged",
+    // Not in §8's list, which names no principal event at all — but §5c requires the appointment to
+    // convert into a module 03 Supplier "with no re-keying", and a cross-module side effect goes
+    // through the event bus by Spec.md §3.6. Declared here because this module owns the emitting
+    // record. See docs/DECISIONS.md #22.
+    "principal.stage_changed",
+    "principal.appointed",
   ],
 
   // §8 also lists `quotation.sent` / `quotation.accepted` / `quotation.rejected` as consumed, so
@@ -121,10 +127,9 @@ export const crmManifest = defineManifest({
    * built, so the sidebar advertised Inquiries, Accreditations and Principals and every one of them
    * dead-ended on a 404 — which in dev presents as a long pause while Next compiles the not-found
    * page, not as an obvious error. A nav entry is a promise that the route works, and
-   * tests/server/core/modules/crm-manifest.test.ts now enforces it. Add each remaining entry in
-   * the session that builds its page:
-   *   - Principals /crm/principals icon "handshake"  principal_prospect.manage order 13
-   * Their icons are already mapped in src/components/shell/AppShell.tsx.
+   * tests/server/core/modules/crm-manifest.test.ts now enforces it.
+   *
+   * All four sections now have pages. Add the entry in the same change as the page, never before.
    */
   nav: [
     {
@@ -147,6 +152,13 @@ export const crmManifest = defineManifest({
       icon: "badge-check",
       permission: "accreditation.manage",
       order: 12,
+    },
+    {
+      label: "Principals",
+      href: "/crm/principals",
+      icon: "handshake",
+      permission: "principal_prospect.manage",
+      order: 13,
     },
   ],
 });

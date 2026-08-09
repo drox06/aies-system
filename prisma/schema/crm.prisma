@@ -448,3 +448,74 @@ model InspectionRequest {
   @@index([assignedToId, status])
   @@index([status, dueAt])
 }
+
+// specs/01-crm-inquiry.md §5c — principal supplier and product acquisition (EM).
+//
+// §5c's framing is the design brief: "EM's job includes acquiring new products and new principal
+// suppliers. That is a pipeline, and it deserves the same treatment as the sales pipeline rather
+// than living in an inbox."
+//
+// So this is a second pipeline with the same shape as the inquiry's, pointed the other way: AIES
+// pursuing a manufacturer rather than a customer pursuing AIES. Two fields carry most of the value
+// and neither is obvious — the agreement expiry and the price-list validity, because §5c is blunt
+// about the cost of missing them: "A quotation costed from a lapsed price list is a margin incident
+// waiting to happen."
+model PrincipalProspect {
+  id           String   @id @default(cuid())
+  companyName  String
+  country      String?
+  website      String?
+  // The product lines AIES would be selling. Array rather than a join table for the same reason as
+  // Activity.participantIds: read whole, never queried across.
+  productLines String[] @default([])
+
+  contactName String?
+  email       String?
+  phone       String?
+
+  // identified | contacted | in_discussion | samples_pricing | agreement_draft | appointed |
+  // declined | dormant. Enforced by principal-lifecycle.ts, not by this column.
+  stage String @default("identified")
+
+  ownerId          String
+  targetIndustries String[] @default([])
+  competingBrands  String[] @default([])
+
+  estimatedOpportunity Decimal? @db.Decimal(14, 2)
+
+  // The distributor agreement and its terms. `agreementExpiresAt` gets the same renewal ladder as
+  // §5b's accreditation, for the same reason: an agreement that lapses unnoticed means AIES is
+  // quoting a brand it is no longer appointed for.
+  distributorAgreementFileId String?
+  agreementSignedAt          DateTime?
+  agreementExpiresAt         DateTime?
+  // none | territory | segment
+  exclusivity                String    @default("none")
+
+  // §5c: "Price list expiry tracking." Module 02 warns on stale supplier costs and this feeds it.
+  priceListFileId     String?
+  priceListReceivedAt DateTime?
+  priceListValidUntil DateTime?
+
+  trainingStatus     String?
+  technicalContactId String?
+  notes              String?
+  nextFollowUpAt     DateTime?
+
+  // Set when the prospect converts (§5c: "On `stage = appointed`, the prospect converts into a
+  // `Supplier` (module 03) with `isPrincipal = true`"). A plain id with no relation, because that
+  // model does not exist yet — module 03 fills this in when it consumes `principal.appointed`.
+  // Its presence is also what stops a second conversion.
+  supplierId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  @@index([stage, ownerId])
+  @@index([ownerId, nextFollowUpAt])
+  // The nightly expiry sweeps scan these two directly.
+  @@index([agreementExpiresAt])
+  @@index([priceListValidUntil])
+}
