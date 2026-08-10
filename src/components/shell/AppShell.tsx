@@ -8,6 +8,7 @@ import {
   Building2,
   ClipboardCheck,
   Columns3,
+  FileText,
   Handshake,
   House,
   Inbox,
@@ -257,6 +258,7 @@ const ICONS: Record<string, LucideIcon> = {
   inbox: Inbox,
   "badge-check": BadgeCheck,
   handshake: Handshake,
+  "file-text": FileText,
 };
 
 const ICON_SIZE = 20;

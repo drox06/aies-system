@@ -514,7 +514,7 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       schema that plainly contained them. Each is marked resolved; status is now 22 migrations,
       up to date, and a read-only diff confirms the database matches the datamodel exactly.
 
-### Done in session 2 (so far — the service layer; the UI is what remains)
+### Done in session 2
 - [x] `quotation-line-service.ts`, and it is deliberately the **only** writer of `subtotal`,
       `total`, `totalCost`, `marginAmount` and `marginPct`. All five are derived from the lines by
       `computeCosting`, so a second writer would put the stored figures out of step with the lines
@@ -541,31 +541,61 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       descriptions pair in order.
 - [x] 14 tests covering three of §12's named cases.
 
+- [x] **A hazard the builder created, found before it shipped.** §11 gives `quotation.edit` to the
+      sales roles and Spec.md §4.3 withholds `finance.view_cost` from all of them — so a
+      salesperson opens a quotation whose lines arrive with cost **stripped** (the gate working),
+      edits a description, and saves. Posting those lines back verbatim would write zero cost and
+      carry a fictional 100% margin into the VP's approval queue with nothing wrong on screen.
+      `saveQuotationLinesService` now takes `canSeeCost` and carries the stored costs across by line
+      number. The flag is **required, not defaulted** — `true` would be a silent hole, `false` would
+      break cost-holders — and the router reads it from the session, never the request body.
+      Verified load-bearing by disabling the carry-over and watching the test fail. 5 tests.
+- [x] The FX buffer is not re-applied on a price-only save: the preserved cost is already landed, so
+      three consecutive saves leave it byte-identical. Otherwise it is a slow leak visible only as
+      shrinking margin.
+- [x] `/quotations` list and `/quotations/[id]` builder, with the **nav entry in the same change**
+      (icon mapped in `AppShell.tsx` first, since that map is an allow-list).
+- [x] The builder recomputes through the **same** `computeCosting` the server stores with, so the
+      figure moving under the cursor is the figure that gets saved. Both §4 pricing modes: typing a
+      markup derives the price and locks that field; clearing it hands control back and the margin
+      becomes implied.
+- [x] Cost columns exist only for a caller with `finance.view_cost` — the server never sent them to
+      anyone else, so there is nothing to render and nothing to post back.
+- [x] **The margin panel renders only figures the server sent**, and returns `null` when they are
+      absent rather than defaulting to zero. Recomputing margin in the browser would hand back
+      exactly what the API refused; a margin of "0%" on an uncosted quotation is a lie the VP would
+      act on. It marks itself "As last saved" while lines are dirty rather than showing a figure
+      that silently describes something else.
+- [x] Revision panel: the chain, the §5 picklist, and the diff defaulting to the previous revision —
+      the question asked on a negotiation call is almost always "what changed since the last one?".
+- [x] 420 tests across 55 files; lint, typecheck and `build:check` clean. `/quotations` compiles and
+      serves under the dev server.
+
 ### Next concrete step
-**Finish module 02 session 2 — the quote builder UI.** The service layer underneath it is done and
-tested; this is the first module 02 screen, so it brings the nav entry with it.
+**Module 02 session 3 — approval and issuance.** Read specs/02-quotation.md §§6 and 7, then:
 
-1. `/quotations` — list on the session-5 `DataTable`. Columns: display number (with `REV01`),
-   account, title, status, total, validity. Money right-aligned and tabular per Spec.md §6.5.
-2. `/quotations/[id]` — the builder. Line table with grouping (§2's `groupLabel`), optional lines
-   visibly separated and excluded from the total, and **both** pricing modes: a markup field and a
-   direct price field, where filling one derives the other. §4: "engineers think in price, finance
-   thinks in margin."
-3. Recompute in the browser through `computeCosting` — already on the UI-safe allow-list — so totals
-   move as the user types and match what the server will store byte for byte. Save sends the lines
-   and the `version`; a `CONFLICT` means somebody else saved and the UI must say so rather than
-   retrying.
-4. **Margin panel, gated on `finance.view_cost`.** It must render the figures the server sent and
-   **never recompute cost client-side** — the API strips cost for unprivileged callers, and a
-   browser that recalculated it from prices would hand back exactly what the gate refused.
-   Per-line heat colouring and the below-floor warning come from `linesBelowFloor`.
-5. Revision panel: the chain from `listRevisionsService`, a "Revise" action taking the §5 picklist,
-   and the diff view rendered from `diffRevisionsService`.
-6. **Add the nav entry in the same change as the pages**, or the guard test fails. Icon
-   `file-text`; map it in `src/components/shell/AppShell.tsx` first — the icon map is an allow-list.
+1. §6's approval through module 00's engine. The `quotation.approve` rule with
+   `escalateAfterHours: 24` is **already seeded**, so the Spec.md §4.4 fallback to the president
+   needs no new machinery — one seeded rule, approver `vice_president`, no conditions, exactly as
+   §6 insists ("rather than by hard-coding 'VP approves'").
+2. Approval is required before `sent`; the transition map already carries
+   `requiresApproval` on that edge. Rejection returns to `draft` with a mandatory comment.
+3. The VP's approval queue as a first-class screen: total, margin, customer and age, approvable in
+   sequence without opening each one.
+4. §7's PDF via `@react-pdf/renderer`, using §7's own section list as the template — the company
+   directed that the supplied `AIES Quotation 2026 - template.pdf` be disregarded. Company details
+   come from `getCompanyDetails()`. **Line cost columns must never appear on the customer PDF**;
+   the internal costing sheet is a separate document watermarked "INTERNAL".
+5. Sending: `superseded` is applied to the prior revision **here**, at the moment the new one is
+   sent (§5), which session 2 deliberately did not do at revision time.
+6. §7's auto-expire job on `/api/cron/nightly`, flipping `sent` past `validUntil` to `expired` and
+   notifying the owner seven days beforehand.
+7. Then wire module 01's waiting half: add `quotation.sent` / `accepted` / `rejected` to the CRM
+   manifest's `consumes` and call `transitionInquiryService` with `bySystem: true`, which is what
+   finally moves an inquiry to `quoted` / `won` / `lost`.
+   `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces.
 
-Then session 3 (approval, PDF, send, auto-expire) and session 4 (RFQ, negotiation, reuse) as
-planned.
+Session 4 remains: §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.
 
 Notes for whoever picks this up:
   - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/

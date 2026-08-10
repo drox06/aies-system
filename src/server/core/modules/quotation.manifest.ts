@@ -138,9 +138,16 @@ export const quotationManifest = defineManifest({
     },
   ],
 
-  // No nav entry yet: the pages arrive in session 2, and a nav entry is a promise that the route
-  // works. tests/server/core/modules/crm-manifest.test.ts enforces that for every module.
-  nav: [],
+  nav: [
+    {
+      label: "Quotations",
+      href: "/quotations",
+      icon: "file-text",
+      permission: "quotation.view",
+      // After the CRM block (10-13), because a quotation follows an inquiry.
+      order: 20,
+    },
+  ],
 });
 
 /**
