@@ -585,29 +585,68 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       guarantees an event is neither lost nor double-delivered on rollback. Bypassing it would make
       dev and production diverge, which is how the drain path stops being exercised and rots.
 
-### Next concrete step
-**Module 02 session 3 — approval and issuance.** Read specs/02-quotation.md §§6 and 7, then:
+### Started in session 3 — issuance, at the company's direction
 
-1. §6's approval through module 00's engine. The `quotation.approve` rule with
-   `escalateAfterHours: 24` is **already seeded**, so the Spec.md §4.4 fallback to the president
-   needs no new machinery — one seeded rule, approver `vice_president`, no conditions, exactly as
-   §6 insists ("rather than by hard-coding 'VP approves'").
-2. Approval is required before `sent`; the transition map already carries
-   `requiresApproval` on that edge. Rejection returns to `draft` with a mandatory comment.
-3. The VP's approval queue as a first-class screen: total, margin, customer and age, approvable in
-   sequence without opening each one.
-4. §7's PDF via `@react-pdf/renderer`, using §7's own section list as the template — the company
-   directed that the supplied `AIES Quotation 2026 - template.pdf` be disregarded. Company details
-   come from `getCompanyDetails()`. **Line cost columns must never appear on the customer PDF**;
-   the internal costing sheet is a separate document watermarked "INTERNAL".
-5. Sending: `superseded` is applied to the prior revision **here**, at the moment the new one is
-   sent (§5), which session 2 deliberately did not do at revision time.
-6. §7's auto-expire job on `/api/cron/nightly`, flipping `sent` past `validUntil` to `expired` and
-   notifying the owner seven days beforehand.
-7. Then wire module 01's waiting half: add `quotation.sent` / `accepted` / `rejected` to the CRM
-   manifest's `consumes` and call `transitionInquiryService` with `bySystem: true`, which is what
-   finally moves an inquiry to `quoted` / `won` / `lost`.
-   `tests/server/core/modules/crm-manifest.test.ts` pins this so it resurfaces.
+§7 assumes the app sends the email itself. It does not: module 10 owns outbound document email, and
+Spec.md §3.4 removed inbound ingest entirely. So the PDF is downloaded and attached to an external
+mail client, and **this system cannot observe that it was sent.** The company asked for that gap to
+be modelled honestly rather than papered over, and it shapes everything below.
+
+- [x] **Two facts, recorded separately**, because conflating them would make the pipeline lie.
+      *Downloaded* — the document was produced and a named person has it, the last fact this app can
+      establish on its own. It changes **no status**: a quotation is routinely printed just to check
+      it reads properly, and treating that as issuance would tell the customer's pipeline column
+      something that never happened. *Sent* — asserted by a person, with the date it **actually**
+      went, which is not always the date somebody ticked the box.
+- [x] `downloadCount` is incremented, not replaced. "Downloaded three times and still not sent" is
+      the signal worth having.
+- [x] **The download log is the audit trail**, not a new model: `writeAuditLog` already carries who
+      and when, and module 00's activity feed merges audit rows by entity, so it appears in the
+      record's timeline for free.
+- [x] The internal costing sheet does **not** count as ready for sending — §7's internal document is
+      a management report and nobody emails it to a customer.
+- [x] **Confirming sent requires a prior download.** Confirming a send for a document nobody
+      produced is either a mistake or a route this system knows nothing about; refusing it keeps the
+      download log meaningful as evidence.
+- [x] §5's supersession happens **here**, at the moment the new revision is sent — not when it was
+      created. A half-written revision must never retire the quotation the customer is holding.
+- [x] **`sweepUnsentDownloads` is what makes a human assertion trustworthy.** Without it "confirm
+      sent" is a box people forget, and the pipeline fills with inquiries stuck in `quoting` that
+      were quoted weeks ago — the "inquiries get lost" failure module 01 exists to remove, displaced
+      one step down the process. Chases at 2 and 5 days, on the threshold day only.
+- [x] **The chain the company asked about now runs end to end**: inquiry reaches `quoting` → draft
+      created → confirmed sent → `quotation.sent` → module 01's subscriber moves the inquiry to
+      `quoted`, a transition §3 makes system-only precisely so no person can fake it. Tested through
+      the registry's real subscriber rather than a reimplementation, so it tests the wiring.
+- [x] A subscriber failure degrades rather than dead-letters: an inquiry that has already moved on
+      logs a warning, because the quotation is sent either way and the job's real work is done.
+- [x] The session-1 pin in `crm-manifest.test.ts` fired exactly as designed — it was written to fail
+      the moment module 02 landed so the failure would name the work. Rewritten for its second life:
+      it now asserts `quotation.sent` **is** consumed and `.accepted`/`.rejected` are **not yet**,
+      since nothing emits those until §8's negotiation flow in session 4.
+
+**When module 10 lands this collapses.** Sending from the record makes `sentAt` an observed fact,
+the confirmation step disappears, and the sweep has nothing to find. See docs/DECISIONS.md #27.
+
+### Next concrete step
+**Finish module 02 session 3 — the PDF and the approval flow.**
+
+1. **Install `@react-pdf/renderer`** — Spec.md §3.2 already names it as the PDF library, so it is
+   pre-justified; no new DECISIONS entry needed for the choice itself.
+2. §7's customer document, using §7's own section list as the template (the company directed that
+   the supplied `AIES Quotation 2026 - template.pdf` be disregarded). Company block from
+   `getCompanyDetails()`. Brand assets from `public/brand/`. **Line cost columns must never appear
+   on it.**
+3. The internal costing sheet as a separate document, watermarked "INTERNAL".
+4. A route that renders the PDF and calls `quotation.recordDownload` — the service is written,
+   tested and waiting for a caller. That is what turns the button into "Downloaded by X, ready for
+   sending".
+5. The UI for the two-step issuance: a Download action, then a "Confirm sent" action taking the
+   date it actually went and the recipients, with the download log visible on the record.
+6. §6's approval: `pending_approval` → `approved` through module 00's engine. The
+   `quotation.approve` rule with `escalateAfterHours: 24` is **already seeded**, so §4.4's fallback
+   to the president needs no new machinery. Plus the VP's approval queue screen.
+7. §7's auto-expire job on `/api/cron/nightly`.
 
 Session 4 remains: §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.
 

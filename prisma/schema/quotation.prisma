@@ -89,7 +89,21 @@ model Quotation {
   approvedById String?
   approvedAt   DateTime?
 
+  // The document was produced and somebody has it. Deliberately **not** the same as sent: the PDF
+  // leaves this app in a browser download and is attached to an external mail client, which this
+  // system cannot observe. Recording the download is the last fact it can establish on its own.
+  downloadedAt  DateTime?
+  downloadedBy  String?
+  // Counted rather than replaced, so "downloaded three times and still not sent" is visible. A
+  // quotation re-downloaded repeatedly is usually one somebody keeps meaning to send.
+  downloadCount Int       @default(0)
+
+  // Asserted by a person, because nothing here can watch an outbound email.  is the date it
+  // actually went, which is not always the date somebody ticked the box — people send on Friday and
+  // confirm on Monday, and the customer's clock runs from the former.
   sentAt           DateTime?
+  sentConfirmedAt  DateTime?
+  sentConfirmedBy  String?
   sentToContactIds String[]  @default([])
 
   decisionAt      DateTime?

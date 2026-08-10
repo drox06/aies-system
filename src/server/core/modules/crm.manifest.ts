@@ -123,12 +123,43 @@ export const crmManifest = defineManifest({
     "principal.appointed",
   ],
 
-  // §8 also lists `quotation.sent` / `quotation.accepted` / `quotation.rejected` as consumed, so
-  // the inquiry can mirror its quotation's outcome. They are NOT declared here yet: the registry
-  // rejects a subscription to an event no module emits (a deliberate boot-time check against
-  // typos), and module 02 does not exist. Wire these up when it lands — the subscription belongs
-  // to this module, not that one.
-  consumes: [],
+  /**
+   * §8: the inquiry mirrors its quotation's outcome.
+   *
+   * `quotation.sent` is wired now that module 02 emits it. `quotation.accepted` and
+   * `quotation.rejected` follow when module 02's negotiation flow emits them — the registry rejects
+   * a subscription to an event no module emits, which is the boot-time check that keeps this
+   * honest rather than a list of hopeful strings.
+   */
+  consumes: [
+    {
+      event: "quotation.sent",
+      // Dynamically imported so registering the manifest does not pull Prisma into every consumer
+      // of manifests.ts, including prisma/seed.ts and the nav tests.
+      handler: async (payload) => {
+        const { inquiryId } = payload as { inquiryId?: string | null };
+        if (!inquiryId) return;
+
+        const { transitionInquiryService } = await import("@/server/core/crm/inquiry-service");
+        try {
+          await transitionInquiryService(
+            { actorId: "system", actorLabel: "System (quotation sent)" },
+            // §3: `quoted` is set by the quotation's outcome, never by hand. This is the only
+            // caller allowed to pass bySystem, and the router deliberately cannot.
+            { inquiryId, to: "quoted", bySystem: true },
+          );
+        } catch (error) {
+          // The inquiry may legitimately not be in `quoting` — somebody disqualified it, or a
+          // second revision was sent after it already moved. The quotation is still sent either
+          // way, and throwing here would dead-letter a job whose real work is done.
+          console.warn(
+            `[crm] quotation.sent could not move inquiry ${inquiryId} to quoted:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
+      },
+    },
+  ],
 
   /**
    * Only routes that actually exist.

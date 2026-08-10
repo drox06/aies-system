@@ -18,6 +18,10 @@ import {
   listRevisionsService,
   reviseQuotationService,
 } from "@/server/core/quotation/revision-service";
+import {
+  confirmQuotationSentService,
+  recordQuotationDownloadService,
+} from "@/server/core/quotation/send-service";
 
 function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
   return {
@@ -137,6 +141,36 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => updateQuotationHeaderService(actorMeta(ctx), input)),
+
+  // ---- §7 issuance ----------------------------------------------------------------------------
+
+  /**
+   * Records that the document was produced. Called by the PDF route rather than a button — the
+   * fact is "the bytes left the server", and anything else is a guess about intent.
+   */
+  recordDownload: p("quotation.send")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        variant: z.enum(["customer", "internal"]).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordQuotationDownloadService(actorMeta(ctx), input)),
+
+  /**
+   * The human assertion that it reached the customer, since nothing here can watch an external
+   * mail client. This is what fires `quotation.sent` and moves the inquiry to `quoted`.
+   */
+  confirmSent: p("quotation.send")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        sentAt: z.coerce.date().nullish(),
+        sentToContactIds: z.array(z.string()).optional(),
+        note: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => confirmQuotationSentService(actorMeta(ctx), input)),
 
   // ---- §5 revisions --------------------------------------------------------------------------
 

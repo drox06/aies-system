@@ -789,3 +789,51 @@ out of module 01. Constants in one file are findable and impossible to get half-
 The supplied address read "Manadaluyong City"; it is stored as **Mandaluyong City**. Flagged to the
 company rather than corrected silently — if the original spelling was deliberate, this is the line
 to change.
+
+---
+
+## 27. Issuing a quotation is two facts, because the app cannot watch an outbound email
+
+**Module:** 02, session 3. **Directed by the company.**
+
+specs/02-quotation.md §7 assumes the platform sends the quotation itself: "Send by email from the
+record… PDF attached, recipients defaulted to the inquiry contacts." It cannot yet. Module 10 owns
+outbound document email and Spec.md §3.4 removed inbound ingest entirely, so the real process is:
+produce the PDF, download it, attach it to Gmail or Outlook, send it from there.
+
+That leaves a gap nothing in the app can close by itself, and the company asked for it to be
+modelled honestly rather than papered over with a single "Mark as sent" button.
+
+**Chose:** two separate facts.
+
+| | What it means | Who establishes it | Status effect |
+|---|---|---|---|
+| **Downloaded** | The document was produced and a named person has it | The PDF route, automatically | **None** |
+| **Sent** | It reached the customer, on a stated date | A person, explicitly | `sent`, and the inquiry moves to `quoted` |
+
+**Why downloading changes nothing.** A quotation is routinely printed just to check it reads
+properly before anyone intends to send it. Treating that as issuance would tell the customer's
+pipeline column something that never happened, and §3 of module 01 ties `quoted` to the quotation's
+outcome for exactly this reason.
+
+**Why the send date is separate from the confirmation date.** People send on Friday and tick the box
+on Monday. The customer's validity clock runs from the former, so `sentAt` is the date it went and
+`sentConfirmedAt` records when somebody said so. The gap between them is visible rather than lost.
+
+**Why confirming requires a prior download.** Confirming a send for a document nobody produced is
+either a mistake or a route this system knows nothing about. Refusing it is what keeps the download
+log usable as evidence.
+
+**The reliability problem, and the answer.** A human assertion is only as good as the discipline
+behind it, and Spec.md §1.2 lists "work assigned verbally… no accountability" as a failure to design
+out. `sweepUnsentDownloads` chases anything downloaded and never confirmed, at 2 and 5 days. Without
+it, "confirm sent" is a box people forget and the pipeline quietly fills with inquiries stuck in
+`quoting` that were in fact quoted weeks ago — module 01's own "inquiries get lost" failure,
+displaced one step down the process.
+
+**Rejected: treating the download as the send.** Simpler, and wrong in the direction that matters —
+it would report work as done on the strength of somebody having looked at it.
+
+**Revisit when module 10 lands.** Sending from the record makes `sentAt` an observed fact rather
+than a claim, the confirmation step disappears, and the sweep has nothing to find. The two-fact
+model is the honest shape for the interim, not the destination.

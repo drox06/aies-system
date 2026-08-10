@@ -5,6 +5,7 @@ import {
 } from "@/server/core/crm/accreditation-renewal";
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 import { sweepPrincipalExpiries } from "@/server/core/crm/principal-service";
+import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepFollowUps } from "@/server/core/crm/pipeline-service";
 
 /**
@@ -69,6 +70,15 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] follow-up sweep failed:", error);
     results.followUps = { error: String(error) };
+  }
+
+  // specs/02-quotation.md §7, as adapted: the app cannot watch an outbound email, so a downloaded
+  // quotation that was never confirmed sent is chased rather than assumed.
+  try {
+    results.unsentDownloads = await sweepUnsentDownloads();
+  } catch (error) {
+    console.error("[cron/nightly] unsent download sweep failed:", error);
+    results.unsentDownloads = { error: String(error) };
   }
 
   return NextResponse.json(results);

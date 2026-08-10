@@ -50,12 +50,26 @@ describe("crm manifest", () => {
     }
   });
 
-  it("does not subscribe to quotation events before module 02 emits them", () => {
-    // §8 lists quotation.sent/accepted/rejected as consumed, but declaring them now would make
-    // buildModuleRegistry throw at boot ("consumes unknown event") and take the whole app down.
-    // This test exists so that when module 02 lands, the failure names the reason to revisit.
+  it("subscribes to quotation.sent, which is how an inquiry reaches `quoted`", () => {
+    // This assertion used to be the opposite: module 02 did not exist, declaring the subscription
+    // would have made buildModuleRegistry throw at boot ("consumes unknown event"), and the test
+    // was written to fail the moment module 02 landed so the failure would name the work. It did
+    // exactly that. This is its second life.
+    //
+    // §3 of module 01 makes `quoted` a system-only transition — the quotation's outcome sets it,
+    // never a person — so this subscription is the *only* route to that status.
     const consumed = crmManifest.consumes.map((c) => c.event);
-    expect(consumed.filter((e) => e.startsWith("quotation."))).toEqual([]);
+    expect(consumed).toContain("quotation.sent");
+  });
+
+  it("does not yet subscribe to quotation.accepted or .rejected", () => {
+    // Module 02 declares both in its `emits`, so the registry would accept the subscription — but
+    // nothing emits them until §8's negotiation flow lands in session 4, and a subscriber for an
+    // event that is never sent is a promise the pipeline silently fails to keep. Same pin, one
+    // session further on: when that flow lands, this failure names the work.
+    const consumed = crmManifest.consumes.map((c) => c.event);
+    expect(consumed).not.toContain("quotation.accepted");
+    expect(consumed).not.toContain("quotation.rejected");
   });
 
   it("is registered, so its permissions reach the seed", () => {
