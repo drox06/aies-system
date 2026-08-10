@@ -232,6 +232,95 @@ export function quotationScopeWhere(user: { id: string; permissions: ReadonlySet
   return { preparedById: user.id };
 }
 
+export interface ListQuotationsParams {
+  search?: string;
+  status?: string;
+  accountId?: string;
+  page?: number;
+  pageSize?: number;
+  sortKey?: string | null;
+  sortDir?: "asc" | "desc";
+}
+
+/** Columns a client may sort by. An allow-list, because the key arrives from the query string. */
+const SORTABLE = new Set(["number", "title", "status", "total", "validUntil", "createdAt"]);
+
+export async function listQuotationsService(
+  user: { id: string; permissions: ReadonlySet<string> },
+  params: ListQuotationsParams = {},
+) {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25));
+  const search = params.search?.trim();
+
+  const where = {
+    deletedAt: null,
+    ...quotationScopeWhere(user),
+    ...(params.status ? { status: params.status } : {}),
+    ...(params.accountId ? { accountId: params.accountId } : {}),
+    ...(search
+      ? {
+          OR: [
+            // Numbers are what people search for, and they quote the *display* form at each other —
+            // `contains` rather than equals so AIESLQ260001REV02 finds AIESLQ260001's chain.
+            { number: { contains: search, mode: "insensitive" as const } },
+            { title: { contains: search, mode: "insensitive" as const } },
+            { account: { name: { contains: search, mode: "insensitive" as const } } },
+          ],
+        }
+      : {}),
+  };
+
+  const sortKey = params.sortKey && SORTABLE.has(params.sortKey) ? params.sortKey : "createdAt";
+  const sortDir = params.sortDir === "asc" ? "asc" : "desc";
+
+  const [rows, total] = await Promise.all([
+    db.quotation.findMany({
+      where,
+      orderBy: [{ [sortKey]: sortDir }, { revision: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        number: true,
+        revision: true,
+        quoteType: true,
+        title: true,
+        status: true,
+        currency: true,
+        total: true,
+        totalCost: true,
+        marginAmount: true,
+        marginPct: true,
+        validUntil: true,
+        createdAt: true,
+        preparedById: true,
+        account: { select: { id: true, code: true, name: true } },
+      },
+    }),
+    db.quotation.count({ where }),
+  ]);
+
+  const canSeeCost = user.permissions.has("finance.view_cost");
+
+  return {
+    rows: rows.map((row) => {
+      const base = {
+        ...row,
+        displayNumber: quotationDisplayNumber(row.number, row.revision),
+        total: row.total.toString(),
+        totalCost: row.totalCost.toString(),
+        marginAmount: row.marginAmount.toString(),
+        marginPct: row.marginPct.toString(),
+      };
+      // Same gate as the detail read. A list is a serialised response too, and it is the easier one
+      // to forget — §12 tests the payload, not the page.
+      return stripFieldsUnlessPermitted(base, [...QUOTATION_COST_FIELDS], canSeeCost);
+    }),
+    total,
+  };
+}
+
 export async function getQuotationService(
   user: { id: string; permissions: ReadonlySet<string> },
   quotationId: string,

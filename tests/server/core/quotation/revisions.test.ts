@@ -42,6 +42,7 @@ async function makeQuotation() {
   const saved = await saveQuotationLinesService(actor, {
     quotationId: quotation.id,
     version: quotation.version,
+    canSeeCost: true,
     lines: [
       { description: "DN100 flow meter", quantity: "2", unitCost: "1000.00", markupPct: "25" },
       { description: "Installation kit", quantity: "1", unitCost: "500.00", markupPct: "20" },
@@ -93,6 +94,7 @@ describe("the line service is the only writer of the stored figures", () => {
     await saveQuotationLinesService(actor, {
       quotationId: quotation.id,
       version: quotation.version,
+      canSeeCost: true,
       lines: [
         {
           description: "Imported transmitter",
@@ -123,6 +125,7 @@ describe("§12: concurrent edits conflict rather than overwrite", () => {
     await saveQuotationLinesService(actor, {
       quotationId: quotation.id,
       version,
+      canSeeCost: true,
       lines: [
         { description: "First user's line", quantity: "1", unitCost: "10.00", markupPct: "0" },
       ],
@@ -133,6 +136,7 @@ describe("§12: concurrent edits conflict rather than overwrite", () => {
       saveQuotationLinesService(actor, {
         quotationId: quotation.id,
         version,
+        canSeeCost: true,
         lines: [
           { description: "Second user's line", quantity: "1", unitCost: "20.00", markupPct: "0" },
         ],
@@ -154,6 +158,7 @@ describe("§12: a sent quotation rejects edits at the service layer", () => {
       saveQuotationLinesService(actor, {
         quotationId: quotation.id,
         version,
+        canSeeCost: true,
         lines: [{ description: "Sneaky edit", quantity: "1", unitCost: "1.00", markupPct: "0" }],
       }),
     ).rejects.toThrow(/cannot be edited.*revision/s);
@@ -276,6 +281,7 @@ describe("§5's diff", () => {
     await saveQuotationLinesService(actor, {
       quotationId: r1.quotationId,
       version: draft.version,
+      canSeeCost: true,
       lines: [
         // Quantity changed.
         { description: "DN100 flow meter", quantity: "3", unitCost: "1000.00", markupPct: "25" },

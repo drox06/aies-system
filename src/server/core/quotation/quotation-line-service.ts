@@ -44,6 +44,18 @@ export interface SaveLinesInput {
   quotationId: string;
   /** The caller's copy of `version`. §12: a stale one must conflict, not overwrite. */
   version: number;
+  /**
+   * Whether the caller holds `finance.view_cost`.
+   *
+   * Load-bearing, not informational. `getQuotationService` strips `unitCost`, `markupPct` and
+   * `costFxRate` from the lines it sends to anyone without that permission — so a salesperson
+   * editing a quotation posts back lines with **no cost in them at all**. Accepting those verbatim
+   * would zero the costs and hand the quotation a fictional 100% margin, silently, on a document
+   * heading for the VP's approval queue.
+   *
+   * When false, existing costs are carried over by line number instead. See below.
+   */
+  canSeeCost: boolean;
   lines: QuotationLineInput[];
   headerDiscount?: string | null;
   vatMode?: VatMode;
@@ -69,6 +81,7 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
       version: true,
       vatMode: true,
       vatRatePct: true,
+      fxBufferPct: true,
     },
   });
   if (!quotation) {
@@ -88,13 +101,61 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
   const vatMode = (input.vatMode ?? (quotation.vatMode as VatMode)) satisfies VatMode;
   const vatRatePct = input.vatRatePct ?? quotation.vatRatePct.toString();
 
+  /**
+   * Cost carried over for a caller who cannot see it.
+   *
+   * Matched by line number, which is what the builder round-trips unchanged: a salesperson editing
+   * descriptions and prices keeps the positions the server sent them. A line they *added* has no
+   * predecessor and therefore no cost — which is honest, since nobody has costed it yet, and the
+   * margin panel will show the gap to whoever can see it.
+   *
+   * Reordering is the case this cannot follow, and it is why the builder does not offer it to a
+   * caller without cost visibility.
+   */
+  const preservedByLineNo = new Map<
+    number,
+    { unitCost: string; markupPct: string | null; costFxRate: string }
+  >();
+  if (!input.canSeeCost) {
+    const existing = await db.quotationLine.findMany({
+      where: { quotationId: quotation.id },
+      select: { lineNo: true, unitCost: true, markupPct: true, costFxRate: true },
+    });
+    for (const line of existing) {
+      preservedByLineNo.set(line.lineNo, {
+        // The stored unitCost is already landed, so it is re-fed with a rate of 1 and no buffer —
+        // applying FX a second time would inflate the cost on every save.
+        unitCost: line.unitCost.toString(),
+        markupPct: line.markupPct?.toString() ?? null,
+        costFxRate: "1",
+      });
+    }
+  }
+
+  /** The cost inputs to cost this line with, given who is saving. */
+  const costFor = (line: QuotationLineInput, index: number) => {
+    if (input.canSeeCost) {
+      return {
+        unitCost: line.unitCost ?? "0",
+        costFxRate: line.costFxRate ?? "1",
+        markupPct: line.markupPct ?? null,
+      };
+    }
+    const preserved = preservedByLineNo.get(index + 1);
+    return {
+      unitCost: preserved?.unitCost ?? "0",
+      costFxRate: preserved?.costFxRate ?? "1",
+      // The markup is a cost-side field too: deriving a price from a markup the caller cannot see
+      // would let them move cost by proxy.
+      markupPct: preserved?.markupPct ?? null,
+    };
+  };
+
   // The engine decides every figure; this service only stores what it returns.
   const costing = computeCosting({
-    lines: input.lines.map((line) => ({
+    lines: input.lines.map((line, index) => ({
       quantity: line.quantity,
-      unitCost: line.unitCost ?? "0",
-      costFxRate: line.costFxRate ?? "1",
-      markupPct: line.markupPct ?? null,
+      ...costFor(line, index),
       unitPrice: line.unitPrice ?? "0",
       lineDiscountPct: line.lineDiscountPct ?? null,
       isOptional: line.isOptional === true,
@@ -102,7 +163,9 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
     headerDiscount: input.headerDiscount ?? "0",
     vatMode,
     vatRatePct,
-    fxBufferPct: input.fxBufferPct ?? "0",
+    // Zero when the caller cannot see cost: their preserved figures are already landed, and
+    // applying the buffer again would inflate cost a little more on every save.
+    fxBufferPct: input.canSeeCost ? (input.fxBufferPct ?? "0") : "0",
     marginFloorPct: input.marginFloorPct ?? null,
   });
 
@@ -123,7 +186,9 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
         totalCost: fromCentavos(costing.totalCost),
         marginAmount: fromCentavos(costing.marginAmount),
         marginPct: costing.marginPct === null ? "0" : costing.marginPct.toFixed(4),
-        fxBufferPct: input.fxBufferPct ?? "0",
+        fxBufferPct: input.canSeeCost
+          ? (input.fxBufferPct ?? "0")
+          : quotation.fxBufferPct.toString(),
       },
     });
 
@@ -158,8 +223,8 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
             // applied once, here, so the stored figure is the one the margin was calculated from.
             unitCost: fromCentavos(computed.unitCost),
             costCurrency: line.costCurrency ?? "PHP",
-            costFxRate: line.costFxRate ?? "1",
-            markupPct: line.markupPct ?? null,
+            costFxRate: input.canSeeCost ? (line.costFxRate ?? "1") : "1",
+            markupPct: costFor(line, index).markupPct,
             unitPrice: fromCentavos(computed.unitPrice),
             lineDiscountPct: line.lineDiscountPct ?? null,
             lineTotal: fromCentavos(computed.lineTotal),
