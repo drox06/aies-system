@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc/client";
 import { IssuancePanel } from "./IssuancePanel";
 import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
+import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
 
 const STATUS_TONE: Record<string, StatusTone> = {
@@ -71,6 +72,11 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     totalCost?: string;
     marginAmount?: string;
     marginPct?: string;
+    deliveryLeadTime: string | null;
+    deliveryTermIncoterm: string | null;
+    paymentTermsText: string | null;
+    warrantyTerms: string | null;
+    termsAndConditions: string[];
     downloadedAt: string | null;
     downloadedBy: string | null;
     downloadCount: number;
@@ -186,6 +192,18 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               </p>
             )}
           </Card>
+
+          <TermsPanel
+            quotationId={data.id}
+            version={data.version}
+            editable={editable}
+            deliveryLeadTime={data.deliveryLeadTime}
+            incoterm={data.deliveryTermIncoterm}
+            paymentTerms={data.paymentTermsText}
+            warranty={data.warrantyTerms}
+            termsAndConditions={data.termsAndConditions ?? []}
+            onSaved={refresh}
+          />
 
           <div onChangeCapture={() => setDirty(true)}>
             <LineEditor

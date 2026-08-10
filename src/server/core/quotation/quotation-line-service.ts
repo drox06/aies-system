@@ -286,7 +286,10 @@ export interface UpdateQuotationHeaderInput {
   deliveryTermIncoterm?: string | null;
   deliveryLeadTime?: string | null;
   paymentTermsId?: string | null;
+  paymentTermsText?: string | null;
   warrantyTerms?: string | null;
+  /** §7's clauses, per quotation. Replaced wholesale — the editor sends the whole list. */
+  termsAndConditions?: string[];
   currency?: string;
   fxRate?: string;
 }
@@ -319,7 +322,9 @@ export async function updateQuotationHeaderService(
     "deliveryTermIncoterm",
     "deliveryLeadTime",
     "paymentTermsId",
+    "paymentTermsText",
     "warrantyTerms",
+    "termsAndConditions",
     "currency",
     "fxRate",
   ] as const) {

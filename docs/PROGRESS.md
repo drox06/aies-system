@@ -662,6 +662,62 @@ the confirmation step disappears, and the sweep has nothing to find. See docs/DE
 - [x] 443 tests across 57 files; lint, typecheck and `build:check` clean. Both documents rendered
       from a real quotation and reviewed on screen.
 
+### Also in session 3 — the company's review of the first real quotation
+
+They logged an inquiry, quoted it, printed it, and sent back six things. All six are done.
+
+- [x] **An inquiry is logged *for* a named salesperson, and that person's acknowledgement is what
+      continues the process.** Their words: "i want this to be sent to a specific sales person to be
+      assigned by whoever logged the inquiry. then upon acknowledgement of the assigned person, this
+      will continue the current process."
+
+      `createInquiryService` already accepted `ownerId`; nothing in the UI ever sent one, so every
+      inquiry silently belonged to whoever typed it. Three parts were missing:
+
+      1. **An "Assign to" picker** on the quick-create form, defaulting to "Me — I will handle it".
+         Fed by `crm.inquiryOwners`, gated on `crm.create` rather than `admin.manage_users` — the
+         same trap that left the inspection assignee dropdown empty for everyone but the president.
+         Every active user is offered; sales roles are labelled and sorted first, not used as a bar.
+         Spec.md §4.3 is explicit that a five-person company has no clean separation of duties, and
+         the company overruled exactly this restriction once already on inspections.
+      2. **The assignee is told**, on creation and on reassignment, with the inquiry number and
+         subject in the title and the assigner's name in the body. Non-fatal and outside the
+         transaction: a failed notification must not lose a customer's call. Nobody is notified about
+         their own typing, which is the commonest case by far.
+      3. **`new → acknowledged` is now the owner's move.** Acknowledgement is where §3's SLA clock
+         stops and somebody's name goes against the work — if any passer-by can click it, the clock
+         measures nothing. A holder of `inquiry.assign` may still acknowledge on someone's behalf
+         (leave, illness, a waiting customer), and the audit row records who actually clicked.
+
+      `canAcknowledge` lives in the **pure lifecycle file**, so the record page disables the button
+      with the same function the service refuses the mutation with, and they cannot drift. The record
+      page now also shows who it is assigned to, which it never did.
+- [x] **The company address is set as lines, not wrapped by the renderer.** It was breaking mid-
+      address in the header column. `CompanyDetails.addressLines` is now `["930 Doña Basilisa Yangco
+      Street,", "Barangay Namayan, Mandaluyong City, 1550, Philippines"]` — the company decides where
+      the break falls. The header block's `maxWidth` went 220 → 260 in the same change: the longer
+      line measures ~205pt at 8pt Helvetica, so 220 left 15pt of slack and would have wrapped again
+      the moment anything grew. 150 (logo) + 260 is still well inside `CONTENT_WIDTH`.
+- [x] **Space between "QUOTATION" and the proposal title** — `marginTop: 6` and `lineHeight: 1.35`,
+      plus a 330pt cap so a long title wraps instead of colliding with the number block.
+- [x] **Commercial terms are enterable at last.** Delivery lead time, delivery term, payment terms
+      and warranty printed "—" on every document because **nothing in the app could set them**. New
+      `TermsPanel` on the quotation record, draft-only like every other edit (§5).
+- [x] **§7's terms and conditions are AIES's own nine clauses**, supplied by the company, replacing
+      the placeholder wording this build shipped with. `{{CUSTOMER}}` in clause 1 is filled with the
+      account name when the terms are seeded.
+- [x] **Each clause is editable, and the clauses live on the quotation.** This is the load-bearing
+      decision of the change: a quotation is a contract, so the clauses printed on it must be the
+      ones the customer accepted — not whichever set the company is using when somebody reprints it
+      six months later. `createQuotationService` seeds `Quotation.termsAndConditions` from the
+      defaults; after that the record owns its own terms, editable line by line, frozen on send with
+      everything else. A record created before the column existed falls back to the defaults rather
+      than printing a document with no terms at all.
+- [x] `paymentTermsText` is what prints; `paymentTermsId` stays for module 05's structured link. The
+      document used to print the id, so a customer could receive a page with a cuid where the payment
+      terms belong.
+- [x] 463 tests across 59 files; lint and typecheck clean. 20 new tests across two files.
+
 ### Next concrete step
 **Finish module 02 session 3 — §6's approval, and §7's auto-expire.**
 
@@ -685,10 +741,10 @@ the confirmation step disappears, and the sweep has nothing to find. See docs/DE
 
 Session 4 remains: §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.
 
-**Owed before the first real quotation goes out:** the standard terms in
-`src/server/core/quotation/pdf/render.tsx` are ordinary Philippine commercial terms written for this
-build, not AIES's own. The company should review them. They move to module 09's settings when that
-exists, alongside `getCompanyDetails()`.
+**Settled:** the standard terms are now AIES's own, in
+`src/server/core/quotation/terms.ts`. They still move to module 09's settings when that exists,
+alongside `getCompanyDetails()` — at which point that file becomes the *default* set a new quotation
+is seeded from, which is what it already is in everything but storage.
 
 Notes for whoever picks this up:
   - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/

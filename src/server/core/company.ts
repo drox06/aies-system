@@ -19,15 +19,25 @@
 
 export interface CompanyDetails {
   name: string;
-  /** One block, as it should appear on a document. Philippine addresses do not decompose cleanly. */
-  address: string;
+  /**
+   * The address as it should be *set*, one entry per printed line.
+   *
+   * Lines rather than one string: a document header is a narrow column, and letting it wrap on
+   * whatever word happens to reach the edge broke "930 Doña Basilisa Yangco Street," across two
+   * lines mid-address. Philippine addresses do not decompose into the usual structured fields
+   * either, so this is the honest middle — the company decides where the breaks fall.
+   */
+  addressLines: string[];
   tin: string;
   contactNumber: string;
 }
 
 const AIES: CompanyDetails = {
   name: "AIES Electromechanical Corporation",
-  address: "930 Doña Basilisa Yangco Street, Brgy. Namayan, Mandaluyong City, 1550, Philippines",
+  addressLines: [
+    "930 Doña Basilisa Yangco Street,",
+    "Barangay Namayan, Mandaluyong City, 1550, Philippines",
+  ],
   tin: "696-897-781-00000",
   contactNumber: "+639920073905",
 };

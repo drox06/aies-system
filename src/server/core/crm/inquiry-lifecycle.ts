@@ -280,3 +280,28 @@ export function assessInquirySla(record: SlaInput, now: Date = new Date()): SlaA
     paused,
   };
 }
+
+/**
+ * Who may acknowledge an inquiry.
+ *
+ * The company's rule: an inquiry is logged *for* a named salesperson, and the process continues when
+ * **that person** picks it up. Acknowledgement is the moment somebody accepts the work — it stops
+ * §3's SLA clock and puts their name against it — so letting anyone click it would make the clock
+ * measure nothing.
+ *
+ * A manager holding `inquiry.assign` may still acknowledge on someone's behalf. Somebody is on leave
+ * and the customer is waiting; reassignment is the tidy route, but the audit row records who
+ * actually clicked either way, which is the part that matters.
+ *
+ * Lives here, in the pure lifecycle file, because the record page uses it to explain a disabled
+ * button and the service uses it to refuse the mutation. One rule, both ends.
+ */
+export function canAcknowledge(
+  user: { id: string; permissions: ReadonlySet<string> | readonly string[] },
+  inquiry: { ownerId: string },
+): boolean {
+  if (user.id === inquiry.ownerId) return true;
+  return Array.isArray(user.permissions)
+    ? user.permissions.includes("inquiry.assign")
+    : (user.permissions as ReadonlySet<string>).has("inquiry.assign");
+}

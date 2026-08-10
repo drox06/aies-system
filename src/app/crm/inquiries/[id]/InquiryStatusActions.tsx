@@ -1,10 +1,12 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Menu, MenuItem } from "@/components/ui/menu";
 import {
+  canAcknowledge,
   humanStatus,
   LOST_REASONS,
   userTransitionsFrom,
@@ -39,6 +41,19 @@ export function InquiryStatusActions({ inquiry }: { inquiry: InquiryDetail }) {
 
   const options = userTransitionsFrom(inquiry.status);
 
+  // §3's acknowledgement belongs to the person the inquiry was logged for. The server refuses it
+  // either way; this only spares them clicking a button that was never going to work, and names the
+  // person they should chase instead. `canAcknowledge` is the same function the service calls.
+  const { data: session } = useSession();
+  const mayAcknowledge =
+    !session?.user ||
+    canAcknowledge(
+      { id: session.user.id, permissions: session.user.permissions },
+      { ownerId: inquiry.ownerId },
+    );
+  const ownerName = inquiry.owner?.name ?? "the assigned salesperson";
+  const blockedReason = `${ownerName} is assigned to this inquiry — theirs is the acknowledgement that starts the work.`;
+
   async function move(to: string) {
     try {
       await transition.mutateAsync({ inquiryId: inquiry.id, to: to as "acknowledged" });
@@ -57,10 +72,19 @@ export function InquiryStatusActions({ inquiry }: { inquiry: InquiryDetail }) {
   // One move available is a button, not a menu. Acknowledging is the commonest action in the
   // module and burying it behind a dropdown would add a click to the thing the SLA measures.
   if (options.length === 1) {
+    const blocked = options[0] === "acknowledged" && !mayAcknowledge;
     return (
-      <Button size="sm" disabled={transition.isPending} onClick={() => void move(options[0]!)}>
-        {labelFor(options[0]!)}
-      </Button>
+      <div className="flex items-center gap-2">
+        {blocked && <span className="text-xs text-text-muted">{blockedReason}</span>}
+        <Button
+          size="sm"
+          disabled={transition.isPending || blocked}
+          title={blocked ? blockedReason : undefined}
+          onClick={() => void move(options[0]!)}
+        >
+          {labelFor(options[0]!)}
+        </Button>
+      </div>
     );
   }
 
@@ -70,6 +94,8 @@ export function InquiryStatusActions({ inquiry }: { inquiry: InquiryDetail }) {
         {options.map((option) => (
           <MenuItem
             key={option}
+            disabled={option === "acknowledged" && !mayAcknowledge}
+            title={option === "acknowledged" && !mayAcknowledge ? blockedReason : undefined}
             onClick={() => {
               if (option === "lost") setLostOpen(true);
               else void move(option);

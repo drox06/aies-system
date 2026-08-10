@@ -103,6 +103,7 @@ export default function InquiryPage({ params }: { params: Promise<{ id: string }
               <Field label="Estimated value">
                 <MoneyCell value={data.estimatedValue} currency={data.currency} />
               </Field>
+              <Field label="Assigned to">{data.owner?.name ?? "—"}</Field>
               <Field label="Industry">{data.industry ?? "—"}</Field>
               <Field label="Site">{data.site?.name ?? "—"}</Field>
             </dl>

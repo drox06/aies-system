@@ -69,6 +69,10 @@ model Quotation {
   deliveryLeadTime     String?
   // Plain id rather than a relation until PaymentTerm has rows; see the model below.
   paymentTermsId       String?
+  // Free text alongside the id. Module 05 owns PaymentTerm and has no rows yet, and the company
+  // writes terms as a sentence ("100% Advance payment") rather than picking from a list. When
+  // module 05 lands the id becomes the structured link and this stays as the printed wording.
+  paymentTermsText     String?
   warrantyTerms        String?
 
   // Commercial summary, all denominated in `currency`.
@@ -116,6 +120,14 @@ model Quotation {
   // Spec.md §10 requires optimistic locking on quotations by name. §12: "Concurrent edit of one
   // quotation by two users raises a version conflict rather than a silent overwrite."
   version Int @default(0)
+
+  // §7'''s standard terms, per quotation and editable line by line.
+  //
+  // Stored on the record rather than read from a constant at print time, because a quotation is a
+  // contract: the clauses the customer accepted are the ones that were on the document they signed,
+  // not the ones the company happens to be using six months later. Seeded from
+  // DEFAULT_TERMS_AND_CONDITIONS on creation.
+  termsAndConditions Json @default("[]")
 
   customFields Json @default("{}")
 

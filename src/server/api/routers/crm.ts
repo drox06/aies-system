@@ -35,6 +35,7 @@ import {
 import {
   assignInquiryService,
   createInquiryService,
+  listInquiryOwnersService,
   getInquiryService,
   listInquiriesService,
   listRequirementTemplatesService,
@@ -64,10 +65,15 @@ import { mergeAccountsService, previewMergeService } from "@/server/core/crm/mer
 import { getMyDayService, getPipelineService } from "@/server/core/crm/pipeline-service";
 import { p, router, type Context } from "@/server/api/trpc";
 
-function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
+function actorMeta(
+  ctx: Context & { user: { id: string; name: string; permissions: ReadonlySet<string> } },
+): ActorMeta {
   return {
     actorId: ctx.user.id,
     actorLabel: ctx.user.name,
+    // Read from the session, never the request body: a client that could assert its own permissions
+    // could acknowledge somebody else's inquiry.
+    permissions: ctx.user.permissions,
     ip: ctx.ip,
     userAgent: ctx.userAgent,
     requestId: ctx.requestId,
@@ -318,6 +324,12 @@ export const crmRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => transitionInquiryService(actorMeta(ctx), input)),
+
+  /**
+   * The salespeople a new inquiry can be logged for. Gated on `crm.create`, because the person
+   * filling in the form is the person who needs this list.
+   */
+  inquiryOwners: p("crm.create").query(() => listInquiryOwnersService()),
 
   assignInquiry: p("inquiry.assign")
     .input(z.object({ inquiryId: z.string(), ownerId: z.string() }))

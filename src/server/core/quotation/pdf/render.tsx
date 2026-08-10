@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
 import { formatMoney } from "@/lib/format";
 import { quotationDisplayNumber } from "@/server/core/quotation/quotation-number";
+import { termsFromRecord } from "@/server/core/quotation/terms";
 import {
   QuotationDocument,
   type CustomerLine,
@@ -34,25 +35,6 @@ function logoDataUri(): string {
   cachedLogo = `data:image/png;base64,${bytes.toString("base64")}`;
   return cachedLogo;
 }
-
-/**
- * The standard terms printed on every quotation.
- *
- * Hard-coded here for the same reason as the company details: module 09's settings screen does not
- * exist, and inventing a second settings mechanism would leave that module something to reconcile.
- * These are ordinary Philippine commercial terms; the company should review them before the first
- * real quotation goes out, which is recorded in PROGRESS as an open item.
- */
-export const STANDARD_TERMS = [
-  "Prices are quoted in the currency stated and are exclusive of any charges not expressly listed.",
-  "This quotation is valid until the date stated above. Prices are subject to review thereafter.",
-  "Delivery lead time is counted from receipt of a written purchase order and, where applicable, the agreed downpayment.",
-  "Delivery lead times are estimates given in good faith and are subject to the principal supplier's confirmation at the time of order.",
-  "Any work outside the stated scope will be quoted separately before it is carried out.",
-  "Warranty covers manufacturing defects only, and excludes damage from misuse, incorrect installation by others, or operation outside the equipment's stated conditions.",
-  "Title to the goods passes to the buyer upon full payment.",
-  "Acceptance of this quotation constitutes agreement to these terms.",
-];
 
 function fmtDate(value: Date | null | undefined): string {
   if (!value) return "—";
@@ -171,13 +153,15 @@ export async function buildCustomerPdfProps(
     terms: {
       deliveryLeadTime: quotation.deliveryLeadTime,
       incoterm: quotation.deliveryTermIncoterm,
-      // PaymentTerm rows do not exist yet; the id is shown only if one was set by hand.
-      paymentTerms: quotation.paymentTermsId,
+      // The printed wording. `paymentTermsId` stays for module 05's structured link.
+      paymentTerms: quotation.paymentTermsText ?? quotation.paymentTermsId,
       warranty: quotation.warrantyTerms,
     },
     preparedBy: await preparedByLabel(quotation),
     logoSrc: logoDataUri(),
-    standardTerms: STANDARD_TERMS,
+    // From the record, so a quotation prints the clauses that were on it — not whichever set the
+    // company happens to be using now.
+    standardTerms: termsFromRecord(quotation.termsAndConditions, quotation.account.name),
   };
 }
 

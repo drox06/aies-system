@@ -15,6 +15,14 @@ import { indexEntity, removeFromIndex } from "@/server/core/search/index-service
 export interface ActorMeta {
   actorId: string;
   actorLabel: string;
+  /**
+   * The caller's permissions, when the service needs to make an authorisation decision beyond the
+   * procedure's own gate — currently only "may this person acknowledge this inquiry?".
+   *
+   * Optional so the many internal callers (event subscribers, sweeps, scripts) need not fabricate a
+   * permission set; those paths pass `bySystem` and skip the check entirely.
+   */
+  permissions?: ReadonlySet<string>;
   ip?: string | null;
   userAgent?: string | null;
   requestId?: string | null;

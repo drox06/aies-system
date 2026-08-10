@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import { emit } from "@/server/core/events/emit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
 import { stripFieldsUnlessPermitted } from "@/server/core/rbac/field-gating";
+import { applyCustomerName, DEFAULT_TERMS_AND_CONDITIONS } from "@/server/core/quotation/terms";
 import {
   QUOTE_NUMBER_DOCUMENT_TYPES,
   quotationDisplayNumber,
@@ -129,6 +130,10 @@ export async function createQuotationService(actor: ActorMeta, input: CreateQuot
         currency: input.currency ?? "PHP",
         status: "draft",
         preparedById: actor.actorId,
+        // Copied onto the record at creation, with the customer name filled in. A quotation is a
+        // contract: the clauses it carries must be the ones that were on it, not whichever set the
+        // company is using by the time somebody reprints it.
+        termsAndConditions: applyCustomerName(DEFAULT_TERMS_AND_CONDITIONS, account.name),
       },
     });
 

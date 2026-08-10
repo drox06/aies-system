@@ -79,7 +79,13 @@ export function MenuItem({ className, ...props }: React.ComponentProps<"button">
     <button
       type="button"
       role="menuitem"
-      className={cn("w-full rounded px-3 py-2 text-left text-sm hover:bg-surface-2", className)}
+      className={cn(
+        "w-full rounded px-3 py-2 text-left text-sm hover:bg-surface-2",
+        // A disabled item stays visible rather than vanishing: "you may not do this, and here is
+        // why" (via `title`) is more use than a menu that silently has one fewer row.
+        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+        className,
+      )}
       {...props}
     />
   );

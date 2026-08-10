@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
   assessInquirySla,
+  canAcknowledge,
   checkTransition,
   humanStatus,
   INQUIRY_SOURCES,
@@ -21,6 +22,8 @@ import {
 import { emit } from "@/server/core/events/emit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
 import { indexEntity } from "@/server/core/search/index-service";
+import { notify } from "@/server/core/notify/notify";
+import { registerNotificationType } from "@/server/core/notify/registry";
 
 /**
  * Inquiry writes (specs/01-crm-inquiry.md §§2–4).
@@ -30,6 +33,88 @@ import { indexEntity } from "@/server/core/search/index-service";
  */
 
 export const INQUIRY_ENTITY_TYPE = "Inquiry";
+export const INQUIRY_ASSIGNED_NOTIFICATION_TYPE = "inquiry.assigned_to_you";
+
+registerNotificationType({
+  key: INQUIRY_ASSIGNED_NOTIFICATION_TYPE,
+  label: "An inquiry has been assigned to you",
+  // In-app only while `notify_email` has no handler (docs/DECISIONS.md #10). This one has a strong
+  // claim on email once a provider exists: §3's SLA clock is already running when this fires, and
+  // the person it is running against may not open the app today.
+  defaultChannels: { inApp: true, email: false, digest: false },
+});
+
+/**
+ * Tells a salesperson an inquiry is theirs.
+ *
+ * Outside the transaction and non-fatal: an inquiry that was logged but whose notification failed
+ * is still logged, and rolling the whole thing back would lose the customer's call over a
+ * notification. The SLA sweep catches an unacknowledged inquiry either way, which is the real
+ * safety net.
+ */
+async function notifyAssignee(
+  recipientId: string,
+  inquiry: { id: string; number: string; subject: string },
+  assignedBy: string,
+): Promise<void> {
+  try {
+    await notify({
+      recipientId,
+      type: INQUIRY_ASSIGNED_NOTIFICATION_TYPE,
+      title: `${inquiry.number} is yours — ${inquiry.subject}`,
+      body:
+        `Assigned by ${assignedBy}. Acknowledge it to start work; the acknowledgement clock is ` +
+        `already running and escalates to KJ and EA if it is not picked up.`,
+      entityType: INQUIRY_ENTITY_TYPE,
+      entityId: inquiry.id,
+    });
+  } catch (error) {
+    console.error("[crm] failed to notify inquiry assignee", recipientId, error);
+  }
+}
+
+/**
+ * The roles that make somebody an obvious owner for an inquiry — used to *label* the picker, not to
+ * restrict it, for the reason INSPECTION_TECHNICAL_ROLES gives at length: a five-person company has
+ * no clean separation of duties (Spec.md §4.3), and software that invents one blocks real work.
+ */
+export const INQUIRY_SALES_ROLES = ["sales", "marketing_manager"] as const;
+
+export interface InquiryOwnerOption {
+  id: string;
+  name: string;
+  /** True when they hold a sales role — the picker marks these and sorts them first. */
+  isSales: boolean;
+}
+
+/**
+ * Who a new inquiry can be logged *for*.
+ *
+ * The company's process: whoever takes the call logs it and names the salesperson who will handle
+ * it. That person is then the one who acknowledges it, so this list is what makes the assignment
+ * possible at all.
+ *
+ * Gated on `crm.create` rather than `admin.manage_users`, and for the same reason
+ * `listInspectionAssigneesService` exists: the admin permission belongs to the president alone, so
+ * using it here would leave the dropdown empty for every person who actually logs inquiries.
+ */
+export async function listInquiryOwnersService(): Promise<InquiryOwnerOption[]> {
+  const users = await db.user.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true, name: true, roles: { select: { role: { select: { key: true } } } } },
+    orderBy: { name: "asc" },
+  });
+
+  return users
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      isSales: user.roles.some((r) =>
+        INQUIRY_SALES_ROLES.includes(r.role.key as (typeof INQUIRY_SALES_ROLES)[number]),
+      ),
+    }))
+    .sort((a, b) => (a.isSales === b.isSales ? a.name.localeCompare(b.name) : a.isSales ? -1 : 1));
+}
 
 // ---- scoping ------------------------------------------------------------------------------------
 
@@ -287,6 +372,13 @@ export async function createInquiryService(actor: ActorMeta, input: CreateInquir
   });
 
   await reindexInquiry(inquiry.id);
+
+  // Only when it was handed to somebody else. Telling people about their own typing is how
+  // notifications become noise nobody reads.
+  if (inquiry.ownerId !== actor.actorId) {
+    await notifyAssignee(inquiry.ownerId, inquiry, actor.actorLabel);
+  }
+
   return inquiry;
 }
 
@@ -428,7 +520,7 @@ export async function assignInquiryService(
   actor: ActorMeta,
   input: { inquiryId: string; ownerId: string },
 ) {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const before = await tx.inquiry.findFirst({
       where: { id: input.inquiryId, deletedAt: null },
       select: { id: true, number: true, ownerId: true },
@@ -475,6 +567,11 @@ export async function assignInquiryService(
 
     return updated;
   });
+
+  if (result.ownerId !== actor.actorId) {
+    await notifyAssignee(result.ownerId, result, actor.actorLabel);
+  }
+  return result;
 }
 
 // ---- the state machine --------------------------------------------------------------------------
@@ -515,6 +612,18 @@ export async function transitionInquiryService(actor: ActorMeta, input: Transiti
     const check = checkTransition(inquiry.status, input.to, { bySystem: input.bySystem });
     if (!check.ok) {
       throw new TRPCError({ code: "BAD_REQUEST", message: check.reason! });
+    }
+
+    // The assignment rule, enforced in the service rather than by hiding the button.
+    if (input.to === "acknowledged" && !input.bySystem && actor.permissions) {
+      if (!canAcknowledge({ id: actor.actorId, permissions: actor.permissions }, inquiry)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            `${inquiry.number} is assigned to somebody else. They acknowledge it, or a manager ` +
+            `reassigns it first.`,
+        });
+      }
     }
 
     const to = input.to as InquiryStatus;
@@ -812,13 +921,21 @@ export async function getInquiryService(
     throw new TRPCError({ code: "NOT_FOUND", message: "That inquiry no longer exists." });
   }
 
-  const [completeness, templates] = await Promise.all([
+  const [completeness, templates, owner] = await Promise.all([
     assessInquiryCompleteness(inquiry),
     loadRequirementTemplates(),
+    // Who it is assigned to. The record page shows this, and uses it to explain why the Acknowledge
+    // button is disabled for everybody else.
+    //
+    // A separate read rather than an `include`, because `ownerId` is a plain id — the same
+    // decoupled-from-User convention as `AuditLog.actorId` and `Activity.createdById`. Names are
+    // resolved on read throughout this module.
+    db.user.findUnique({ where: { id: inquiry.ownerId }, select: { id: true, name: true } }),
   ]);
 
   return {
     ...inquiry,
+    owner,
     estimatedValue: inquiry.estimatedValue?.toString() ?? null,
     items: inquiry.items.map((item) => ({ ...item, quantity: item.quantity.toString() })),
     sla: assessInquirySla(inquiry),

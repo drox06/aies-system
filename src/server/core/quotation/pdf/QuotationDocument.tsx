@@ -46,7 +46,7 @@ export interface CustomerQuotationPdfProps {
   issuedOn: string;
   validUntil: string;
 
-  company: { name: string; address: string; tin: string; contactNumber: string };
+  company: { name: string; addressLines: string[]; tin: string; contactNumber: string };
 
   customer: {
     name: string;
@@ -103,7 +103,9 @@ export function QuotationDocument(props: CustomerQuotationPdfProps) {
           <Image src={props.logoSrc} style={s.logo} />
           <View style={s.companyBlock}>
             <Text style={s.companyName}>{props.company.name}</Text>
-            <Text>{props.company.address}</Text>
+            {props.company.addressLines.map((line) => (
+              <Text key={line}>{line}</Text>
+            ))}
             <Text>TIN {props.company.tin}</Text>
             <Text>{props.company.contactNumber}</Text>
           </View>
@@ -111,9 +113,14 @@ export function QuotationDocument(props: CustomerQuotationPdfProps) {
         <View style={s.headerRule} fixed />
 
         <View style={s.headerRow}>
-          <View>
+          <View style={{ maxWidth: 330 }}>
             <Text style={s.docTitle}>QUOTATION</Text>
-            <Text style={[s.value, s.muted]}>{props.title}</Text>
+            {/* The proposal title sits directly under the word QUOTATION and was crowding it. A
+                long title also has to be allowed to wrap without colliding with the number block
+                on the right, hence the width cap above. */}
+            <Text style={[s.value, s.muted, { marginTop: 6, lineHeight: 1.35 }]}>
+              {props.title}
+            </Text>
           </View>
           <View style={{ textAlign: "right" }}>
             <Text style={s.docNumber}>{props.documentNumber}</Text>

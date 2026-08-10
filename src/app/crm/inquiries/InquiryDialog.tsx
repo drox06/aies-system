@@ -44,10 +44,14 @@ export function InquiryDialog({
   const [receivedAt, setReceivedAt] = useState("");
   const [requiredByDate, setRequiredByDate] = useState("");
   const [estimatedValue, setEstimatedValue] = useState("");
+  const [ownerId, setOwnerId] = useState("");
   const [items, setItems] = useState<DraftItem[]>([{ ...BLANK_ITEM }]);
 
   // Enough for a five-person company; a combobox is session 3's problem when there are hundreds.
   const accounts = trpc.crm.listAccounts.useQuery({ pageSize: 100 }, { enabled: open });
+  // Not gated on `open`: an empty dropdown on first paint reads as "nobody can be assigned", and
+  // this list is five rows.
+  const owners = trpc.crm.inquiryOwners.useQuery();
   const create = trpc.crm.createInquiry.useMutation();
 
   function reset() {
@@ -58,6 +62,7 @@ export function InquiryDialog({
     setReceivedAt("");
     setRequiredByDate("");
     setEstimatedValue("");
+    setOwnerId("");
     setItems([{ ...BLANK_ITEM }]);
   }
 
@@ -78,6 +83,8 @@ export function InquiryDialog({
         receivedAt: receivedAt ? new Date(receivedAt) : null,
         requiredByDate: requiredByDate ? new Date(requiredByDate) : null,
         estimatedValue: estimatedValue || null,
+        // Blank means "mine" — the service defaults the owner to the creator.
+        ownerId: ownerId || null,
         items: items
           .filter((item) => item.description.trim().length > 0)
           .map((item) => ({
@@ -87,7 +94,10 @@ export function InquiryDialog({
             serviceType: (item.serviceType || null) as (typeof SERVICE_TYPES)[number] | null,
           })),
       });
-      toastSuccess(`Logged ${inquiry.number}`);
+      const assignee = owners.data?.find((user) => user.id === ownerId);
+      toastSuccess(
+        assignee ? `Logged ${inquiry.number} for ${assignee.name}` : `Logged ${inquiry.number}`,
+      );
       reset();
       onOpenChange(false);
       onCreated(inquiry.id);
@@ -151,6 +161,21 @@ export function InquiryDialog({
                     </option>
                   ))}
                 </Select>
+              </div>
+              <div>
+                <Label htmlFor="inq-owner">Assign to</Label>
+                <Select id="inq-owner" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+                  <option value="">Me — I will handle it</option>
+                  {(owners.data ?? []).map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                      {user.isSales ? " (sales)" : ""}
+                    </option>
+                  ))}
+                </Select>
+                <p className="mt-1 text-xs text-text-muted">
+                  They are notified, and theirs is the acknowledgement that starts the work.
+                </p>
               </div>
               <div>
                 <Label htmlFor="inq-received">Received</Label>

@@ -47,7 +47,11 @@ export const pdfStyles = StyleSheet.create({
   // the header". The rule is the one place brand red earns its keep on the document.
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   logo: { width: 150 },
-  companyBlock: { textAlign: "right", fontSize: 8, color: PDF_COLORS.textMuted, maxWidth: 220 },
+  // 260, not the original 220. The longest address line — "Barangay Namayan, Mandaluyong City,
+  // 1550, Philippines" — measures ~205pt at 8pt Helvetica, so 220 left 15pt of slack and the block
+  // wrapped mid-address the moment anything grew. The row has the room: 150 (logo) + 260 is still
+  // well inside CONTENT_WIDTH.
+  companyBlock: { textAlign: "right", fontSize: 8, color: PDF_COLORS.textMuted, maxWidth: 260 },
   companyName: { fontFamily: "Helvetica-Bold", fontSize: 10, color: PDF_COLORS.navy800 },
   headerRule: { height: 2, backgroundColor: PDF_COLORS.red500, marginTop: 10, marginBottom: 14 },
 
