@@ -837,3 +837,50 @@ it would report work as done on the strength of somebody having looked at it.
 **Revisit when module 10 lands.** Sending from the record makes `sentAt` an observed fact rather
 than a claim, the confirmation step disappears, and the sweep has nothing to find. The two-fact
 model is the honest shape for the interim, not the destination.
+
+---
+
+## 28. `instrumentation.ts` is compiled for the edge runtime too, and a runtime guard does not stop that
+
+**Module:** 02, session 3. **Cost:** the dev server served 500s on every page while its own log
+said the feature was working.
+
+The dev job-queue drainer (DECISIONS-adjacent: added in `526cb8e` so the pipeline and Quotations
+would connect locally) was put in Next's `instrumentation.ts`, guarded like this:
+
+```ts
+if (process.env.NEXT_RUNTIME !== "nodejs") return;
+const { drain } = await import("@/server/core/jobs/queue");
+```
+
+That reads as safe and is not. **`process.env.NEXT_RUNTIME` is a runtime check; webpack's module
+graph is built at compile time.** Next compiles `instrumentation.ts` for *both* runtimes, so the
+edge bundle still followed the dynamic import into `queue.ts`, which imports `node:crypto`, which
+edge cannot resolve:
+
+```
+Module build failed: UnhandledSchemeError: Reading from "node:crypto" is not handled by plugins
+```
+
+**The failure mode is what makes this worth an entry.** The Node instance still ran, so
+`[dev-drain] relayed=2 claimed=2 succeeded=2` kept appearing in the terminal — the drainer really
+was working — while every page and every tRPC call returned 500. A log that reports success while
+the app is down is the most expensive kind of wrong, and it is exactly what a runtime guard around
+a compile-time problem produces.
+
+**Chose:** move the loop out of the bundle entirely. `npm run dev` now runs `scripts/dev.mjs`, a
+plain Node wrapper that spawns `next dev` and POSTs `/api/cron/drain` on a timer. It imports nothing
+from the app, so it cannot participate in any bundle — and it exercises the *same endpoint Vercel
+Cron calls in production*, so the path under test in development is the path that runs live. The
+previous version imported the internals directly, which was one more way for dev and production to
+drift.
+
+`npm run dev:next` remains for a bare server with no drainer.
+
+**Rejected: `serverExternalPackages` or a webpack `resolve.fallback`.** Both would have silenced the
+error by teaching the edge bundle to ignore a module it should never have contained. The module
+genuinely does not belong there.
+
+**The general rule:** anything in `instrumentation.ts` must be safe to *bundle* for edge, not merely
+safe to *execute* there. If it touches Prisma, the file system, or a `node:` builtin, it does not
+belong in that file at all.

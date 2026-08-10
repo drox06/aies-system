@@ -6,7 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev.mjs",
     "build": "next build",
     "build:check": "node -e \"process.env.NEXT_DIST_DIR='.next-build';require('child_process').execSync('npx next build',{stdio:'inherit',env:process.env})\"",
     "start": "next start",
@@ -27,7 +27,8 @@
     "bootstrap": "npm run prisma:migrate:deploy && npm run seed",
     "prepare": "husky",
     "reset:credentials": "tsx scripts/reset-user-credentials.ts",
-    "demo:crm": "tsx scripts/demo-crm-data.ts"
+    "demo:crm": "tsx scripts/demo-crm-data.ts",
+    "dev:next": "next dev"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

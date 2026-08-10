@@ -577,9 +577,11 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
       **drained the queue in development**: `POST /api/cron/drain` is hit by Vercel Cron in
       production and by nothing at all locally. Both halves worked and nothing joined them, which
       looks exactly like a broken feature and is the worst kind of bug to chase.
-      `src/instrumentation.ts` now relays and drains every 5s in development only, guarded against
-      hot-reload double-registration, with `DISABLE_DEV_DRAIN=1` to opt out. Verified by restarting
-      the server and watching a backlogged event relay and succeed with no manual call.
+      **`npm run dev` now runs `scripts/dev.mjs`**, which spawns `next dev` and POSTs
+      `/api/cron/drain` every 5s — the same endpoint Vercel Cron calls in production.
+      `DISABLE_DEV_DRAIN=1` opts out; `npm run dev:next` is a bare server.
+      *The first attempt put this in `instrumentation.ts` and broke the dev server outright* — see
+      docs/DECISIONS.md #28.
 - [x] Deliberately **not** solved by calling the subscriber inline from the inquiry transition.
       Spec.md §3.6 routes cross-module side effects through the event bus, and the outbox is what
       guarantees an event is neither lost nor double-delivered on rollback. Bypassing it would make
@@ -700,6 +702,11 @@ Notes for whoever picks this up:
   - `allocateNumber` takes no transaction client, so a rollback burns a number. Gaps are permitted
     by Spec.md §5, but quotations are customer-facing — revisit before module 02 issues QTN numbers.
   - The repo lives at `C:\dev\aies`, deliberately outside OneDrive.
+  - **Nothing in `instrumentation.ts` may touch Prisma, the file system or a `node:` builtin.** Next
+    compiles that file for the edge runtime too, and a `NEXT_RUNTIME` guard is a runtime check
+    against a compile-time problem. docs/DECISIONS.md #28.
+  - `.tsx` outside Next's own compilation (the PDF documents) needs the automatic JSX runtime
+    configured explicitly — `vitest.config.ts` sets it; plain `tsx` scripts cannot import them.
 
 ## Not started
 - [ ] Modules 02–10
