@@ -719,6 +719,18 @@ They logged an inquiry, quoted it, printed it, and sent back six things. All six
 - [x] 463 tests across 59 files; lint and typecheck clean. 20 new tests across two files.
 
 ### Next concrete step
+
+**State at the last stop (commit `f24c1ca`).** Working tree clean, nothing half-applied. The
+company's six review items from the first real quotation are all done and committed — inquiry
+assignment, the address lines, the title spacing, the commercial-terms inputs, AIES's own nine
+clauses, and per-clause editing. 463 tests across 59 files pass; lint, typecheck and `build:check`
+are clean.
+
+*One thing still wants a human eye:* the re-rendered sample quotation was verified by measurement
+and by asserting the assembled props, **not** by looking at it — no PDF renderer is available in the
+build environment. Download a quotation PDF and check the header block reads properly before the
+first one goes to a customer.
+
 **Finish module 02 session 3 — §6's approval, and §7's auto-expire.**
 
 1. **§6's approval through module 00's engine.** The `quotation.approve` `ApprovalRule` with
@@ -763,6 +775,10 @@ Notes for whoever picks this up:
     against a compile-time problem. docs/DECISIONS.md #28.
   - `.tsx` outside Next's own compilation (the PDF documents) needs the automatic JSX runtime
     configured explicitly — `vitest.config.ts` sets it; plain `tsx` scripts cannot import them.
+  - `ActorMeta.permissions` is **optional**, and the acknowledgement check is skipped when it is
+    absent. That is deliberate — event subscribers, sweeps and scripts have no permission set and
+    pass `bySystem` instead — but it means a *new* router that forgets to populate `actorMeta` would
+    silently lose the check. The crm router populates it; anything new must too.
 
 ## Not started
 - [ ] Modules 02–10
