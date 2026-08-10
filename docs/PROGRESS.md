@@ -571,6 +571,20 @@ specs/02-quotation.md §1: "This module deserves more care than any other." Plan
 - [x] 420 tests across 55 files; lint, typecheck and `build:check` clean. `/quotations` compiles and
       serves under the dev server.
 
+- [x] **The pipeline and Quotations are now actually connected — the join was missing
+      infrastructure, not code.** Dragging an inquiry to `quoting` correctly emitted
+      `inquiry.quoting_started`, and module 02's subscriber correctly creates the draft, but nothing
+      **drained the queue in development**: `POST /api/cron/drain` is hit by Vercel Cron in
+      production and by nothing at all locally. Both halves worked and nothing joined them, which
+      looks exactly like a broken feature and is the worst kind of bug to chase.
+      `src/instrumentation.ts` now relays and drains every 5s in development only, guarded against
+      hot-reload double-registration, with `DISABLE_DEV_DRAIN=1` to opt out. Verified by restarting
+      the server and watching a backlogged event relay and succeed with no manual call.
+- [x] Deliberately **not** solved by calling the subscriber inline from the inquiry transition.
+      Spec.md §3.6 routes cross-module side effects through the event bus, and the outbox is what
+      guarantees an event is neither lost nor double-delivered on rollback. Bypassing it would make
+      dev and production diverge, which is how the drain path stops being exercised and rots.
+
 ### Next concrete step
 **Module 02 session 3 — approval and issuance.** Read specs/02-quotation.md §§6 and 7, then:
 
@@ -675,8 +689,11 @@ found six defects that 186 automated tests did not, so this distinction is worth
 - The Node.js/npm PATH issue from session 1 (explicit `C:\Program Files\nodejs` prepend needed in
   Bash) is still observed; hasn't blocked anything.
 - Vercel Cron isn't actually configured yet (no real Vercel project exists) — `POST /api/cron/
-  drain` is built and tested but has never been invoked by a real cron scheduler. That's a
-  session 5 deployment-artifacts concern.
+  drain` and `/api/cron/nightly` are built and tested but have never been invoked by a real cron
+  scheduler. **In development the drain half is covered** by `src/instrumentation.ts`, which relays
+  and drains every 5s; the nightly sweeps still have to be triggered by hand
+  (`curl -X POST http://localhost:3000/api/cron/nightly`). Configuring the real scheduler is a
+  deployment concern.
 - `notify_email` queue has no registered handler by design (docs/DECISIONS.md #10) — it will
   dead-letter every enqueued job until a real email provider is wired up (later module/session).
 - No local filesystem storage driver (docs/DECISIONS.md #11) — `StorageDriver` is an interface,
