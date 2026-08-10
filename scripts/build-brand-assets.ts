@@ -261,6 +261,22 @@ async function buildRasters(markSvg: string): Promise<void> {
     console.log(`${name.padEnd(20)}${size}x${size}`);
   }
 
+  // The full lockup as a raster, for PDF headers.
+  //
+  // @react-pdf/renderer draws PNG and JPEG; its SVG support is partial and would be asked to
+  // rasterise an 800-path auto-trace on every quotation. A PNG rendered once here is faster, and
+  // it is the only artwork in this pipeline whose fidelity is checked by a human before it ships.
+  //
+  // 1400px wide for a header printed around 55mm: comfortably past 300dpi, and still under 200kB.
+  const lockup = await sharp(readFileSync(join(OUT, "aies-logo.svg")), { density: 300 })
+    .resize({ width: 1400 })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+  writeFileSync(join(OUT, "aies-logo-pdf.png"), lockup);
+  console.log(
+    `${"aies-logo-pdf.png".padEnd(20)}1400px wide  ${(lockup.length / 1024).toFixed(0)}kB`,
+  );
+
   // favicon.ico. sharp has no ICO encoder and this does not justify a dependency: an .ico is a
   // 6-byte header, a 16-byte directory entry per image, then the payloads — and every browser
   // still in use accepts PNG payloads inside the container.

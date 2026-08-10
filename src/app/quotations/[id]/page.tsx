@@ -11,6 +11,7 @@ import { humanQuotationStatus, isEditable } from "@/server/core/quotation/quotat
 import type { VatMode } from "@/server/core/quotation/costing";
 import { formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc/client";
+import { IssuancePanel } from "./IssuancePanel";
 import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
 import { RevisionPanel } from "./RevisionPanel";
@@ -70,6 +71,10 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     totalCost?: string;
     marginAmount?: string;
     marginPct?: string;
+    downloadedAt: string | null;
+    downloadedBy: string | null;
+    downloadCount: number;
+    sentAt: string | null;
     account: { id: string; code: string; name: string } | null;
     inquiry: { id: string; number: string } | null;
     lines: {
@@ -129,6 +134,16 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
       <RecordLayout
         aside={
           <div className="space-y-4">
+            <IssuancePanel
+              quotationId={data.id}
+              status={data.status}
+              canSeeCost={canSeeCost}
+              downloadedAt={data.downloadedAt}
+              downloadedByName={data.downloadedBy}
+              downloadCount={data.downloadCount}
+              sentAt={data.sentAt}
+              onChanged={refresh}
+            />
             <MarginPanel
               currency={data.currency}
               totalCost={data.totalCost}

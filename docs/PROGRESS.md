@@ -628,27 +628,65 @@ be modelled honestly rather than papered over, and it shapes everything below.
 **When module 10 lands this collapses.** Sending from the record makes `sentAt` an observed fact,
 the confirmation step disappears, and the sweep has nothing to find. See docs/DECISIONS.md #27.
 
-### Next concrete step
-**Finish module 02 session 3 — the PDF and the approval flow.**
+- [x] **§7's two PDFs**, via `@react-pdf/renderer` (Spec.md §3.2's named choice, so pre-justified).
+      The customer document follows §7's own section list: header with company block and document
+      number, customer and site, scope narrative, grouped line table, commercial summary, terms,
+      exclusions and assumptions, standard terms, signature block, and the §6.4 controlled-document
+      footer with `Doc No. / Rev. / Page x of y`.
+- [x] **Cost cannot appear on the customer PDF, because it cannot be expressed there.**
+      `CustomerQuotationPdfProps` has no cost, markup or margin field, so an edit that tries to
+      print one does not compile. The internal costing sheet is a **separate document with a
+      separate props type** rather than the same component behind a `showCosts` flag — a boolean is
+      one variable away from printing margin on a document the customer keeps, and two documents
+      cannot make that mistake.
+- [x] The costing sheet is watermarked INTERNAL, landscape, gated on `finance.view_cost` at the
+      route, and names who generated it so a printed copy left on a desk is attributable.
+- [x] **`GET /api/quotations/[id]/pdf`** renders and records the download. A route handler rather
+      than a tRPC procedure because the response is bytes; recording happens *there* rather than in
+      a button, because the fact worth recording is "the bytes left the server" and a button records
+      an intention. Recorded only after a successful render — a failed render produced no document,
+      and logging it would put a fiction in the trail the send flow depends on.
+- [x] `aies-logo-pdf.png` added to the brand build: `@react-pdf` draws PNG and JPEG, and its partial
+      SVG support would be asked to rasterise an 800-path auto-trace on every quotation.
+- [x] The issuance UI: Download, then "Confirm sent" with the date it **actually** went, and the
+      download log on the record.
+- [x] **Tests check the assembled props, not the PDF bytes**, and that is deliberate. `@react-pdf`
+      compresses content streams and subsets fonts with custom encodings, so grepping the output for
+      a cost figure would pass whether the guarantee held or not — worse than no test. The props are
+      the document's complete input, so they are scanned recursively instead. 7 tests.
+- [x] `vitest.config.ts` now sets `esbuild.jsx: "automatic"`. Next compiles the `.tsx` documents
+      with the automatic runtime; Vitest's own transform defaulted to the classic one and failed at
+      render time with "React is not defined" rather than at compile time.
+- [x] 443 tests across 57 files; lint, typecheck and `build:check` clean. Both documents rendered
+      from a real quotation and reviewed on screen.
 
-1. **Install `@react-pdf/renderer`** — Spec.md §3.2 already names it as the PDF library, so it is
-   pre-justified; no new DECISIONS entry needed for the choice itself.
-2. §7's customer document, using §7's own section list as the template (the company directed that
-   the supplied `AIES Quotation 2026 - template.pdf` be disregarded). Company block from
-   `getCompanyDetails()`. Brand assets from `public/brand/`. **Line cost columns must never appear
-   on it.**
-3. The internal costing sheet as a separate document, watermarked "INTERNAL".
-4. A route that renders the PDF and calls `quotation.recordDownload` — the service is written,
-   tested and waiting for a caller. That is what turns the button into "Downloaded by X, ready for
-   sending".
-5. The UI for the two-step issuance: a Download action, then a "Confirm sent" action taking the
-   date it actually went and the recipients, with the download log visible on the record.
-6. §6's approval: `pending_approval` → `approved` through module 00's engine. The
-   `quotation.approve` rule with `escalateAfterHours: 24` is **already seeded**, so §4.4's fallback
-   to the president needs no new machinery. Plus the VP's approval queue screen.
-7. §7's auto-expire job on `/api/cron/nightly`.
+### Next concrete step
+**Finish module 02 session 3 — §6's approval, and §7's auto-expire.**
+
+1. **§6's approval through module 00's engine.** The `quotation.approve` `ApprovalRule` with
+   `escalateAfterHours: 24` is **already seeded**, so Spec.md §4.4's automatic fallback to the
+   president needs no new machinery — one seeded rule, approver `vice_president`, no conditions,
+   exactly as §6 insists ("rather than by hard-coding 'VP approves'"). Wire
+   `draft → pending_approval → approved`, with rejection returning to `draft` and a **mandatory**
+   comment.
+2. `quotation.submitted_for_approval`, `quotation.approved` and `quotation.rejected_internally` are
+   declared in the manifest and not yet emitted — emit them here.
+3. **The VP's approval queue** as a first-class screen (§6): every quote awaiting them with total,
+   margin, customer and age, approvable in sequence without opening each one. Margin is
+   `finance.view_cost`-gated like everywhere else.
+4. §12's approval tests, both named: every quotation routes to the VP regardless of value and none
+   can be sent unapproved; and one unapproved after 24 **working** hours becomes approvable by the
+   president, recorded as a fallback with elapsed time — never as a VP approval. The working-hours
+   arithmetic already exists in `src/server/core/calendar/business-days.ts`.
+5. **§7's auto-expire** on `/api/cron/nightly`: flip `sent` quotations past `validUntil` to
+   `expired`, and notify the owner seven days before.
 
 Session 4 remains: §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.
+
+**Owed before the first real quotation goes out:** the standard terms in
+`src/server/core/quotation/pdf/render.tsx` are ordinary Philippine commercial terms written for this
+build, not AIES's own. The company should review them. They move to module 09's settings when that
+exists, alongside `getCompanyDetails()`.
 
 Notes for whoever picks this up:
   - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/

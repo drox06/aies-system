@@ -15,6 +15,10 @@ export default defineConfig({
     // hedge: single-file-at-a-time keeps this suite under one connection at rest.
     fileParallelism: false,
   },
+  // The PDF documents are .tsx. Next compiles them with the automatic JSX runtime; Vitest's own
+  // esbuild transform defaults to the classic one, which expects a React global and fails with
+  // "React is not defined" at render time rather than at compile time.
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
