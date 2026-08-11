@@ -23,6 +23,7 @@ export const INQUIRY_STATUSES = [
   "inspection_required",
   "quoting",
   "quoted",
+  "po_received",
   "won",
   "lost",
   "disqualified",
@@ -109,6 +110,17 @@ interface TransitionDef {
   systemOnly?: boolean;
   /** §4's completeness gate applies to this move. */
   requiresCompleteRequirements?: boolean;
+  /**
+   * The move needs a customer purchase order on the record, with its scanned document.
+   *
+   * The company's rule, in their words: "for this to move to the next column a PO should be
+   * uploaded". It is a gate rather than a courtesy because the column *means* the PO arrived — a
+   * card sitting in "Received PO" with nothing behind it is the same failure as a quotation marked
+   * sent that nobody sent.
+   *
+   * Enforced in `transitionInquiryService`, which reads the PO, not here: this file stays pure.
+   */
+  requiresCustomerPo?: boolean;
 }
 
 /**
@@ -131,9 +143,14 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<InquiryStatus, readonly Transi
   inspection_required: [{ to: "evaluating" }],
   quoting: [{ to: "quoted", systemOnly: true }],
   quoted: [
+    { to: "po_received", requiresCustomerPo: true },
     { to: "won", systemOnly: true },
     { to: "lost", systemOnly: true },
   ],
+  // A received PO is not yet a won deal — the work still has to be delivered, and modules 03 and 04
+  // own that. So `won` stays system-set, and this column is where a deal sits while it is being
+  // turned into an order.
+  po_received: [{ to: "won", systemOnly: true }],
   won: [],
   lost: [],
   disqualified: [],
@@ -146,8 +163,27 @@ export interface TransitionCheck {
   definition?: TransitionDef;
 }
 
+/**
+ * The company's word for each status, where it differs from the stored key.
+ *
+ * Two entries, both asked for by name.
+ *
+ * **`quoted` reads as "Sent".** They are the same fact — §3 sets `quoted` from `quotation.sent`, so
+ * an inquiry is `quoted` precisely when its quotation went to the customer. But on a board next to a
+ * column called "Quoting", the word "Quoted" reads as *we have written a quotation*, which is what
+ * the previous column already means. "Sent" says the thing that actually changed. The key stays
+ * `quoted` because that is §3's vocabulary and what every report and audit row already contains;
+ * only the label moves.
+ *
+ * **`po_received` reads as "Received PO"**, which is how the company says it.
+ */
+const STATUS_LABELS: Readonly<Record<string, string>> = {
+  quoted: "Sent",
+  po_received: "Received PO",
+};
+
 export function humanStatus(status: string): string {
-  return status.replace(/_/g, " ");
+  return STATUS_LABELS[status] ?? status.replace(/_/g, " ");
 }
 
 /**

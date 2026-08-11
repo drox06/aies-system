@@ -10,6 +10,7 @@ import {
   quotationDisplayNumber,
   type QuoteType,
 } from "@/server/core/quotation/quotation-number";
+import { checkQuotationTransition } from "@/server/core/quotation/quotation-lifecycle";
 
 /**
  * Quotation writes and reads (specs/02-quotation.md).
@@ -86,6 +87,7 @@ export interface CreateQuotationInput {
   scopeOfWork?: string;
   /** §2 requires a validity date. Defaults to 30 days, the usual AIES term. */
   validUntil?: Date | null;
+  /** PHP, USD or EUR — the router validates against QUOTE_CURRENCIES. */
   currency?: string;
 }
 
@@ -369,4 +371,66 @@ export async function getQuotationService(
 
   // Stripped last, so nothing downstream can reintroduce a cost field after the gate.
   return stripQuotationCosts(serialisable, user.permissions);
+}
+
+/**
+ * The customer ordered against this quotation, so it is no longer a live offer.
+ *
+ * Called only from module 02's `customer_po.received` subscriber — §10: "`customer_po.received`
+ * (module 03 → sets `accepted`)". §2 makes `accepted` system-only for exactly this reason: it is a
+ * fact about the customer's paperwork, not a judgement anybody makes in this screen.
+ *
+ * The practical consequence is what makes it worth doing now rather than in module 03's session:
+ * left `sent`, §7's nightly sweep would expire a quotation the customer has already ordered against
+ * and notify the owner that a won deal had lapsed.
+ *
+ * Non-throwing on a quotation that has moved on. A PO can arrive against a revision that was
+ * superseded, or after somebody recorded the outcome by hand; the PO is recorded either way, and
+ * throwing here would dead-letter a job whose real work is done. Same reasoning as module 01's
+ * `quotation.sent` subscriber.
+ */
+export async function acceptQuotationOnCustomerPo(quotationId: string): Promise<void> {
+  const quotation = await db.quotation.findFirst({
+    where: { id: quotationId, deletedAt: null },
+    select: { id: true, number: true, revision: true, status: true },
+  });
+  if (!quotation) return;
+
+  const check = checkQuotationTransition(quotation.status, "accepted", { bySystem: true });
+  if (!check.ok) {
+    console.warn(
+      `[quotation] ${quotation.number} is ${quotation.status}; not marking accepted on customer PO ` +
+        `(${check.reason})`,
+    );
+    return;
+  }
+
+  await db.$transaction(async (tx) => {
+    const { count } = await tx.quotation.updateMany({
+      // Guarded on the status it was read with, so a decision made between the read and the write
+      // is not overwritten.
+      where: { id: quotation.id, status: quotation.status },
+      data: { status: "accepted", decisionAt: new Date() },
+    });
+    if (count === 0) return;
+
+    await writeAuditLog(tx, {
+      // No actor: the customer's PO caused this, not a person in this app. The person who recorded
+      // the PO is named on the audit row against the inquiry.
+      actorId: null,
+      actorLabel: "System (customer PO received)",
+      action: "accepted",
+      entityType: QUOTATION_ENTITY_TYPE,
+      entityId: quotation.id,
+      summary: `${quotationDisplayNumber(quotation.number, quotation.revision)} accepted — the customer's purchase order arrived`,
+      diff: { status: { from: quotation.status, to: "accepted" } },
+    });
+
+    await emit(
+      tx,
+      "quotation.accepted",
+      { quotationId: quotation.id, number: quotation.number, revision: quotation.revision },
+      {},
+    );
+  });
 }

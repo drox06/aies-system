@@ -4,7 +4,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
-import { formatMoney } from "@/lib/format";
+import { formatMoneyCode } from "@/lib/format";
 import { quotationDisplayNumber } from "@/server/core/quotation/quotation-number";
 import { termsFromRecord } from "@/server/core/quotation/terms";
 import {
@@ -22,8 +22,9 @@ import {
  * Assembling a quotation into one of the two documents (specs/02-quotation.md §7).
  *
  * All formatting happens here, not in the components: the documents receive pre-formatted strings
- * and render them. That keeps every peso on the page going through `formatMoney` — Spec.md §6.6
- * requires `₱1,234,567.89` and "never a bare number without its currency" — and it means the
+ * and render them. That keeps every amount on the page going through `formatMoneyCode` — Spec.md
+ * §6.6 forbids "a bare number without its currency", and on a PDF the currency is written as its
+ * ISO code because the document font has no peso glyph — and it means the
  * documents contain no arithmetic that could disagree with the record.
  */
 
@@ -103,8 +104,8 @@ export async function buildCustomerPdfProps(
     modelNumber: line.modelNumber,
     quantity: line.quantity.toString(),
     unit: line.unit,
-    unitPrice: formatMoney(line.unitPrice.toString(), currency),
-    lineTotal: formatMoney(line.lineTotal.toString(), currency),
+    unitPrice: formatMoneyCode(line.unitPrice.toString(), currency),
+    lineTotal: formatMoneyCode(line.lineTotal.toString(), currency),
     leadTimeDays: line.leadTimeDays,
     isOptional: line.isOptional,
   }));
@@ -144,11 +145,11 @@ export async function buildCustomerPdfProps(
     assumptions: quotation.assumptions,
     lines,
     totals: {
-      subtotal: formatMoney(quotation.subtotal.toString(), currency),
-      discount: Number(discount) > 0 ? formatMoney(discount, currency) : null,
+      subtotal: formatMoneyCode(quotation.subtotal.toString(), currency),
+      discount: Number(discount) > 0 ? formatMoneyCode(discount, currency) : null,
       vatLabel,
-      vat: Number(vat) > 0 ? formatMoney(vat, currency) : null,
-      grandTotal: formatMoney(quotation.total.toString(), currency),
+      vat: Number(vat) > 0 ? formatMoneyCode(vat, currency) : null,
+      grandTotal: formatMoneyCode(quotation.total.toString(), currency),
     },
     terms: {
       deliveryLeadTime: quotation.deliveryLeadTime,
@@ -200,11 +201,11 @@ export async function buildCostingPdfProps(
       description: line.description,
       quantity: line.quantity.toString(),
       unit: line.unit,
-      unitCost: formatMoney(line.unitCost.toString(), currency),
-      unitPrice: formatMoney(line.unitPrice.toString(), currency),
-      lineCost: formatMoney(line.lineCost.toString(), currency),
-      lineTotal: formatMoney(line.lineTotal.toString(), currency),
-      lineMargin: formatMoney(line.lineMargin.toString(), currency),
+      unitCost: formatMoneyCode(line.unitCost.toString(), currency),
+      unitPrice: formatMoneyCode(line.unitPrice.toString(), currency),
+      lineCost: formatMoneyCode(line.lineCost.toString(), currency),
+      lineTotal: formatMoneyCode(line.lineTotal.toString(), currency),
+      lineMargin: formatMoneyCode(line.lineMargin.toString(), currency),
       marginPct: marginPct === null ? null : `${marginPct.toFixed(1)}%`,
       belowFloor: !line.isOptional && marginPct !== null && marginPct < MARGIN_FLOOR_PCT,
       isOptional: line.isOptional,
@@ -226,12 +227,12 @@ export async function buildCostingPdfProps(
         : null,
     lines,
     totals: {
-      subtotal: formatMoney(quotation.subtotal.toString(), currency),
-      totalCost: formatMoney(quotation.totalCost.toString(), currency),
-      marginAmount: formatMoney(quotation.marginAmount.toString(), currency),
+      subtotal: formatMoneyCode(quotation.subtotal.toString(), currency),
+      totalCost: formatMoneyCode(quotation.totalCost.toString(), currency),
+      marginAmount: formatMoneyCode(quotation.marginAmount.toString(), currency),
       marginPct:
         Number(quotation.subtotal) === 0 ? null : `${Number(quotation.marginPct).toFixed(1)}%`,
-      grandTotal: formatMoney(quotation.total.toString(), currency),
+      grandTotal: formatMoneyCode(quotation.total.toString(), currency),
     },
     marginFloorPct: MARGIN_FLOOR_PCT,
   };

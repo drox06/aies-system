@@ -12,6 +12,7 @@ export const TIME_ZONE = "Asia/Manila";
 export const BASE_CURRENCY = "PHP";
 
 const moneyFormatters = new Map<string, Intl.NumberFormat>();
+const plainFormatters = new Map<string, Intl.NumberFormat>();
 
 /**
  * Spec.md §6.6: "Display ₱1,234,567.89. Never a bare number without its currency."
@@ -87,4 +88,36 @@ function toDate(value: Date | string | null | undefined): Date | null {
   if (value === null || value === undefined || value === "") return null;
   const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Money for a **PDF**: the ISO code and the number, never a currency symbol.
+ *
+ * `formatMoney` produces `₱1,234.56`, which is right on screen and wrong on a document. The PDF
+ * documents are drawn in Helvetica, whose WinAnsi encoding has no peso sign — every amount on a
+ * downloaded quotation and costing sheet came out as `±1,234.56`, which a customer reads as a
+ * tolerance. The euro sign happens to survive and the dollar always would, so the bug looked
+ * currency-specific while the cause was the font.
+ *
+ * Embedding a font that carries ₱ would fix the glyph and leave a second problem: a document quoted
+ * in dollars for an indent order, read in Manila, is ambiguous when it says only `$`. `USD` is not.
+ * ISO codes are also what the customer's own finance department files against.
+ */
+export function formatMoneyCode(
+  value: number | string | null | undefined,
+  currency: string = BASE_CURRENCY,
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(n)) return "—";
+
+  let fmt = plainFormatters.get(currency);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    plainFormatters.set(currency, fmt);
+  }
+  return `${currency} ${fmt.format(n)}`;
 }

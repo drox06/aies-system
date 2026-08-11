@@ -89,9 +89,14 @@ export function CostingSheetDocument(props: CostingSheetPdfProps) {
         </View>
 
         <View style={s.headerRow}>
-          <View>
+          <View style={{ maxWidth: 480 }}>
             <Text style={s.docTitle}>Costing sheet</Text>
-            <Text style={[s.value, s.muted]}>{props.title}</Text>
+            {/* The quotation title sits directly under the heading and was crowding it — the same
+                fix as the customer document's. The width cap lets a long title wrap instead of
+                running into the document number on the right. */}
+            <Text style={[s.value, s.muted, { marginTop: 6, lineHeight: 1.35 }]}>
+              {props.title}
+            </Text>
           </View>
           <View style={{ textAlign: "right" }}>
             <Text style={s.docNumber}>{props.documentNumber}</Text>

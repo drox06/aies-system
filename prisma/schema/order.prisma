@@ -1,0 +1,63 @@
+// Module 03 — Customer PO (specs/03-order-procurement.md §2).
+//
+// **Only `CustomerPO`, and only because the company asked for it now.** Module 03 is not being
+// built here: there is no SalesOrder, no Supplier, no SupplierPO, no GoodsReceipt. What the company
+// asked for is a pipeline column that a deal enters when the customer's purchase order arrives, and
+// PO receipt is module 03's opening act — §1 calls it "the pivot point… where the deal stops being
+// a sales artifact and becomes an obligation".
+//
+// The alternative was to hang `customerPoNumber` / `customerPoFileId` off `Inquiry`. That is the
+// trap this build has refused twice already (module 05's `PaymentTerm`, ISO 8.4's supplier
+// register): a second mechanism for a thing a later module already owns, which that module then has
+// to reconcile or migrate. The fields below are §2's field list, so module 03 extends this row
+// rather than replacing it.
+
+model CustomerPO {
+  id String @id @default(cuid())
+
+  accountId   String
+  // §2 makes this optional because a PO can arrive against no quotation at all — a repeat order on
+  // agreed prices. The pipeline flow always has one.
+  quotationId String?
+  // Not in §2's list. The pipeline is an *inquiry* board, and without this the card the PO belongs
+  // to could only be found by walking back through the quotation. Module 03 keeps it: its own
+  // §1 fan-out (finance, procurement, operations) all trace back to the inquiry that started it.
+  inquiryId   String?
+
+  // The customer's own number, as printed on their document. Not unique: two customers may each
+  // have a PO-0001, and a customer may re-issue a corrected PO under the same number.
+  poNumber String
+  poDate   DateTime
+
+  amount   Decimal @db.Decimal(14, 2)
+  currency String  @default("PHP")
+
+  // §2: "scanned PO is mandatory". Enforced as a non-null column rather than by validation alone —
+  // a PO record with no document behind it is an assertion, and the whole point of this row is that
+  // somebody has the paper.
+  fileId String
+
+  receivedById String
+  receivedAt   DateTime @default(now())
+
+  // received | verified | discrepancy | cancelled (§2).
+  //
+  // Only `received` is reachable today. Verification against the quotation is module 03's work, and
+  // `discrepancy` is meaningless until something does that comparison — leaving the column with its
+  // full vocabulary is what lets module 03 add the check without a migration.
+  status String @default("received")
+
+  discrepancyNotes String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  account   CustomerAccount @relation(fields: [accountId], references: [id])
+  quotation Quotation?      @relation(fields: [quotationId], references: [id])
+  inquiry   Inquiry?        @relation(fields: [inquiryId], references: [id])
+
+  @@index([accountId, receivedAt])
+  @@index([quotationId])
+  @@index([inquiryId])
+}

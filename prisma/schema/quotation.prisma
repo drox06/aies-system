@@ -136,14 +136,15 @@ model Quotation {
   deletedAt DateTime?
   deletedBy String?
 
-  account  CustomerAccount        @relation(fields: [accountId], references: [id])
-  inquiry  Inquiry?               @relation(fields: [inquiryId], references: [id])
-  site     Site?                  @relation(fields: [siteId], references: [id])
-  contact  Contact?               @relation(fields: [contactId], references: [id])
-  parent   Quotation?             @relation("QuotationRevisions", fields: [parentQuotationId], references: [id])
-  children Quotation[]            @relation("QuotationRevisions")
-  lines    QuotationLine[]
-  rfqs     SupplierQuoteRequest[]
+  account     CustomerAccount        @relation(fields: [accountId], references: [id])
+  inquiry     Inquiry?               @relation(fields: [inquiryId], references: [id])
+  site        Site?                  @relation(fields: [siteId], references: [id])
+  contact     Contact?               @relation(fields: [contactId], references: [id])
+  parent      Quotation?             @relation("QuotationRevisions", fields: [parentQuotationId], references: [id])
+  children    Quotation[]            @relation("QuotationRevisions")
+  lines       QuotationLine[]
+  rfqs        SupplierQuoteRequest[]
+  customerPOs CustomerPO[]
 
   // One row per revision of a number.
   @@unique([number, revision])

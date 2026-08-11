@@ -772,6 +772,98 @@ They logged an inquiry, quoted it, printed it, and sent back six things. All six
 - [x] 490 tests across 61 files (27 new); lint, typecheck and `build:check` clean. The nightly cron
       was run against the dev server and returned the new sweep's result alongside the others.
 
+### Also in session 3 — the pipeline's Sent and Received PO columns
+
+Asked for directly: *"in the pipeline, add a Sent column and Received PO column. after the quote is
+ticked as sent to the customer, can you auto-transfer the sent quoted to the Sent column, then for
+this to move to the next column a PO should be uploaded in the Sent column."*
+
+- [x] **`quoted` now reads as "Sent".** Not a new status — §3 already sets `quoted` from
+      `quotation.sent`, so an inquiry is `quoted` precisely when its quotation went to the customer,
+      and a second status for one fact would leave one of them permanently empty. What was wrong was
+      the *word*: next to a column called "Quoting", "Quoted" reads as *we wrote a quotation*, which
+      is what the previous column already means. The stored key stays `quoted` because every audit
+      row and report contains it; only the label moved, in `humanStatus`, so every screen agrees.
+- [x] The auto-transfer the company describes **already worked** — module 01 subscribes to
+      `quotation.sent`. What was missing was a column that said so.
+- [x] **New `po_received` status, labelled "Received PO"**, and a `requiresCustomerPo` gate on
+      `quoted → po_received`. The column *means* the customer's PO arrived, so a card sitting in it
+      with nothing behind it would be the same failure as a quotation marked sent that nobody sent.
+- [x] **The PO is module 03's `CustomerPO`, built as specs/03-order-procurement.md §2 defines it** —
+      not `customerPoNumber` fields bolted onto `Inquiry`. §1 calls PO receipt "the pivot point…
+      where the deal stops being a sales artifact and becomes an obligation", which is exactly the
+      column being asked for. Hanging it off the inquiry would have been a second mechanism for a
+      thing module 03 already owns, the trap already refused for module 05's `PaymentTerm` and ISO
+      8.4's supplier register.
+- [x] A minimal **`order` manifest** (module 03's first) owning that one model and emitting
+      `customer_po.received`. It is explicitly not module 03: no sales order, no supplier, no
+      supplier PO, no goods receipt, no ticket generation.
+- [x] **§2's "scanned PO is mandatory" is enforced as evidence, not validation.** The service
+      re-reads the stored `FileObject` and refuses one uploaded against a different record — an id
+      in a request body proves nothing. `fileId` is a non-null column for the same reason.
+- [x] **Module 01 does not import module 03.** Dependencies run downward (Spec.md §3.6), and module
+      03 already imports module 01, so the gate is a *registered check*: module 03 teaches the state
+      machine how to answer "does this inquiry have a PO?", the same pattern as module 00's
+      file-access checkers. It **fails closed** — with nothing registered the move is refused.
+- [x] **specs/02-quotation.md §10's `customer_po.received` subscription now exists.** It was
+      declared unbuildable in session 1 because nothing emitted the event; module 02 now consumes it
+      and sets the quotation `accepted`. That is not tidiness: left `sent`, §7's nightly sweep would
+      expire a quotation the customer had already ordered against and tell the owner a won deal had
+      lapsed.
+- [x] The dialog is shared by the board and the inquiry record, so drag is an enhancement rather
+      than the only route (Spec.md §6.6) and the two forms cannot drift on what "mandatory" means.
+      The panel disappears entirely for somebody without `customer_po.view` — a technician assigned
+      a site inspection can open the inquiry and has no business seeing commercial paperwork.
+- [x] The PO amount is **not** pre-filled from the quotation. The number that matters is the one on
+      the customer's document, and pre-filling it invites nobody to read it; a mismatch is real, and
+      module 03 turns it into §2's discrepancy check.
+- [x] 11 tests. `po_received → won` stays system-set: a received PO is not a delivered job, and
+      modules 03 and 04 own what happens next.
+
+### Also in session 3 — four corrections from reading a downloaded document
+
+- [x] **Amounts on a PDF are written with the ISO code, not a currency symbol.** Every peso figure on
+      a downloaded quotation and costing sheet came out as `±765,000.00`. The cause was not the
+      formatter: the documents are drawn in Helvetica, whose WinAnsi encoding has no `₱`, so
+      `@react-pdf` substituted a glyph — and a customer reads `±` as a tolerance. New
+      `formatMoneyCode` writes `PHP 765,000.00`; `formatMoney` keeps the symbol on screen, where the
+      browser has the font. Embedding a peso-carrying font would have fixed the glyph and left a
+      second problem: a document quoted in dollars and read in Manila is ambiguous when it says only
+      `$`. `USD` is not, and ISO codes are what a customer's finance department files against.
+- [x] **A quotation is raised in PHP, USD or EUR**, chosen at creation. Three, because those are the
+      three AIES quotes in — an indent order priced by a European principal is quoted in euros. A
+      closed list rather than free text: "Php", "php" and "peso" would each pass a string field and
+      make §4's FX buffer meaningless.
+- [x] **The costing sheet's heading was crowding the title beneath it** — the same fix already made
+      to the customer document, plus a width cap so a long title wraps instead of running into the
+      document number.
+- [x] **The demo data is gone**, at the company's request: 6 `DEMO-` accounts, 4 `INQ-DEMO-`
+      inquiries, 5 `DEMO-` principal prospects, 5 accreditation records — and `AIESLQ260062`, which
+      was raised against `DEMO-0003` and so was demo data whatever its number looked like. Their own
+      chain is untouched: `ACC-0001` A4One → `INQ-2608-0545` → `AIESLQ260244` → PO 123456798.
+- [x] Three scripts, kept because the questions recur: `inspect-business-data.ts` (read-only
+      inventory), `purge-demo-data.ts` and `purge-test-residue.ts`. Both purges report by default and
+      need `--apply`, which is the right default for anything that removes rows.
+- [x] `purge-test-residue.ts` earned itself immediately: an interrupted suite left 11 test accounts,
+      and the dev drainer had turned the tests' `inquiry.quoting_started` events into 6 real draft
+      quotations. It selects structurally — *an owner id matching no `User` row* — so it can never
+      match a record a person created.
+- [x] **Counters restarted as far as they safely can**: inquiry 833 → 545, quotation 542 → 244. Not
+      to zero, because `INQ-2608-0545` and `AIESLQ260244` still exist and a counter lowered past a
+      live number hands the next record a code the database refuses. `reset-numbering-counters.ts`
+      computes that floor rather than trusting an argument.
+
+- [x] **Then renumbered, at the company's word**: `INQ-2608-0545 → INQ-2608-0001` and
+      `AIESLQ260244 → AIESLQ260001`, and the counters to 1. `renumber-to-restart-series.ts` refuses
+      a quotation with a `sentAt` — Spec.md §5's "never reused, never reordered" protects a number
+      that has been *outside the building* — so the override is an explicit `--include-sent`, valid
+      here only because the recipient was a test account. Old audit rows keep the old number; each
+      renumber writes a **new** row explaining the change, because an audit log that edits itself is
+      worth nothing.
+- [x] The dry run caught the reason this had to wait: it first listed `INQ-2608-0570…0574`, which
+      were *test inquiries the suite was creating at that moment*. A whole-series renumber needs a
+      quiet database.
+
 ### Next concrete step
 
 **Module 02 session 4 — §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.**
@@ -815,6 +907,10 @@ Notes for whoever picks this up:
     against a compile-time problem. docs/DECISIONS.md #28.
   - `.tsx` outside Next's own compilation (the PDF documents) needs the automatic JSX runtime
     configured explicitly — `vitest.config.ts` sets it; plain `tsx` scripts cannot import them.
+  - **Stop `npm run dev` before running the test suite.** `scripts/dev.mjs` drains the job queue
+    every 5 seconds against the *same* database the tests use, so it claims and runs the jobs a test
+    just enqueued — `queue.test.ts` failed exactly once this way, asserting `dead` on a job the dev
+    drainer had already taken. The failure looks like a real regression and is not one.
   - Approval windows count **working** hours (docs/DECISIONS.md #29), so any test of an elapsed-time
     rule must pin a holiday provider and use fixed Manila instants. Offsets from `Date.now()` mean
     what they say only on a working day, and would silently invert if the suite ran on a Saturday.
@@ -824,7 +920,10 @@ Notes for whoever picks this up:
     silently lose the check. The crm router populates it; anything new must too.
 
 ## Not started
-- [ ] Modules 02–10
+- [ ] Modules 04–10
+- [ ] Module 03, apart from `CustomerPO` — no sales order, supplier, supplier PO, goods receipt or
+      ticket generation. The PO row exists because the pipeline's "Received PO" column needed it;
+      everything else in specs/03-order-procurement.md is still its own session's work.
 
 ## Decisions made this module
 - docs/DECISIONS.md #1-#3: session 1 (local DB deferred → real Supabase dev project instead;

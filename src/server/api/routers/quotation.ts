@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { p, router, type Context } from "@/server/api/trpc";
-import { VAT_MODES } from "@/server/core/quotation/costing";
+import { QUOTE_CURRENCIES, VAT_MODES } from "@/server/core/quotation/costing";
 import { QUOTE_TYPES } from "@/server/core/quotation/quotation-number";
 import { REVISION_REASONS } from "@/server/core/quotation/quotation-lifecycle";
 import {
@@ -95,7 +95,7 @@ export const quotationRouter = router({
         title: z.string().min(1),
         scopeOfWork: z.string().optional(),
         validUntil: z.coerce.date().nullish(),
-        currency: z.string().optional(),
+        currency: z.enum(QUOTE_CURRENCIES).optional(),
       }),
     )
     .mutation(({ ctx, input }) => createQuotationService(actorMeta(ctx), input)),
@@ -144,7 +144,7 @@ export const quotationRouter = router({
         paymentTermsText: z.string().nullish(),
         warrantyTerms: z.string().nullish(),
         termsAndConditions: z.array(z.string()).optional(),
-        currency: z.string().optional(),
+        currency: z.enum(QUOTE_CURRENCIES).optional(),
         fxRate: z.string().optional(),
       }),
     )

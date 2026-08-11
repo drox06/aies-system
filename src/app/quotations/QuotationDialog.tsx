@@ -4,6 +4,11 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import {
+  CURRENCY_LABELS,
+  QUOTE_CURRENCIES,
+  type QuoteCurrency,
+} from "@/server/core/quotation/costing";
 import { QUOTE_TYPES, quoteTypeLabel } from "@/server/core/quotation/quotation-number";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
@@ -34,6 +39,7 @@ export function QuotationDialog({
   const [title, setTitle] = useState("");
   const [scopeOfWork, setScopeOfWork] = useState("");
   const [validUntil, setValidUntil] = useState("");
+  const [currency, setCurrency] = useState<QuoteCurrency>("PHP");
 
   const accounts = trpc.crm.listAccounts.useQuery({ pageSize: 100 }, { enabled: open });
   const create = trpc.quotation.create.useMutation();
@@ -44,6 +50,7 @@ export function QuotationDialog({
     setTitle("");
     setScopeOfWork("");
     setValidUntil("");
+    setCurrency("PHP");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -55,6 +62,7 @@ export function QuotationDialog({
         title,
         scopeOfWork: scopeOfWork || undefined,
         validUntil: validUntil ? new Date(validUntil) : null,
+        currency,
       });
       toastSuccess(`Created ${quotation.number}`);
       reset();
@@ -115,6 +123,27 @@ export function QuotationDialog({
               <p className="mt-0.5 text-xs text-text-muted">
                 Local numbers run AIESLQ; indent and international run AIESIQ. This cannot be
                 changed afterwards without issuing a new number.
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="q-currency">Currency *</Label>
+              <Select
+                id="q-currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value as QuoteCurrency)}
+              >
+                {QUOTE_CURRENCIES.map((code) => (
+                  <option key={code} value={code}>
+                    {CURRENCY_LABELS[code]}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {/* §4's FX buffer is applied against this, so changing it later re-prices every
+                    line — which is why it is asked for up front rather than buried in the builder. */}
+                What the customer is quoted in. An indent order priced by a European principal is
+                usually quoted in euros.
               </p>
             </div>
 

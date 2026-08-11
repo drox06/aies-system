@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { MoneyCell } from "@/components/ui/cells";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -13,6 +14,7 @@ import {
 } from "@/server/core/crm/inquiry-lifecycle";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
+import { CustomerPoDialog } from "./CustomerPoDialog";
 
 /**
  * §6's kanban: "drag to advance, card shows account, value, owner, age, and a red flag if the SLA
@@ -32,6 +34,16 @@ import { trpc } from "@/lib/trpc/client";
  * server with its own message rather than by the UI guessing.
  */
 
+/**
+ * The columns, in the order work moves through them.
+ *
+ * `quoted` renders as **Sent** and `po_received` as **Received PO** — the company's words, mapped in
+ * `humanStatus` rather than here, so the board and every other screen say the same thing.
+ *
+ * Why `quoted` is the "Sent" column rather than a new status: §3 already sets it from
+ * `quotation.sent`, so an inquiry is `quoted` exactly when its quotation went to the customer. A
+ * second status for the same fact would leave one of them permanently empty.
+ */
 const BOARD_STATUSES: InquiryStatus[] = [
   "new",
   "acknowledged",
@@ -39,6 +51,7 @@ const BOARD_STATUSES: InquiryStatus[] = [
   "inspection_required",
   "quoting",
   "quoted",
+  "po_received",
 ];
 
 export default function PipelinePage() {
@@ -47,6 +60,9 @@ export default function PipelinePage() {
   const pipeline = trpc.crm.pipeline.useQuery();
   const [dragging, setDragging] = useState<{ id: string; status: string } | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  // The card a PO is being recorded against. Dropping into "Received PO" opens the dialog instead
+  // of transitioning, because the transition is a consequence of the PO, not a thing on its own.
+  const [poFor, setPoFor] = useState<string | null>(null);
 
   const transition = trpc.crm.transitionInquiry.useMutation({
     onSuccess: () => {
@@ -71,6 +87,13 @@ export default function PipelinePage() {
       return;
     }
     if (status === "lost" || status === "won") return;
+
+    // §3's `requiresCustomerPo`. The server refuses this move without a recorded PO, so offering the
+    // form is the only way the drop can succeed — and it is what the person actually meant to do.
+    if (status === "po_received") {
+      setPoFor(card.id);
+      return;
+    }
 
     try {
       await transition.mutateAsync({ inquiryId: card.id, to: status });
@@ -106,7 +129,7 @@ export default function PipelinePage() {
       )}
 
       {cards.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           {BOARD_STATUSES.map((status) => {
             const column = cards.filter((card) => card.status === status);
             const value = column.reduce((sum, card) => sum + Number(card.estimatedValue ?? 0), 0);
@@ -173,6 +196,21 @@ export default function PipelinePage() {
                           <StatusBadge tone="failed">SLA breached</StatusBadge>
                         </div>
                       )}
+                      {card.status === "quoted" && (
+                        // Not everyone can drag: Spec.md §6.6 requires keyboard operation and
+                        // forbids hover-dependent interactions, and HTML5 drag is neither.
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="mt-1.5 w-full"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPoFor(card.id);
+                          }}
+                        >
+                          Record customer PO
+                        </Button>
+                      )}
                     </article>
                   ))}
                   {column.length === 0 && (
@@ -187,11 +225,32 @@ export default function PipelinePage() {
         </div>
       )}
 
+      <CustomerPoDialog
+        open={poFor !== null}
+        onOpenChange={(next) => setPoFor(next ? poFor : null)}
+        inquiry={(() => {
+          const card = cards.find((c) => c.id === poFor);
+          if (!card) return null;
+          return {
+            id: card.id,
+            number: card.number,
+            subject: card.subject,
+            liveQuotation: card.liveQuotation,
+          };
+        })()}
+        onRecorded={() => {
+          void utils.crm.pipeline.invalidate();
+          void utils.crm.listInquiries.invalidate();
+        }}
+      />
+
       <p className="mt-4 text-xs text-text-muted">
         {/* Honest about what the board deliberately cannot do, rather than letting someone hunt for
             a column that is never coming. */}
-        {TERMINAL_STATUSES.map(humanStatus).join(", ")} are set by the quotation&rsquo;s outcome and
-        do not appear on the board.
+        A card enters <strong>Sent</strong> on its own when a quotation is confirmed sent, and
+        leaves it only when the customer&rsquo;s PO is recorded with its scan.{" "}
+        {TERMINAL_STATUSES.map(humanStatus).join(", ")} are set by the outcome and do not appear on
+        the board.
       </p>
     </div>
   );

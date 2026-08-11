@@ -576,6 +576,26 @@ export async function assignInquiryService(
 
 // ---- the state machine --------------------------------------------------------------------------
 
+/**
+ * How the state machine learns whether an inquiry has a customer purchase order.
+ *
+ * §3's `quoted → po_received` needs a fact that lives in module 03's `CustomerPO`, and module 01
+ * must not import module 03 — dependencies run downward (Spec.md §3.6), and module 03 already
+ * imports this file. So module 03 registers the answer, exactly as it registers a file-access
+ * checker with module 00.
+ *
+ * **Fails closed.** With nothing registered the move is refused rather than allowed, so a build that
+ * somehow loads the CRM without the order module cannot let a card into a column that asserts a
+ * document exists.
+ */
+export type CustomerPoCheck = (inquiryId: string) => Promise<boolean>;
+
+let customerPoCheck: CustomerPoCheck = async () => false;
+
+export function registerCustomerPoCheck(check: CustomerPoCheck): void {
+  customerPoCheck = check;
+}
+
 export interface TransitionInput {
   inquiryId: string;
   to: string;
@@ -612,6 +632,18 @@ export async function transitionInquiryService(actor: ActorMeta, input: Transiti
     const check = checkTransition(inquiry.status, input.to, { bySystem: input.bySystem });
     if (!check.ok) {
       throw new TRPCError({ code: "BAD_REQUEST", message: check.reason! });
+    }
+
+    // §3's `requiresCustomerPo`. The company's rule: "for this to move to the next column a PO
+    // should be uploaded". The column *means* the customer's PO arrived, so a card in it with
+    // nothing behind it is the same failure as a quotation marked sent that nobody sent.
+    if (check.definition?.requiresCustomerPo && !(await customerPoCheck(inquiry.id))) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          `${inquiry.number} needs the customer's purchase order recorded first — the PO number, ` +
+          `its date, the amount, and a scan of the document.`,
+      });
     }
 
     // The assignment rule, enforced in the service rather than by hiding the button.
@@ -915,6 +947,14 @@ export async function getInquiryService(
       site: { select: { id: true, name: true, accessNotes: true } },
       contact: { select: { id: true, firstName: true, lastName: true, mobile: true, email: true } },
       inspections: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
+      // The live quotation, so the customer-PO panel knows what the PO answers without a second
+      // round-trip. Same read the pipeline card makes, for the same reason.
+      quotations: {
+        where: { deletedAt: null, status: { in: ["sent", "under_negotiation"] } },
+        orderBy: { revision: "desc" },
+        take: 1,
+        select: { id: true, number: true, revision: true, total: true, currency: true },
+      },
     },
   });
   if (!inquiry) {
@@ -936,6 +976,9 @@ export async function getInquiryService(
   return {
     ...inquiry,
     owner,
+    liveQuotation: inquiry.quotations[0]
+      ? { ...inquiry.quotations[0], total: inquiry.quotations[0].total.toString() }
+      : null,
     estimatedValue: inquiry.estimatedValue?.toString() ?? null,
     items: inquiry.items.map((item) => ({ ...item, quantity: item.quantity.toString() })),
     sla: assessInquirySla(inquiry),

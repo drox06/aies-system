@@ -115,13 +115,13 @@ export const quotationManifest = defineManifest({
   ],
 
   /**
-   * §10 also lists `inspection.completed` and `customer_po.received`.
+   * §10 also lists `inspection.completed`.
    *
    * `inspection.completed` is not emitted by anything — module 01 emits `inspection.requested` and
    * records completion as an audit action rather than a domain event. Adding it there is a module
    * 01 change, and it belongs to the session that pulls inspection findings into the scope of work.
-   * `customer_po.received` is module 03's, which does not exist. The registry rejects a subscription
-   * to an event no module emits, so both are declared when their emitter lands.
+   * It is declared when its emitter lands — the registry rejects a subscription to an event no
+   * module emits.
    */
   consumes: [
     {
@@ -134,6 +134,28 @@ export const quotationManifest = defineManifest({
         const { inquiryId, actorId } = payload as { inquiryId?: string; actorId?: string };
         if (!inquiryId) return;
         await createDraftForInquiry({ inquiryId, actorId });
+      },
+    },
+    {
+      /**
+       * §10: "`customer_po.received` (module 03 → sets `accepted`)."
+       *
+       * This subscription is the whole reason the customer PO was built as module 03's model rather
+       * than as fields on the inquiry — the spec already said what should happen, and it could not
+       * happen while nothing emitted the event.
+       *
+       * It matters beyond tidiness: a quotation the customer has actually ordered against must stop
+       * being a live document. Left `sent`, §7's nightly sweep would expire it and tell the owner a
+       * won deal had lapsed.
+       */
+      event: "customer_po.received",
+      handler: async (payload) => {
+        const { quotationId } = payload as { quotationId?: string | null };
+        if (!quotationId) return;
+
+        const { acceptQuotationOnCustomerPo } =
+          await import("@/server/core/quotation/quotation-service");
+        await acceptQuotationOnCustomerPo(quotationId);
       },
     },
   ],

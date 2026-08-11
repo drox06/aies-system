@@ -75,6 +75,25 @@ export function fromCentavos(value: Centavos): string {
   return `${negative ? "-" : ""}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
 }
 
+/**
+ * The currencies a quotation can be raised in.
+ *
+ * Three, because those are the three AIES actually quotes in: pesos at home, and dollars or euros
+ * for an indent order priced by a European or American principal. A free-text currency field would
+ * accept "Php", "php" and "peso" and make the FX buffer meaningless.
+ *
+ * Not a database table: a currency list that changes is module 09's settings problem, and inventing
+ * a second settings mechanism here is the trap this build has refused repeatedly.
+ */
+export const QUOTE_CURRENCIES = ["PHP", "USD", "EUR"] as const;
+export type QuoteCurrency = (typeof QUOTE_CURRENCIES)[number];
+
+export const CURRENCY_LABELS: Readonly<Record<QuoteCurrency, string>> = {
+  PHP: "PHP — Philippine peso",
+  USD: "USD — US dollar",
+  EUR: "EUR — euro",
+};
+
 export const VAT_MODES = ["exclusive", "inclusive", "zero_rated", "exempt"] as const;
 export type VatMode = (typeof VAT_MODES)[number];
 

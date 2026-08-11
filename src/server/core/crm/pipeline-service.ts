@@ -75,6 +75,15 @@ export async function getPipelineService(user: { id: string; permissions: Readon
         ownerId: true,
         nextFollowUpAt: true,
         account: { select: { id: true, code: true, name: true } },
+        // The live quotation, for the cards sitting in "Sent". Recording a customer PO has to link
+        // it to the quotation it answers, and asking for that per card as the dialog opens would
+        // put a round-trip between a person and a document they are holding.
+        quotations: {
+          where: { deletedAt: null, status: { in: ["sent", "under_negotiation"] } },
+          orderBy: { revision: "desc" },
+          take: 1,
+          select: { id: true, number: true, revision: true, total: true, currency: true },
+        },
       },
     }),
     db.inquiry.count({ where }),
@@ -86,9 +95,12 @@ export async function getPipelineService(user: { id: string; permissions: Readon
   return {
     truncated: total > PIPELINE_LIMIT,
     total,
-    cards: rows.map((row) => ({
+    cards: rows.map(({ quotations, ...row }) => ({
       ...row,
       estimatedValue: row.estimatedValue?.toString() ?? null,
+      liveQuotation: quotations[0]
+        ? { ...quotations[0], total: quotations[0].total.toString() }
+        : null,
       ownerLabel: owners.get(row.ownerId) ?? row.ownerId,
       // §6: the card shows "age" — days since it arrived, which is the number that makes a stale
       // card look stale without anybody computing it.

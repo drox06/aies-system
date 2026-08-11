@@ -63,6 +63,7 @@ model CustomerAccount {
   accreditations AccreditationRecord[]
   inquiries      Inquiry[]
   quotations     Quotation[]
+  customerPOs    CustomerPO[]
 
   @@index([ownerId, status])
   @@index([status, name])
@@ -299,6 +300,7 @@ model Inquiry {
   items       InquiryItem[]
   inspections InspectionRequest[]
   quotations  Quotation[]
+  customerPOs CustomerPO[]
 
   @@index([ownerId, status])
   @@index([status, receivedAt])

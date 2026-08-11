@@ -930,3 +930,95 @@ with the weekday named in the test. Any future test of an elapsed-time rule must
 `assessInquirySla` uses for §3's "1 business day". Modelling 09:00-18:00 would make "24 working
 hours" mean nearly three days, which is not what anybody at AIES means by it.
 
+---
+
+## 30. The pipeline's "Received PO" column is module 03's `CustomerPO`, not two fields on `Inquiry`
+
+**Module:** 01/03, at the company's request. **Asked for as:** "add a Sent column and Received PO
+column… for this to move to the next column a PO should be uploaded."
+
+Two decisions, and the second is the one that will still matter in six months.
+
+### `quoted` is relabelled, not duplicated
+
+The company asked for a "Sent" column. One already existed under a different name: §3 sets `quoted`
+from `quotation.sent`, so an inquiry is `quoted` at precisely the moment its quotation went out.
+
+Adding a separate `sent` status would have produced two columns for one fact, one of them
+permanently empty. What was actually wrong was the word. On a board where the previous column is
+"Quoting", the label "Quoted" reads as *we have written a quotation* — which is what "Quoting"
+already means, so the board appeared to have two preparation columns and no issuance one.
+
+**Chose:** map the label in `humanStatus` and leave the stored key alone. `quoted` is §3's
+vocabulary and is already in every audit row, every event payload and every report. Renaming the key
+would have rewritten history to fix a caption.
+
+### The PO is module 03's model, pulled forward
+
+The obvious cheap move was `Inquiry.customerPoNumber` + `customerPoFileId` + a boolean. It would
+have taken an afternoon.
+
+It is also precisely the mistake this build has already refused twice — module 05's `PaymentTerm`
+and ISO 8.4's supplier register — where a later module's data gets a temporary home in an earlier
+one and then has to be reconciled or migrated. specs/03-order-procurement.md §2 already defines
+`CustomerPO` field for field, and §1 calls PO receipt "the pivot point… where the deal stops being a
+sales artifact and becomes an obligation", which is exactly the column being asked for. Building
+anything else would have been inventing a second answer to a question already answered.
+
+**Chose:** `CustomerPO` as §2 specifies it, plus the smallest possible `order` manifest — one model,
+one event, two permissions, no nav. Module 03's own session extends this row instead of migrating
+away from something else.
+
+**The dependency direction is the part that needed care.** Module 01 must not import module 03
+(Spec.md §3.6: dependencies run downward), and module 03 already imports module 01 to move the
+inquiry. So §3's gate is a **registered check**: module 03 teaches the state machine how to answer
+"does this inquiry have a PO?", the same pattern as module 00's file-access checkers and the RBAC
+scope registry. It fails closed — with nothing registered the move is refused, never allowed.
+
+**A subscription the spec had already written became possible.** specs/02-quotation.md §10 lists
+`customer_po.received` as an event module 02 consumes to set a quotation `accepted`; module 02's
+manifest recorded it as undeclarable because nothing emitted it. It does now. That is not
+housekeeping: a quotation left `sent` after the customer ordered against it would be expired by §7's
+nightly sweep, which would then tell the owner that a won deal had lapsed.
+
+### What is deliberately still missing
+
+`po_received → won` stays system-set, and nothing sets it. A received PO is not a delivered job —
+the sales order, the supplier PO, the goods receipt and the operations handover are all module 03
+and 04, and until one of them exists a card that reaches "Received PO" stays there. That is the
+honest state of the build rather than a gap to paper over with a manual "mark won" button, which
+would put unauditable numbers into the pipeline report §1 exists to produce.
+
+---
+
+## 31. Money on a PDF is written with its ISO code, because the document font has no peso sign
+
+**Module:** 02. **Found by:** the company reading a downloaded quotation — "the currency … shows as
+`±`".
+
+Every amount on a downloaded quotation and costing sheet read `±765,000.00`. On screen the same
+figures were correct.
+
+**The formatter was not the bug.** `formatMoney` uses `Intl.NumberFormat` with `style: "currency"`,
+which produces `₱765,000.00` — right in a browser, which has fonts covering it. The PDF documents
+are drawn in Helvetica, whose WinAnsi encoding has no `₱`, so `@react-pdf` substituted a glyph. The
+substitution happened to look like `±`, which a customer reads as a **tolerance** on a price. That
+is the part that made this urgent rather than cosmetic.
+
+The symptom was also misleading in a way worth remembering: `€` survives (WinAnsi has it) and `$`
+always would, so the bug looked currency-specific while the cause was the font.
+
+**Chose:** a separate `formatMoneyCode` for documents — `PHP 765,000.00` — leaving `formatMoney`
+with its symbol for the screen.
+
+**Rejected: embedding a font that carries `₱`.** It would have fixed the glyph and left a worse
+problem standing. AIES now quotes in three currencies, and a document that says only `$`, read in
+Manila, is ambiguous between US and other dollars. `USD` is not. ISO codes are also what a
+customer's accounts payable department files against, and what a bank needs on a remittance.
+
+**Related, same request:** the currency became a closed list — `PHP`, `USD`, `EUR` — chosen when the
+quotation is created. Free text would accept "Php", "php" and "peso" as three different currencies
+and make §4's FX buffer meaningless. It is not a database table: a configurable currency list is
+module 09's settings problem, and a second settings mechanism here is the trap already refused for
+`PaymentTerm` and the supplier register.
+

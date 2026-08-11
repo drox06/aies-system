@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { humanStatus } from "@/server/core/crm/inquiry-lifecycle";
 import { trpc } from "@/lib/trpc/client";
 import { InquiryStatusActions } from "./InquiryStatusActions";
+import { CustomerPoPanel } from "./CustomerPoPanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { RequirementsPanel } from "./RequirementsPanel";
 
@@ -158,6 +159,14 @@ export default function InquiryPage({ params }: { params: Promise<{ id: string }
 
           <RequirementsPanel inquiry={data} />
           <InspectionPanel inquiry={data} />
+          <CustomerPoPanel
+            inquiryId={data.id}
+            inquiryNumber={data.number}
+            subject={data.subject}
+            status={data.status}
+            liveQuotation={data.liveQuotation}
+            onRecorded={() => void inquiry.refetch()}
+          />
         </div>
       </RecordLayout>
     </div>
