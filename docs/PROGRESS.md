@@ -866,6 +866,23 @@ this to move to the next column a PO should be uploaded in the Sent column."*
 
 ### Next concrete step
 
+**State at the last stop (commit `c8525bf`).** Working tree clean. 501 tests across 62 files pass;
+lint, typecheck and `build:check` clean. Six commits are ahead of `origin/main` and **unpushed** —
+push them, or don't, but know that they are only on this machine.
+
+Module 02 session 3 is finished: §6's approval and its queue, §7's auto-expire, the working-hours
+fallback window, and — added at the company's request rather than from the spec's running order —
+the pipeline's Sent and Received PO columns and four document corrections.
+
+*The database now holds only real work:* `ACC-0001` A4One → `INQ-2608-0001` → `AIESLQ260001` → PO
+123456798, with every counter at 1. The sample data is gone and the series were renumbered, so the
+next records are `0002`. Do not run `npm run demo:crm` again unless demo data is wanted back.
+
+*Still wanting a human eye:* the PDFs were verified by measurement and by asserting the assembled
+props, **not** by looking at them — no PDF renderer exists in this environment. The approval queue
+and the PO dialog were verified by server tests and a clean compile, not on screen, because both sit
+behind a TOTP login. Worth ten minutes with a browser before the first real quotation goes out.
+
 **Module 02 session 4 — §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.**
 
 1. **§3's supplier RFQ sub-flow.** `SupplierQuoteRequest` and `SupplierQuoteLine` are in the schema
@@ -880,10 +897,6 @@ this to move to the next column a PO should be uploaded in the Sent column."*
    the approval in place?".
 4. **§9's reuse**: duplicate a quotation with a refresh-costs prompt for stale supplier pricing,
    quote templates, and the product catalogue building itself from real lines.
-
-*Still wanting a human eye:* the sample quotation PDF was verified by measurement and by asserting
-the assembled props, **not** by looking at it — no PDF renderer is available in the build
-environment. Download one and check the header block before the first goes to a customer.
 
 **Settled:** the standard terms are now AIES's own, in
 `src/server/core/quotation/terms.ts`. They still move to module 09's settings when that exists,
