@@ -333,10 +333,26 @@ async function seedRequirementTemplates() {
   console.log(`Seeded ${SEED_REQUIREMENT_TEMPLATES.length} requirements templates.`);
 }
 
+/**
+ * specs/02-quotation.md §6's workflow — one step, no conditions, routed by the `quotation.approve`
+ * rule above.
+ *
+ * The definition lives in the module, not here: `ensureQuotationApprovalWorkflow` is the same
+ * function the submit path calls, so a fresh database and a database that gains the feature later
+ * cannot end up with two different workflows under one name.
+ */
+async function seedQuotationApprovalWorkflow() {
+  const { ensureQuotationApprovalWorkflow } =
+    await import("../src/server/core/quotation/approval-service");
+  const workflow = await ensureQuotationApprovalWorkflow();
+  console.log(`Quotation approval workflow ready (${workflow.id}).`);
+}
+
 async function main() {
   await seedRolesAndPermissions();
   await seedUsers();
   await seedApprovalRules();
+  await seedQuotationApprovalWorkflow();
   await seedNumberingFormats();
   await seedRequirementTemplates();
 }

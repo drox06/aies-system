@@ -147,6 +147,18 @@ export const quotationManifest = defineManifest({
       // After the CRM block (10-13), because a quotation follows an inquiry.
       order: 20,
     },
+    {
+      label: "Awaiting approval",
+      href: "/quotations/approvals",
+      icon: "check-circle",
+      // §6's queue is the VP's screen (and the President's, once §4.4's window elapses). Gated on
+      // the approval permission rather than `quotation.view`, so the other three roles are not
+      // given a menu item that is empty for them by construction. The procedure behind it is gated
+      // more loosely and returns only what the caller is eligible to see, so the nav is a
+      // convenience here, not the access control.
+      permission: "quotation.approve",
+      order: 21,
+    },
   ],
 });
 

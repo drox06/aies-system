@@ -23,6 +23,15 @@ import { addBusinessMs, businessMsBetween } from "@/server/core/calendar/busines
 
 const HOUR_MS = 60 * 60 * 1000;
 
+/**
+ * Working hours between two instants — the unit every window and every age in the approval flow is
+ * measured in. Exported so a caller that needs the age of a decision does not have to invent a
+ * throwaway rule to get at it.
+ */
+export function workingHoursBetween(from: Date, to: Date): number {
+  return businessMsBetween(from, to) / HOUR_MS;
+}
+
 export interface ApprovalRuleConfig {
   primaryApproverRole: string;
   fallbackApproverRole: string;

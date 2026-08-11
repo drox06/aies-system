@@ -11,6 +11,7 @@ import { humanQuotationStatus, isEditable } from "@/server/core/quotation/quotat
 import type { VatMode } from "@/server/core/quotation/costing";
 import { formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc/client";
+import { ApprovalPanel } from "./ApprovalPanel";
 import { IssuancePanel } from "./IssuancePanel";
 import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
@@ -77,6 +78,7 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     paymentTermsText: string | null;
     warrantyTerms: string | null;
     termsAndConditions: string[];
+    rejectionReason: string | null;
     downloadedAt: string | null;
     downloadedBy: string | null;
     downloadCount: number;
@@ -140,6 +142,12 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
       <RecordLayout
         aside={
           <div className="space-y-4">
+            <ApprovalPanel
+              quotationId={data.id}
+              status={data.status}
+              rejectionReason={data.rejectionReason}
+              onChanged={refresh}
+            />
             <IssuancePanel
               quotationId={data.id}
               status={data.status}

@@ -15,6 +15,7 @@ import {
   Sunrise,
   Users,
   type LucideIcon,
+  CircleCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/Logo";
@@ -259,6 +260,8 @@ const ICONS: Record<string, LucideIcon> = {
   "badge-check": BadgeCheck,
   handshake: Handshake,
   "file-text": FileText,
+  // Module 02 (specs/02-quotation.md).
+  "check-circle": CircleCheck,
 };
 
 const ICON_SIZE = 20;

@@ -22,6 +22,12 @@ import {
   confirmQuotationSentService,
   recordQuotationDownloadService,
 } from "@/server/core/quotation/send-service";
+import {
+  decideQuotationApprovalService,
+  getQuotationApprovalStateService,
+  listQuotationApprovalQueueService,
+  submitQuotationForApprovalService,
+} from "@/server/core/quotation/approval-service";
 
 function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
   return {
@@ -143,6 +149,50 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => updateQuotationHeaderService(actorMeta(ctx), input)),
+
+  // ---- §6 approval ----------------------------------------------------------------------------
+
+  /**
+   * Gated on `quotation.edit`, not on `quotation.approve`.
+   *
+   * Submitting is the preparer's act — they are asking for a decision, not making one. Gating it on
+   * the approval permission would mean only the VP could ever put a quotation in front of the VP.
+   */
+  submitForApproval: p("quotation.edit")
+    .input(z.object({ quotationId: z.string() }))
+    .mutation(({ ctx, input }) => submitQuotationForApprovalService(actorMeta(ctx), input)),
+
+  /**
+   * `ctx.user` is passed whole, from the session.
+   *
+   * The approvals engine decides eligibility from the caller's roles — including whether this is
+   * Spec.md §4.4's fallback — so the identity it judges must be the authenticated one and can never
+   * come from the request body.
+   */
+  decideApproval: p("quotation.approve")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        decision: z.enum(["approved", "rejected"]),
+        comment: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => decideQuotationApprovalService(actorMeta(ctx), ctx.user, input)),
+
+  /**
+   * §6's first-class queue.
+   *
+   * `quotation.view` rather than `quotation.approve`: the service returns only what the caller is
+   * eligible to see, so a wider gate here shows an empty list rather than someone else's work — and
+   * the President's rows appear on their own once the escalation window elapses.
+   */
+  approvalQueue: p("quotation.view").query(({ ctx }) =>
+    listQuotationApprovalQueueService(ctx.user),
+  ),
+
+  approvalState: p("quotation.view")
+    .input(z.object({ quotationId: z.string() }))
+    .query(({ ctx, input }) => getQuotationApprovalStateService(ctx.user, input.quotationId)),
 
   // ---- §7 issuance ----------------------------------------------------------------------------
 
