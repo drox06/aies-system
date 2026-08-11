@@ -11,11 +11,17 @@
  *    always act immediately on anything, window or not ("no nomination step" — it's not a
  *    delegation someone has to grant, it's standing authority).
  *
- * Working-hours note: `escalateAfterHours` is compared against wall-clock elapsed hours, not a
- * working-calendar-aware count. Spec.md §10 calls out that cash advance/SLA clocks should count
- * working days once the working-calendar setting exists; that setting isn't built yet (module 00
- * session 5+), so this is a deliberate simplification — see docs/DECISIONS.md.
+ * **The window counts working hours, not wall-clock hours.** Spec.md §4.4 says "24 working hours"
+ * and specs/02-quotation.md §12 tests for it by name. This file originally compared wall-clock
+ * elapsed time, documented as a deliberate simplification because no working calendar existed;
+ * module 01 built one (`src/server/core/calendar/business-days.ts`), so the simplification is now
+ * just a bug — a quotation submitted at 5pm Friday would otherwise reach the President's queue on
+ * Saturday evening, before anybody has had a working hour to look at it. See docs/DECISIONS.md #29.
  */
+
+import { addBusinessMs, businessMsBetween } from "@/server/core/calendar/business-days";
+
+const HOUR_MS = 60 * 60 * 1000;
 
 export interface ApprovalRuleConfig {
   primaryApproverRole: string;
@@ -24,8 +30,14 @@ export interface ApprovalRuleConfig {
 }
 
 export interface FallbackResolution {
+  /** Working hours elapsed since the request — weekends and holidays do not count. */
   elapsedHours: number;
   isFallbackWindowElapsed: boolean;
+  /**
+   * The instant the window elapses, so a queue can say "the President can act from Tuesday 09:00"
+   * rather than leaving the reader to do working-calendar arithmetic in their head.
+   */
+  fallbackAvailableAt: Date;
   /** Roles whose default "Awaiting my approval" inbox should list this request. */
   inboxRoles: readonly string[];
   /** Roles allowed to decide this request right now. */
@@ -37,12 +49,13 @@ export function resolveApprovalFallback(
   requestedAt: Date,
   now: Date = new Date(),
 ): FallbackResolution {
-  const elapsedHours = Math.max(0, (now.getTime() - requestedAt.getTime()) / (1000 * 60 * 60));
+  const elapsedHours = businessMsBetween(requestedAt, now) / HOUR_MS;
   const isFallbackWindowElapsed = elapsedHours >= rule.escalateAfterHours;
 
   return {
     elapsedHours,
     isFallbackWindowElapsed,
+    fallbackAvailableAt: addBusinessMs(requestedAt, rule.escalateAfterHours * HOUR_MS),
     inboxRoles: isFallbackWindowElapsed
       ? [rule.primaryApproverRole, rule.fallbackApproverRole]
       : [rule.primaryApproverRole],

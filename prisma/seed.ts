@@ -119,8 +119,9 @@ interface ApprovalRuleSeed {
 }
 
 // VP approves all of these; President is the automatic fallback (Spec.md §4.4, docs/DECISIONS-
-// CONFIRMED.md #35). Default windows: cash advances 4 working hours, everything else 24 — see
-// src/server/core/rbac/approval-fallback.ts for why "working hours" means wall-clock hours today.
+// CONFIRMED.md #35). Default windows: cash advances 4 working hours, everything else 24 — counted
+// on the working calendar, so a Friday submission does not escalate over the weekend
+// (docs/DECISIONS.md #29).
 const APPROVAL_RULES: ApprovalRuleSeed[] = [
   { key: "quotation.approve", label: "Quotation approval", escalateAfterHours: 24 },
   { key: "cash_advance.approve", label: "Cash advance approval", escalateAfterHours: 4 },

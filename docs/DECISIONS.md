@@ -884,3 +884,49 @@ genuinely does not belong there.
 **The general rule:** anything in `instrumentation.ts` must be safe to *bundle* for edge, not merely
 safe to *execute* there. If it touches Prisma, the file system, or a `node:` builtin, it does not
 belong in that file at all.
+
+---
+
+## 29. The approval fallback window counts working hours, reversing a documented simplification
+
+**Module:** 02, session 3. **Reverses:** the "Working-hours note" that shipped in
+`src/server/core/rbac/approval-fallback.ts` from module 00 session 2.
+
+Spec.md §4.4 says the escalation windows are **working** hours — "cash advances 4 working hours,
+quotations 24 working hours" — and specs/02-quotation.md §12 makes it a named test. The original
+implementation compared wall-clock elapsed time and said so in a header comment, on the reasoning
+that no working calendar existed yet:
+
+> `escalateAfterHours` is compared against wall-clock elapsed hours… that setting isn't built yet
+> (module 00 session 5+), so this is a deliberate simplification.
+
+That reasoning expired. Module 01 built `src/server/core/calendar/business-days.ts` for §3's
+acknowledgement SLA, it is pure, and `businessMsBetween` answers exactly this question. Leaving the
+simplification in place would no longer be a shortcut; it would be a bug with a comment on it.
+
+**The failure it was producing** is worth stating, because it is not a rounding difference. A
+quotation submitted at 17:00 on Friday reached the President's queue at 17:00 on **Saturday** — the
+VP had not had one working hour to look at it, and the fallback fired against a window nobody was
+awake for. Escalation is supposed to mean "the primary approver has had their chance and did not
+take it"; over a weekend, wall-clock time asserts that falsely.
+
+**Chose:** `elapsedHours = businessMsBetween(requestedAt, now) / 3_600_000`, plus a new
+`fallbackAvailableAt` (via `addBusinessMs`) so the queue screen can say *when* the President becomes
+eligible rather than making the reader do working-calendar arithmetic.
+
+**Note what did *not* change.** `eligibleToDecideRoles` still contains the fallback approver at all
+times: §4.4 is explicit that "the President can always act immediately, without waiting for the
+window, on anything". The window governs **inbox visibility**, not authority. And a President's
+decision is still stamped `isFallback` regardless of timing — that is about who decided, not when.
+
+**The tests had to be rewritten, and that is the honest cost.** They used offsets from
+`Date.now()` ("five hours ago, past the four-hour window"), which under working-hours arithmetic
+means five hours only if the suite runs on a working day. Run on a Saturday, the old assertions
+would have silently inverted. Both files now pin a holiday provider and use fixed Manila instants
+with the weekday named in the test. Any future test of an elapsed-time rule must do the same.
+
+**"Working hours" here means whole working days, not office hours.** `businessMsBetween` counts all
+24 hours of a working day, so 24 working hours is one working day — the same unit
+`assessInquirySla` uses for §3's "1 business day". Modelling 09:00-18:00 would make "24 working
+hours" mean nearly three days, which is not what anybody at AIES means by it.
+

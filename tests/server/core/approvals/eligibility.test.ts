@@ -56,9 +56,19 @@ describe("resolveStepEligibility — approvalRuleKey (fallback-integrated) steps
     mode: "parallel",
   };
 
+  /**
+   * Fixed Manila instants rather than offsets from `Date.now()`.
+   *
+   * The window counts **working** hours now, so "five hours ago" is five hours only on a working
+   * day — run this suite on a Saturday and an offset-based test would silently assert the opposite
+   * of what it reads. Monday 2026-08-10 is a working day whatever day the suite runs.
+   */
+  const manila = (isoLocal: string) => new Date(`${isoLocal}+08:00`);
+  const MONDAY_9AM = manila("2026-08-10T09:00:00");
+
   it("the president can always decide immediately, before the window elapses", async () => {
-    const requestedAt = new Date(Date.now() - 5 * 60_000); // 5 minutes ago, window is 4h
-    const eligibility = await resolveStepEligibility(step, requestedAt);
+    const requestedAt = manila("2026-08-10T08:55:00"); // 5 minutes before, window is 4h
+    const eligibility = await resolveStepEligibility(step, requestedAt, MONDAY_9AM);
 
     expect(eligibility.isEligibleToDecide(user({ roleKeys: ["president"] }))).toBe(true);
     expect(eligibility.isEligibleToDecide(user({ roleKeys: ["vice_president"] }))).toBe(true);
@@ -66,13 +76,12 @@ describe("resolveStepEligibility — approvalRuleKey (fallback-integrated) steps
   }, 30_000);
 
   it("only the VP sees it in the inbox before the window elapses; the president also does after", async () => {
-    const recentRequest = new Date(Date.now() - 5 * 60_000);
-    const early = await resolveStepEligibility(step, recentRequest);
+    const early = await resolveStepEligibility(step, manila("2026-08-10T08:55:00"), MONDAY_9AM);
     expect(early.isInInbox(user({ roleKeys: ["vice_president"] }))).toBe(true);
     expect(early.isInInbox(user({ roleKeys: ["president"] }))).toBe(false);
 
-    const oldRequest = new Date(Date.now() - 5 * 60 * 60_000); // 5 hours ago, past the 4h window
-    const late = await resolveStepEligibility(step, oldRequest);
+    // Five working hours earlier, past the 4h window.
+    const late = await resolveStepEligibility(step, manila("2026-08-10T04:00:00"), MONDAY_9AM);
     expect(late.isInInbox(user({ roleKeys: ["vice_president"] }))).toBe(true); // still there — not a handoff
     expect(late.isInInbox(user({ roleKeys: ["president"] }))).toBe(true);
   }, 30_000);
