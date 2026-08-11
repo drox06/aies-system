@@ -5,6 +5,7 @@ import {
 } from "@/server/core/crm/accreditation-renewal";
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 import { sweepPrincipalExpiries } from "@/server/core/crm/principal-service";
+import { sweepQuotationExpiries } from "@/server/core/quotation/expiry-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepFollowUps } from "@/server/core/crm/pipeline-service";
 
@@ -79,6 +80,15 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] unsent download sweep failed:", error);
     results.unsentDownloads = { error: String(error) };
+  }
+
+  // specs/02-quotation.md §7's auto-expire, plus the seven-day warning that is the half anybody can
+  // still act on.
+  try {
+    results.quotationExpiries = await sweepQuotationExpiries();
+  } catch (error) {
+    console.error("[cron/nightly] quotation expiry sweep failed:", error);
+    results.quotationExpiries = { error: String(error) };
   }
 
   return NextResponse.json(results);

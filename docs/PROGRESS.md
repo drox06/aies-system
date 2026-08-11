@@ -718,40 +718,80 @@ They logged an inquiry, quoted it, printed it, and sent back six things. All six
       terms belong.
 - [x] 463 tests across 59 files; lint and typecheck clean. 20 new tests across two files.
 
+### Finished in session 3 — §6's approval and §7's auto-expire
+
+**Module 02 session 3 is complete.** All five items the previous session left are done.
+
+- [x] **The escalation window counts working hours.** Fixed first, because everything below depends
+      on it. `resolveApprovalFallback` compared wall-clock time and carried a comment explaining
+      why: no working calendar existed when module 00 wrote it. One does now — module 01 built
+      `business-days.ts` for §3's SLA, and it is pure. The bug that was producing is not a rounding
+      difference: a quotation submitted at 17:00 Friday reached the President's queue at 17:00
+      **Saturday**, before the VP had had one working hour to look at it. Escalation is supposed to
+      mean the primary approver had their chance. docs/DECISIONS.md #29.
+- [x] Added `fallbackAvailableAt`, so the queue and the record page can say *when* the President
+      becomes eligible instead of making the reader do calendar arithmetic.
+- [x] **§6 through module 00's engine, with no role name in a conditional.** §6 says how not to
+      build this — "rather than by hard-coding 'VP approves'" — so `approval-service.ts` has no
+      `if (total > x)` and no `"vice_president"` in an `if`. One step carrying `approvalRuleKey`,
+      and *who decides* comes entirely from the `ApprovalRule` row: the VP, the President after the
+      window, who may act immediately, whether a decision is stamped as a fallback. Value bands
+      later mean adding a `condition` to the step, which is data.
+- [x] The margin goes into `entitySnapshot` although no step reads it today. A condition can only be
+      evaluated against fields captured **at request time**, so omitting them would make switching
+      bands on a migration rather than a settings change — which is the thing §6 asked to avoid.
+- [x] **No migration.** `Quotation` already had `approvedById`, `approvedAt`, `decisionAt` and
+      `rejectionReason`, and the submission time the window counts from is
+      `ApprovalRequest.requestedAt` — the request row *is* the record of the submission, so copying
+      it onto the quotation would create two truths that can disagree.
+- [x] `draft → pending_approval → approved`, rejection back to `draft` with a **mandatory** comment.
+      Mandatory because the comment *is* the instruction: a quotation sent back with no reason is
+      one the preparer resubmits unchanged.
+- [x] Submitting is gated on `quotation.edit`, not `quotation.approve` — otherwise only the VP could
+      put a quotation in front of the VP. A quotation with no lines is refused: it would reach the
+      queue as a zero-total row, which reads as a bug in the queue rather than a mistake in the
+      quotation.
+- [x] `quotation.submitted_for_approval`, `quotation.approved` and `quotation.rejected_internally`
+      are now emitted — the three that were declared in the manifest and unused.
+- [x] **The VP's queue is a stack of decidable cards, not a table.** §6 asks for "approvable in
+      sequence without opening each one", and the VP's real task is a sitting: work down the list,
+      approve most, send one back. Total, margin, customer and age are on the card; margin is
+      *absent*, not zeroed, for anyone without `finance.view_cost`. Escalated rows say so.
+- [x] The record page's `ApprovalPanel` serves three audiences from one card: the preparer's submit
+      button and the rejection comment that tells them what to change; the approver's decision
+      without leaving the record; and everyone's view of who decided and whether it was a fallback.
+      Whether *you* may decide is answered by the server, never guessed from a role in the browser.
+- [x] **§7's auto-expire**, nightly. Flips `sent` quotations past `validUntil` to `expired` with a
+      `System` audit row and no actor — nobody did this, and attributing it to whoever triggered the
+      cron would be a small lie in the trail. Emits `quotation.expired`.
+- [x] `under_negotiation` is **warned but not expired**, and that is a deliberate reading. §7 names
+      `sent`; flipping a quotation to expired underneath two people who are mid-conversation would
+      show the pipeline a deal as lost that nobody lost. The seven-day warning is what answers the
+      real risk — a negotiation outliving its own price — and §5 already has `validity_extension` as
+      a revision reason for the fix.
+- [x] 490 tests across 61 files (27 new); lint, typecheck and `build:check` clean. The nightly cron
+      was run against the dev server and returned the new sweep's result alongside the others.
+
 ### Next concrete step
 
-**State at the last stop (commit `f24c1ca`).** Working tree clean, nothing half-applied. The
-company's six review items from the first real quotation are all done and committed — inquiry
-assignment, the address lines, the title spacing, the commercial-terms inputs, AIES's own nine
-clauses, and per-clause editing. 463 tests across 59 files pass; lint, typecheck and `build:check`
-are clean.
+**Module 02 session 4 — §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.**
 
-*One thing still wants a human eye:* the re-rendered sample quotation was verified by measurement
-and by asserting the assembled props, **not** by looking at it — no PDF renderer is available in the
-build environment. Download a quotation PDF and check the header block reads properly before the
-first one goes to a customer.
+1. **§3's supplier RFQ sub-flow.** `SupplierQuoteRequest` and `SupplierQuoteLine` are in the schema
+   from session 1 and have no service behind them. PD owns this (`supplier_rfq.manage` is already
+   seeded to `admin_manager`): raise a request against a quotation, record what came back, and let a
+   quotation line point at the supplier line it was costed from — `QuotationLine.supplierQuoteLineId`
+   already exists for it.
+2. **§8's negotiation.** Status `under_negotiation` with a structured round log: the customer's
+   counter-position, AIES's response, who authorised it, and the resulting revision.
+3. **§8's what-if calculator.** `discountForTargetTotal` in `costing.ts` is already written and
+   tested — this is the UI on top of it, plus "does this breach the margin floor, and shall I raise
+   the approval in place?".
+4. **§9's reuse**: duplicate a quotation with a refresh-costs prompt for stale supplier pricing,
+   quote templates, and the product catalogue building itself from real lines.
 
-**Finish module 02 session 3 — §6's approval, and §7's auto-expire.**
-
-1. **§6's approval through module 00's engine.** The `quotation.approve` `ApprovalRule` with
-   `escalateAfterHours: 24` is **already seeded**, so Spec.md §4.4's automatic fallback to the
-   president needs no new machinery — one seeded rule, approver `vice_president`, no conditions,
-   exactly as §6 insists ("rather than by hard-coding 'VP approves'"). Wire
-   `draft → pending_approval → approved`, with rejection returning to `draft` and a **mandatory**
-   comment.
-2. `quotation.submitted_for_approval`, `quotation.approved` and `quotation.rejected_internally` are
-   declared in the manifest and not yet emitted — emit them here.
-3. **The VP's approval queue** as a first-class screen (§6): every quote awaiting them with total,
-   margin, customer and age, approvable in sequence without opening each one. Margin is
-   `finance.view_cost`-gated like everywhere else.
-4. §12's approval tests, both named: every quotation routes to the VP regardless of value and none
-   can be sent unapproved; and one unapproved after 24 **working** hours becomes approvable by the
-   president, recorded as a fallback with elapsed time — never as a VP approval. The working-hours
-   arithmetic already exists in `src/server/core/calendar/business-days.ts`.
-5. **§7's auto-expire** on `/api/cron/nightly`: flip `sent` quotations past `validUntil` to
-   `expired`, and notify the owner seven days before.
-
-Session 4 remains: §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.
+*Still wanting a human eye:* the sample quotation PDF was verified by measurement and by asserting
+the assembled props, **not** by looking at it — no PDF renderer is available in the build
+environment. Download one and check the header block before the first goes to a customer.
 
 **Settled:** the standard terms are now AIES's own, in
 `src/server/core/quotation/terms.ts`. They still move to module 09's settings when that exists,
@@ -775,6 +815,9 @@ Notes for whoever picks this up:
     against a compile-time problem. docs/DECISIONS.md #28.
   - `.tsx` outside Next's own compilation (the PDF documents) needs the automatic JSX runtime
     configured explicitly — `vitest.config.ts` sets it; plain `tsx` scripts cannot import them.
+  - Approval windows count **working** hours (docs/DECISIONS.md #29), so any test of an elapsed-time
+    rule must pin a holiday provider and use fixed Manila instants. Offsets from `Date.now()` mean
+    what they say only on a working day, and would silently invert if the suite ran on a Saturday.
   - `ActorMeta.permissions` is **optional**, and the acknowledgement check is skipped when it is
     absent. That is deliberate — event subscribers, sweeps and scripts have no permission set and
     pass `bySystem` instead — but it means a *new* router that forgets to populate `actorMeta` would
