@@ -56,6 +56,22 @@ export interface SaveLinesInput {
    * When false, existing costs are carried over by line number instead. See below.
    */
   canSeeCost: boolean;
+  /**
+   * The incoming `unitCost` figures have **already** had FX and the buffer applied.
+   *
+   * `unitCost` is stored landed, and nothing in a saved line records whether it started that way.
+   * That ambiguity is a live bug: the builder reloads the landed figure and re-sends the quotation's
+   * `fxBufferPct` with it, so a 3% buffer compounds on every save — 1,000 becomes 1,030, then
+   * 1,060.90. See docs/DECISIONS.md #32.
+   *
+   * This flag is the seam that lets a caller say which it is. When true the engine is given a rate
+   * of 1 and a buffer of 0, and the quotation's stored `fxBufferPct` is left alone rather than
+   * overwritten — a caller passing landed costs is not making a statement about the buffer.
+   *
+   * It describes the **data**, not the caller's authority. `canSeeCost` above is the one that
+   * decides what somebody is allowed to do.
+   */
+  costsAreLanded?: boolean;
   lines: QuotationLineInput[];
   headerDiscount?: string | null;
   vatMode?: VatMode;
@@ -137,7 +153,9 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
     if (input.canSeeCost) {
       return {
         unitCost: line.unitCost ?? "0",
-        costFxRate: line.costFxRate ?? "1",
+        // A landed figure has had its rate applied once already; applying it again would inflate
+        // the cost on every save.
+        costFxRate: input.costsAreLanded ? "1" : (line.costFxRate ?? "1"),
         markupPct: line.markupPct ?? null,
       };
     }
@@ -163,9 +181,10 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
     headerDiscount: input.headerDiscount ?? "0",
     vatMode,
     vatRatePct,
-    // Zero when the caller cannot see cost: their preserved figures are already landed, and
-    // applying the buffer again would inflate cost a little more on every save.
-    fxBufferPct: input.canSeeCost ? (input.fxBufferPct ?? "0") : "0",
+    // Zero when the figures are already landed — whether because the caller could not see cost and
+    // they were carried over, or because the caller said so. Applying the buffer to a landed cost
+    // inflates it a little more on every save.
+    fxBufferPct: input.canSeeCost && !input.costsAreLanded ? (input.fxBufferPct ?? "0") : "0",
     marginFloorPct: input.marginFloorPct ?? null,
   });
 
@@ -186,9 +205,12 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
         totalCost: fromCentavos(costing.totalCost),
         marginAmount: fromCentavos(costing.marginAmount),
         marginPct: costing.marginPct === null ? "0" : costing.marginPct.toFixed(4),
-        fxBufferPct: input.canSeeCost
-          ? (input.fxBufferPct ?? "0")
-          : quotation.fxBufferPct.toString(),
+        // Preserved when the caller passed landed costs: they were not making a statement about
+        // the quotation's buffer, and silently zeroing a margin setting is not theirs to do.
+        fxBufferPct:
+          input.canSeeCost && !input.costsAreLanded
+            ? (input.fxBufferPct ?? "0")
+            : quotation.fxBufferPct.toString(),
       },
     });
 
@@ -223,6 +245,10 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
             // applied once, here, so the stored figure is the one the margin was calculated from.
             unitCost: fromCentavos(computed.unitCost),
             costCurrency: line.costCurrency ?? "PHP",
+            // §4: "Never overwrite a historical rate." `costsAreLanded` deliberately does **not**
+            // affect this — it says the engine must not apply the rate a second time, not that the
+            // rate never existed. Erasing it would leave a converted cost with nothing to check the
+            // conversion against.
             costFxRate: input.canSeeCost ? (line.costFxRate ?? "1") : "1",
             markupPct: costFor(line, index).markupPct,
             unitPrice: fromCentavos(computed.unitPrice),

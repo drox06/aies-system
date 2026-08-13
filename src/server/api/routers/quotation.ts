@@ -3,6 +3,12 @@ import { p, router, type Context } from "@/server/api/trpc";
 import { QUOTE_CURRENCIES, VAT_MODES } from "@/server/core/quotation/costing";
 import { LOST_REASONS } from "@/server/core/crm/inquiry-lifecycle";
 import {
+  addProductFromLineService,
+  catalogueCandidatesService,
+  duplicateQuotationService,
+  staleCostReportService,
+} from "@/server/core/quotation/reuse-service";
+import {
   listNegotiationRoundsService,
   logNegotiationRoundService,
   rejectQuotationService,
@@ -313,6 +319,8 @@ export const quotationRouter = router({
       z.object({
         rfqId: z.string(),
         lineNos: z.array(z.number().int().positive()).optional(),
+        /** Needed only when the supplier quoted in a different currency from the quotation. */
+        fxRate: z.string().nullish(),
       }),
     )
     .mutation(({ ctx, input }) => applyRfqToQuotationService(actorMeta(ctx), input)),
@@ -364,6 +372,48 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => rejectQuotationService(actorMeta(ctx), input)),
+
+  // ---- §9 reuse -------------------------------------------------------------------------------
+
+  /**
+   * §9's duplicate. A **new** quotation that starts from an old one — not a revision, which shares
+   * the base number and supersedes what came before (§5).
+   */
+  duplicate: p("quotation.create")
+    .input(
+      z.object({
+        sourceQuotationId: z.string(),
+        accountId: z.string().nullish(),
+        title: z.string().nullish(),
+        quoteType: z.enum(QUOTE_TYPES).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => duplicateQuotationService(actorMeta(ctx), input)),
+
+  /** §9's refresh-costs prompt. Reports; changes nothing. Cost-gated, because it is cost. */
+  staleCosts: p("finance.view_cost")
+    .input(z.object({ quotationId: z.string() }))
+    .query(({ input }) => staleCostReportService(input.quotationId)),
+
+  /** §9's "offer to create it" — the catalogue building itself from real work. */
+  catalogueCandidates: p("product.manage")
+    .input(z.object({ quotationId: z.string() }))
+    .query(({ input }) => catalogueCandidatesService(input.quotationId)),
+
+  addProductFromLine: p("product.manage")
+    .input(
+      z.object({
+        manufacturer: z.string().min(1),
+        modelNumber: z.string().min(1),
+        description: z.string().min(1),
+        unit: z.string(),
+        unitCost: z.string(),
+        costCurrency: z.string(),
+        category: z.string().nullish(),
+        defaultMarkupPct: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => addProductFromLineService(actorMeta(ctx), input)),
 
   // ---- §5 revisions --------------------------------------------------------------------------
 

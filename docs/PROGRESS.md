@@ -864,9 +864,110 @@ this to move to the next column a PO should be uploaded in the Sent column."*
       were *test inquiries the suite was creating at that moment*. A whole-series renumber needs a
       quiet database.
 
+### Done in session 4 — §3's supplier RFQ, §8's negotiation, §9's reuse
+
+**§3 — the supplier RFQ, which the schema had been waiting on since session 1.**
+
+- [x] §3 exists for one stated reason: "make that coordination a first-class record instead of an
+      email nobody can find."
+- [x] **The app does not send it, and §3.2 confirms that rather than deferring it** — PD emails
+      supplier price inquiries by hand. Same shape as §7's issuance: the app produces the document
+      and the draft text, a person sends it, and `markRfqSent` is their assertion that they did.
+      That is what starts the response clock, not creation — a draft sitting unsent is nobody's
+      fault but the sender's.
+- [x] **Lines are copied, not referenced**, and the request body is generated once and stored. The
+      quotation keeps moving underneath; a body regenerated next week would be a different document
+      wearing the same number. Tested by editing the quotation out from under a raised RFQ.
+- [x] **`sourceLineNo` is the new column and it is what makes §3.5 possible.**
+      `saveQuotationLinesService` deletes and recreates every line on each save, so a
+      `QuotationLine` id is not stable and a foreign key would dangle. Without recording the source
+      line, an RFQ raised on lines 2 and 5 has lines 1 and 2 and the mapping back is gone.
+- [x] **The trap this flow was always going to fall into.** §3 gives supplier pricing to PD, who by
+      Spec.md §4.3 does **not** hold `finance.view_cost` — and the line service zeroes cost for a
+      caller who cannot see it. That guard exists to stop a cost-blind *browser* posting back
+      figures it was never shown; here they are read from the RFQ rows on the server. Without the
+      distinction the person the spec put in charge of supplier pricing would wipe every cost they
+      applied. There is a test named after it.
+- [x] §3.6's matrix flags the cheapest offer and does not choose it — in the test the cheaper one is
+      four weeks slower. Across mixed currencies it flags nothing: naming a winner without the
+      quotation's rate would name the wrong one confidently.
+- [x] **The RFQ PDF is not a quotation with the prices removed.** No AIES pricing, no customer name,
+      no margin — a supplier who learns which customer this is for and what AIES sells it at has
+      everything they need to go around AIES. It carries the four things §3.2 says a response must
+      contain as empty columns, so the document asks the questions itself.
+- [x] `supplier_rfq.sent` and `supplier_rfq.responded` were declared in the manifest and emitted by
+      nothing. §3.3's overdue sweep chases weekly rather than daily, on the nightly cron. 23 tests.
+
+**§8 — negotiation.**
+
+- [x] §8 opens by quoting the company: *"if not we leave room for negotiations."* Being pushed on
+      price is part of the process, so the record holds it.
+- [x] **The round log is a table, not four columns.** Three rounds of push and counter-push is the
+      ordinary case and columns hold only the last one; the question a sales meeting actually asks
+      — "how far have we already come down?" — is unanswerable from a final position.
+      `authorisedById` is the caller, because a concession is a margin decision.
+- [x] **The what-if calculator writes nothing**, and there is a test named after that. A calculator
+      that silently saved would turn every idle "what about 700k?" on a phone call into a real change
+      to a live document. Target-total and target-discount inputs funnel into one arithmetic path,
+      because two implementations of the same sum eventually disagree.
+- [x] It reports `needsReapproval` for **any** live quotation whose price moves, not only one that
+      breaches the floor: §6 approved a different number. §8 asks the UI to "offer to raise the
+      approval request in place"; the offer is a revision, since §5 makes a sent quotation immutable
+      and the revision is what carries the new price back through §6.
+- [x] **`lostReason` uses module 01's picklist**, not a second one — two vocabularies would mean
+      neither win/loss report could be trusted. It is a new column rather than a reuse of
+      `rejectionReason`, which records why the *VP* sent it back. 12 tests.
+- [x] `MARGIN_FLOOR_PCT` moved out of the PDF renderer into `costing.ts`. Three callers need it now,
+      and a pricing rule has no business living in the document that happens to print it.
+
+**§9 — reuse.**
+
+- [x] **Duplicating is not revising, and they are opposites.** A revision shares the base number,
+      supersedes what came before and is ISO 8.2.4 evidence; a duplicate is a new quotation that
+      happens to start from an old one. Conflating them would file one customer's document in
+      another's revision history.
+- [x] A duplicate re-seeds the **terms for the new customer** — clause 1 names the client, and a
+      copy that still names the previous one is a contract with somebody else's name in it. It drops
+      the supplier link (the answer to "where did this cost come from?" has changed), gets a fresh
+      validity date, and does not carry site or contact to a different account.
+- [x] **The refresh-costs prompt reports and changes nothing**, as §9 asks. A line the catalogue has
+      never costed is flagged *harder* than an old one: "nobody has ever priced this from a
+      supplier" is the stronger warning, and silence would read as approval.
+- [x] **The catalogue offers rather than creates.** One that silently absorbed every typed line would
+      stop being the list of things AIES actually sells. 13 tests.
+- [x] One test-suite lesson worth keeping: the `Product` catalogue is **global**, so a test that adds
+      an entry changes what every later test in the file sees. The first version of the reuse suite
+      failed exactly that way, and the failure looked like a bug in the candidate query.
+
 ### Next concrete step
 
-**State at the last stop (commit `c8525bf`).** Working tree clean. 501 tests across 62 files pass;
+**Module 02 is feature-complete against specs/02-quotation.md except §9's quote templates — but fix
+the FX defect first.**
+
+1. **Store raw cost, not landed cost** (docs/DECISIONS.md #32). `QuotationLine.unitCost` holds the
+   cost *after* FX and the buffer, and nothing records that it does — so no caller can tell a raw
+   supplier figure from a converted one. It has already produced two bugs: a EUR cost stored as
+   pesos (patched), and the builder's FX buffer compounding on every save (**still live** — a 3%
+   buffer takes 1,000 to 1,030 to 1,060.90). §4 asks for the raw figure and the rate to be stored
+   and landed cost derived, which makes every save idempotent and deletes the class. Touches the
+   costing engine, both PDFs, the what-if calculator and the RFQ apply.
+   *Until it is done:* leave `fxBufferPct` at 0 and price the buffer into the rate.
+2. **§9's quote templates** ("for repeat scopes — annual PM contract, standard calibration
+   package") are the one thing in the spec's list that is not built. They were left rather than
+   rushed: a template is a *saved* quotation shape with no customer, which is either a new model or
+   a flag on `Quotation`, and that choice deserves its own sitting rather than the tail of a long
+   session. Duplicating an existing quotation covers most of the same ground today.
+3. **Module 02's review gate**, following module 00's pattern: read specs/02-quotation.md §12 end to
+   end against what exists, then tag `module-02-complete`.
+4. Then **module 03** proper — its `CustomerPO` opening act is already in place from session 3, and
+   `specs/03-order-procurement.md` §1 fans out into sales order, procurement, finance and
+   operations.
+
+*Still wanting a human eye:* the RFQ panel, the negotiation panel and the reuse panel were verified
+by server tests and a clean production build, not on screen — all three sit behind the TOTP login.
+The RFQ PDF was rendered from a throwaway record and its props asserted.
+
+**State at the previous stop (commit `c8525bf`).** Working tree clean. 501 tests across 62 files pass;
 lint, typecheck and `build:check` clean. Six commits are ahead of `origin/main` and **unpushed** —
 push them, or don't, but know that they are only on this machine.
 
@@ -883,7 +984,7 @@ props, **not** by looking at them — no PDF renderer exists in this environment
 and the PO dialog were verified by server tests and a clean compile, not on screen, because both sit
 behind a TOTP login. Worth ten minutes with a browser before the first real quotation goes out.
 
-**Module 02 session 4 — §3's supplier RFQ, §8's negotiation and what-if, §9's reuse.**
+*What session 4 set out to do, for reference:*
 
 1. **§3's supplier RFQ sub-flow.** `SupplierQuoteRequest` and `SupplierQuoteLine` are in the schema
    from session 1 and have no service behind them. PD owns this (`supplier_rfq.manage` is already
@@ -920,10 +1021,13 @@ Notes for whoever picks this up:
     against a compile-time problem. docs/DECISIONS.md #28.
   - `.tsx` outside Next's own compilation (the PDF documents) needs the automatic JSX runtime
     configured explicitly — `vitest.config.ts` sets it; plain `tsx` scripts cannot import them.
-  - **Stop `npm run dev` before running the test suite.** `scripts/dev.mjs` drains the job queue
-    every 5 seconds against the *same* database the tests use, so it claims and runs the jobs a test
-    just enqueued — `queue.test.ts` failed exactly once this way, asserting `dead` on a job the dev
-    drainer had already taken. The failure looks like a real regression and is not one.
+  - **Run nothing else against the dev database while the suite runs** — no dev server, and no
+    second `vitest` invocation. Both have produced a red run that looked like a regression:
+    `queue.test.ts` once failed asserting `dead` on a job the dev drainer had already claimed, and
+    `relay.test.ts` once failed because `relayOutboxToJobs` relays *every* unrelayed outbox row, so
+    it picked up a row belonging to a concurrently running test file which then deleted it
+    mid-transaction. The suite is single-file-serial (docs/DECISIONS.md #7) but it is not isolated
+    from anything outside itself.
   - Approval windows count **working** hours (docs/DECISIONS.md #29), so any test of an elapsed-time
     rule must pin a holiday provider and use fixed Manila instants. Offsets from `Date.now()` mean
     what they say only on a working day, and would silently invert if the suite ran on a Saturday.

@@ -482,7 +482,7 @@ export async function recordRfqResponseService(actor: ActorMeta, input: RecordRf
  */
 export async function applyRfqToQuotationService(
   actor: ActorMeta,
-  input: { rfqId: string; lineNos?: number[] },
+  input: { rfqId: string; lineNos?: number[]; fxRate?: string | null },
 ) {
   const rfq = await db.supplierQuoteRequest.findFirst({
     where: { id: input.rfqId, deletedAt: null },
@@ -512,6 +512,8 @@ export async function applyRfqToQuotationService(
       status: true,
       version: true,
       currency: true,
+      fxRate: true,
+      fxBufferPct: true,
       lines: { orderBy: { lineNo: "asc" } },
     },
   });
@@ -543,6 +545,42 @@ export async function applyRfqToQuotationService(
     });
   }
 
+  /**
+   * Turns a supplier's figure into a cost in the quotation's currency.
+   *
+   * §4: "Supplier costs are frequently USD or EUR. Store `unitCost` in `costCurrency` **and** the
+   * `costFxRate` used at the time of quoting."
+   *
+   * **This refuses rather than guesses.** An earlier version of this function handed the supplier's
+   * raw number to the line service with a rate of 1, so a EUR 1,450 part was stored as a cost of
+   * 1,450 *pesos* — roughly a sixty-fifth of the truth. The margin then looked enormous, the floor
+   * never tripped, and the quotation went to the VP's queue looking like the best deal of the year.
+   * A wrong rate is not better than a missing one, so a missing one stops the operation.
+   *
+   * The buffer is applied here too, and the result handed over as `costsAreLanded` — see that
+   * flag's own comment for why re-feeding a landed cost through the engine is what makes a buffer
+   * compound.
+   */
+  const buffer = Number(quotation.fxBufferPct);
+  const landedCost = (raw: string, supplierCurrency: string): string => {
+    if (supplierCurrency === quotation.currency) {
+      return (Number(raw) * (1 + buffer / 100)).toFixed(2);
+    }
+
+    const rate = Number(input.fxRate ?? quotation.fxRate);
+    if (!Number.isFinite(rate) || rate <= 0 || rate === 1) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          `${rfq.number} is priced in ${supplierCurrency} and ${quotation.number} is in ` +
+          `${quotation.currency}, but no exchange rate has been set. Set the quotation's FX rate ` +
+          `first — applying it without one would record the cost as though ` +
+          `${supplierCurrency} 1 were ${quotation.currency} 1.`,
+      });
+    }
+    return (Number(raw) * rate * (1 + buffer / 100)).toFixed(2);
+  };
+
   const bySourceLineNo = new Map(applicable.map((line) => [line.sourceLineNo!, line]));
   let applied = 0;
 
@@ -561,10 +599,9 @@ export async function applyRfqToQuotationService(
       unit: line.unit,
       unitCost: line.unitCost.toString(),
       costCurrency: line.costCurrency,
-      // Already-landed cost is re-fed at a rate of 1: the stored figure has had FX and the buffer
-      // applied once already, and re-applying them would inflate it on every save. Same reasoning
-      // as the cost-preservation path in the line service.
-      costFxRate: "1",
+      // The stored rate is carried through unchanged — §4 forbids overwriting a historical one.
+      // It is not re-applied: `costsAreLanded` below tells the engine so.
+      costFxRate: line.costFxRate.toString(),
       markupPct: line.markupPct?.toString() ?? null,
       unitPrice: line.unitPrice.toString(),
       lineDiscountPct: line.lineDiscountPct?.toString() ?? null,
@@ -578,12 +615,15 @@ export async function applyRfqToQuotationService(
     applied += 1;
     return {
       ...base,
-      unitCost: supplied.unitCost.toString(),
+      unitCost: landedCost(supplied.unitCost.toString(), supplied.currency),
+      // §4: "Store `unitCost` in `costCurrency` **and** the `costFxRate` used at the time of
+      // quoting. Never overwrite a historical rate." The rate that was used is recorded on the line
+      // even though the stored cost is already converted, so the arithmetic can be checked later.
       costCurrency: supplied.currency,
-      // The supplier's own rate is not known here — §4 forbids overwriting a historical rate, and
-      // the quotation's FX belongs to the quotation. A cost in a foreign currency arrives raw and
-      // is converted by the builder's rate, which is where somebody can see and change it.
-      costFxRate: "1",
+      costFxRate:
+        supplied.currency === quotation.currency
+          ? "1"
+          : (input.fxRate ?? quotation.fxRate.toString()),
       leadTimeDays: supplied.leadTimeDays ?? base.leadTimeDays,
       // §3.5's link, and the whole reason this is one action rather than retyping.
       supplierQuoteLineId: supplied.id,
@@ -596,6 +636,9 @@ export async function applyRfqToQuotationService(
     // See the doc comment: the figures come from the server, not from a browser that was never
     // shown them.
     canSeeCost: true,
+    // Both the untouched lines and the newly applied ones are landed by the time they get here, so
+    // the engine must not apply FX or the buffer a second time.
+    costsAreLanded: true,
     lines,
   });
 

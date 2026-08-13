@@ -18,6 +18,7 @@ import { MarginPanel } from "./MarginPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
 import { NegotiationPanel } from "./NegotiationPanel";
+import { ReusePanel } from "./ReusePanel";
 import { RfqPanel } from "./RfqPanel";
 
 const STATUS_TONE: Record<string, StatusTone> = {
@@ -180,6 +181,12 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               revision={data.revision}
               currency={data.currency}
               onRevised={refresh}
+            />
+            <ReusePanel
+              quotationId={data.id}
+              currency={data.currency}
+              canSeeCost={canSeeCost}
+              editable={editable}
             />
             <ActivityFeed entityType="Quotation" entityId={data.id} />
           </div>

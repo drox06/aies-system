@@ -1022,3 +1022,62 @@ and make §4's FX buffer meaningless. It is not a database table: a configurable
 module 09's settings problem, and a second settings mechanism here is the trap already refused for
 `PaymentTerm` and the supplier register.
 
+---
+
+## 32. Landed cost is stored where a raw cost belongs, and it made FX silently wrong twice
+
+**Module:** 02. **Found by:** the company asking "is there something wrong with this?" about a
+comment that claimed a conversion the code did not perform.
+
+### What was wrong
+
+`QuotationLine.unitCost` holds the cost **after** FX and the buffer have been applied. Nothing on a
+saved line records that. So no code that receives a `unitCost` can tell whether it is a supplier's
+raw figure or one that has already been converted — and two paths guessed wrong.
+
+**One, mine, from §3's RFQ apply.** A supplier's EUR 1,450 was handed to the line service with a
+rate of 1, and stored as a cost of 1,450 **pesos** — about a sixty-fifth of the truth. Margin then
+looked enormous, §4's floor never tripped, and the quotation would have reached the VP's approval
+queue looking like the best deal of the year. The comment beside it said the cost "is converted by
+the builder's rate"; nothing converted it. A comment describing intent rather than behaviour is
+worse than no comment, because it stops the next reader looking.
+
+**Two, older, in the builder.** `LineEditor` loads the stored (landed) cost and re-sends the
+quotation's `fxBufferPct` with it on every save. Measured: a 3% buffer turns 1,000 into 1,030, then
+1,060.90, then 1,092.73. Cost creeps up and margin quietly down, once per save, for as long as
+somebody keeps editing.
+
+Neither was caught by tests, and the reason is worth naming: every existing test used a single
+currency and the default buffer of zero, so the multiplications were all by one.
+
+### What was done now
+
+`SaveLinesInput.costsAreLanded` — an explicit statement about the **data**, not about the caller's
+authority (which `canSeeCost` already covers). When set, the engine is given a rate of 1 and a
+buffer of 0, and the quotation's stored `fxBufferPct` is left alone rather than overwritten.
+
+§3's apply now converts the supplier's figure itself and **refuses when it cannot**: a quotation in
+PHP taking a EUR price with no rate set is stopped with a message saying so. A wrong rate is not
+better than a missing one.
+
+The *stored* `costFxRate` keeps the rate that was used even though the stored cost is already
+converted — §4: "Never overwrite a historical rate." The flag says the engine must not apply the
+rate twice, not that the rate never existed. Getting that wrong is what the third new test caught.
+
+### What is still wrong, deliberately left
+
+The builder's compounding buffer is **not fixed**. It is pre-existing, it is not mine to paper over
+at the end of a long session, and the right repair is the one §4 describes in the first place:
+
+> "Store `unitCost` in `costCurrency` **and** the `costFxRate` used at the time of quoting."
+
+That reads as *store the supplier's raw figure and the rate*, and derive landed cost on read. Doing
+that makes every save idempotent by construction and deletes this entire class of bug, including the
+one just patched. It touches the costing engine, both PDF documents, the what-if calculator, the RFQ
+apply and the stored meaning of existing rows, so it is the next session's first item rather than
+this one's last.
+
+**Until then:** setting the FX buffer and then editing a quotation repeatedly inflates its cost.
+Leave `fxBufferPct` at 0 and price the buffer into the rate, or check the margin panel after a run
+of edits.
+

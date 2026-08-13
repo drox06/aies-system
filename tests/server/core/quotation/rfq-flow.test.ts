@@ -381,6 +381,85 @@ describe("§3.5: applying the pricing back", () => {
     );
   }, 60_000);
 
+  it("refuses a foreign-currency cost when no exchange rate has been set", async () => {
+    // The defect this test exists for: a EUR 1,450 part was being stored as a cost of 1,450 *pesos*
+    // — about a sixty-fifth of the truth. The margin then looked enormous, the floor never tripped,
+    // and the quotation reached the VP's queue looking like the best deal of the year.
+    const supplier = await makePrincipal();
+    const quotation = await makeQuotation(); // PHP, with the default rate of 1
+    const rfq = await raise(quotation.id, supplier.id, [1]);
+    await markRfqSentService(actor, { rfqId: rfq.id });
+    await recordRfqResponseService(actor, {
+      rfqId: rfq.id,
+      currency: "EUR",
+      lines: [{ lineNo: 1, unitCost: "1450.00", currency: "EUR" }],
+    });
+
+    await expect(applyRfqToQuotationService(actor, { rfqId: rfq.id })).rejects.toThrow(
+      /no exchange rate has been set/,
+    );
+
+    // And nothing was written — a refusal that half-applied would be worse than the bug.
+    const line = await db.quotationLine.findFirstOrThrow({
+      where: { quotationId: quotation.id, lineNo: 1 },
+    });
+    expect(line.unitCost.toString()).toBe("0");
+  }, 60_000);
+
+  it("converts at the rate it is given, and records the rate it used", async () => {
+    const supplier = await makePrincipal();
+    const quotation = await makeQuotation();
+    const rfq = await raise(quotation.id, supplier.id, [1]);
+    await markRfqSentService(actor, { rfqId: rfq.id });
+    await recordRfqResponseService(actor, {
+      rfqId: rfq.id,
+      currency: "EUR",
+      lines: [{ lineNo: 1, unitCost: "1450.00", currency: "EUR" }],
+    });
+
+    await applyRfqToQuotationService(actor, { rfqId: rfq.id, fxRate: "65" });
+
+    const line = await db.quotationLine.findFirstOrThrow({
+      where: { quotationId: quotation.id, lineNo: 1 },
+    });
+    expect(line.unitCost.toString()).toBe("94250"); // 1,450 × 65
+    expect(line.costCurrency).toBe("EUR");
+    // §4: "Never overwrite a historical rate" — the rate used is on the line, so the arithmetic can
+    // be checked later even though the stored cost is already converted.
+    expect(Number(line.costFxRate)).toBe(65);
+  }, 60_000);
+
+  it("applies the FX buffer once, and does not compound it on a later apply", async () => {
+    const supplier = await makePrincipal();
+    const quotation = await makeQuotation();
+    await db.quotation.update({ where: { id: quotation.id }, data: { fxBufferPct: "3" } });
+
+    const rfq = await raise(quotation.id, supplier.id, [1]);
+    await markRfqSentService(actor, { rfqId: rfq.id });
+    await recordRfqResponseService(actor, {
+      rfqId: rfq.id,
+      lines: [{ lineNo: 1, unitCost: "1000.00" }],
+    });
+
+    await applyRfqToQuotationService(actor, { rfqId: rfq.id });
+    const first = await db.quotationLine.findFirstOrThrow({
+      where: { quotationId: quotation.id, lineNo: 1 },
+    });
+    expect(first.unitCost.toString()).toBe("1030"); // §4's buffer, applied once
+
+    // Applying the same request again must land on the same number, not 1,060.90.
+    await applyRfqToQuotationService(actor, { rfqId: rfq.id });
+    const second = await db.quotationLine.findFirstOrThrow({
+      where: { quotationId: quotation.id, lineNo: 1 },
+    });
+    expect(second.unitCost.toString()).toBe("1030");
+
+    // And the quotation's own buffer setting survives — applying supplier pricing says nothing
+    // about it.
+    const stored = await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+    expect(Number(stored.fxBufferPct)).toBe(3);
+  }, 60_000);
+
   it("refuses to apply a request with no recorded response", async () => {
     const supplier = await makePrincipal();
     const quotation = await makeQuotation();
