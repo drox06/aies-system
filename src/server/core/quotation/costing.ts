@@ -96,6 +96,31 @@ export function fromCentavos(value: Centavos): string {
  */
 export const MARGIN_FLOOR_PCT = 15;
 
+/**
+ * The landed cost of one line, in the quotation's currency.
+ *
+ * **`QuotationLine.unitCost` holds the supplier's raw figure**, in `costCurrency`, exactly as they
+ * quoted it. Landed cost — converted and buffered — is derived, here, by everything that needs it.
+ *
+ * It was the other way round until docs/DECISIONS.md #32: `unitCost` held the landed figure and
+ * nothing recorded that it did, so no caller could tell a raw supplier price from a converted one.
+ * Two bugs came out of that ambiguity, and both were arithmetic nobody could see: a EUR price stored
+ * as pesos, and an FX buffer that compounded a little more every time somebody pressed Save.
+ *
+ * Storing the raw figure is also what §4 asks for in as many words — "Store `unitCost` in
+ * `costCurrency` **and** the `costFxRate` used at the time of quoting" — and it makes a save
+ * idempotent by construction: feeding a stored line back in produces the same numbers, because the
+ * inputs are the inputs rather than a previous output.
+ */
+export function landedUnitCost(
+  unitCost: string | number,
+  costFxRate: string | number,
+  fxBufferPct: string | number | null | undefined,
+): Centavos {
+  const landedFx = rate(costFxRate) * (1 + pct(fxBufferPct) / 100);
+  return roundHalfUp(toCentavos(unitCost) * landedFx);
+}
+
 export const QUOTE_CURRENCIES = ["PHP", "USD", "EUR"] as const;
 export type QuoteCurrency = (typeof QUOTE_CURRENCIES)[number];
 

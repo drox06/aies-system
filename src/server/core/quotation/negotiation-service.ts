@@ -253,12 +253,13 @@ export async function whatIfService(input: {
   }
 
   const costingInput = {
+    // The stored line's own inputs, unchanged: raw cost, its rate, the quotation's buffer. That is
+    // exactly what a real save would feed the engine, which is what makes the answer here the same
+    // number the document would end up with (docs/DECISIONS.md #32).
     lines: quotation.lines.map((line) => ({
       quantity: line.quantity.toString(),
-      // Cost is already landed on the stored line, so it is re-fed at a rate of 1 with no buffer —
-      // the same rule the line service follows when it preserves cost.
       unitCost: line.unitCost.toString(),
-      costFxRate: "1",
+      costFxRate: line.costFxRate.toString(),
       markupPct: line.markupPct?.toString() ?? null,
       unitPrice: line.unitPrice.toString(),
       lineDiscountPct: line.lineDiscountPct?.toString() ?? null,
@@ -266,7 +267,7 @@ export async function whatIfService(input: {
     })),
     vatMode: quotation.vatMode as VatMode,
     vatRatePct: quotation.vatRatePct.toString(),
-    fxBufferPct: "0",
+    fxBufferPct: quotation.fxBufferPct.toString(),
     marginFloorPct: MARGIN_FLOOR_PCT,
   };
 

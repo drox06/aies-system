@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { createQuotationService } from "@/server/core/quotation/quotation-service";
+import { fromCentavos, landedUnitCost } from "@/server/core/quotation/costing";
 import { saveQuotationLinesService } from "@/server/core/quotation/quotation-line-service";
 import {
   diffRevisionsService,
@@ -80,7 +81,7 @@ describe("the line service is the only writer of the stored figures", () => {
     expect(stored.total.toString()).toBe("3472");
   });
 
-  it("stores the landed unit cost, not the raw input", async () => {
+  it("stores the supplier's raw cost and the rate, and derives the landed figure", async () => {
     const account = await db.customerAccount.create({
       data: { code: `FX-${randomUUID().slice(0, 12)}`, name: `FX Co ${suffix}`, ownerId: OWNER },
     });
@@ -111,9 +112,61 @@ describe("the line service is the only writer of the stored figures", () => {
     const line = await db.quotationLine.findFirstOrThrow({
       where: { quotationId: quotation.id },
     });
-    // $100 × 58.5 × 1.03 = ₱6,025.50 — FX and buffer applied once, at save.
-    expect(line.unitCost.toString()).toBe("6025.5");
+
+    // §4: "Store `unitCost` in `costCurrency` **and** the `costFxRate` used at the time of
+    // quoting." The supplier said $100; that is what is kept, with the rate beside it.
+    expect(line.unitCost.toString()).toBe("100");
+    expect(line.costCurrency).toBe("USD");
+    expect(line.costFxRate.toString()).toBe("58.5");
+
+    // The cost to AIES is derived: $100 × 58.5 × 1.03 = ₱6,025.50. Everything computed *from* it
+    // is still stored, because those are outputs rather than inputs.
+    expect(fromCentavos(landedUnitCost("100", "58.5", "3"))).toBe("6025.50");
+    expect(line.lineCost.toString()).toBe("6025.5");
     expect(line.unitPrice.toString()).toBe("7230.6");
+  });
+
+  it("produces the same figures however many times it is saved", async () => {
+    // The property the whole change exists for. Storing a landed cost and then feeding it back in
+    // as a raw one is what made the FX buffer compound: 1,000 → 1,030 → 1,060.90, once per save,
+    // showing up only as margin that quietly shrank. docs/DECISIONS.md #32.
+    const account = await db.customerAccount.create({
+      data: { code: `ID-${randomUUID().slice(0, 12)}`, name: `Idem Co ${suffix}`, ownerId: OWNER },
+    });
+    accountIds.push(account.id);
+    const quotation = await createQuotationService(actor, {
+      accountId: account.id,
+      title: "Saved over and over",
+    });
+    quotationIds.push(quotation.id);
+
+    const line = {
+      description: "Imported transmitter",
+      quantity: "1",
+      unitCost: "100.00",
+      costCurrency: "USD",
+      costFxRate: "58.5",
+      markupPct: "20",
+    };
+
+    let version = quotation.version;
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const saved = await saveQuotationLinesService(actor, {
+        quotationId: quotation.id,
+        version,
+        canSeeCost: true,
+        lines: [line],
+        fxBufferPct: "3",
+      });
+      version = saved.version;
+      const stored = await db.quotationLine.findFirstOrThrow({
+        where: { quotationId: quotation.id },
+      });
+      seen.push(stored.lineCost.toString());
+    }
+
+    expect(seen).toEqual(["6025.5", "6025.5", "6025.5", "6025.5"]);
   });
 });
 

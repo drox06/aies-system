@@ -20,7 +20,16 @@ export interface DraftLine {
   description: string;
   quantity: string;
   unit: string;
+  /**
+   * The **supplier's raw figure**, in `costCurrency` — not the cost to AIES after conversion.
+   *
+   * Carried with its currency and rate so a save round-trips them unchanged. Dropping them here
+   * would silently reset every line's rate to 1 on the next save, which for a EUR-priced line means
+   * recording a cost sixty-five times too low. docs/DECISIONS.md #32.
+   */
   unitCost: string;
+  costCurrency: string;
+  costFxRate: string;
   markupPct: string;
   unitPrice: string;
   lineDiscountPct: string;
@@ -33,6 +42,8 @@ export const BLANK_LINE: DraftLine = {
   quantity: "1",
   unit: "pc",
   unitCost: "",
+  costCurrency: "PHP",
+  costFxRate: "1",
   markupPct: "",
   unitPrice: "",
   lineDiscountPct: "",
@@ -97,6 +108,8 @@ export function LineEditor({
         lines: lines.map((line) => ({
           quantity: line.quantity || "0",
           unitCost: line.unitCost || "0",
+          costCurrency: line.costCurrency || "PHP",
+          costFxRate: line.costFxRate || "1",
           markupPct: line.markupPct === "" ? null : line.markupPct,
           unitPrice: line.unitPrice || "0",
           lineDiscountPct: line.lineDiscountPct === "" ? null : line.lineDiscountPct,
@@ -341,6 +354,11 @@ export function LineEditor({
                       ...(canSeeCost
                         ? {
                             unitCost: line.unitCost || "0",
+                            // Round-tripped unchanged. The builder does not edit these yet, but
+                            // dropping them would reset an imported supplier line's rate to 1 —
+                            // a EUR cost recorded sixty-five times too low. docs/DECISIONS.md #32.
+                            costCurrency: line.costCurrency || "PHP",
+                            costFxRate: line.costFxRate || "1",
                             markupPct: line.markupPct === "" ? null : line.markupPct,
                           }
                         : {}),

@@ -1064,20 +1064,36 @@ The *stored* `costFxRate` keeps the rate that was used even though the stored co
 converted — §4: "Never overwrite a historical rate." The flag says the engine must not apply the
 rate twice, not that the rate never existed. Getting that wrong is what the third new test caught.
 
-### What is still wrong, deliberately left
+### The root fix, done straight after
 
-The builder's compounding buffer is **not fixed**. It is pre-existing, it is not mine to paper over
-at the end of a long session, and the right repair is the one §4 describes in the first place:
+The patch above stopped one symptom. The company asked for the recommendations to be carried out if
+they made the app less susceptible to bugs later, so the cause was removed too:
 
-> "Store `unitCost` in `costCurrency` **and** the `costFxRate` used at the time of quoting."
+**`QuotationLine.unitCost` now holds the supplier's raw figure**, in `costCurrency`, with
+`costFxRate` beside it. Landed cost is derived by `landedUnitCost()` in `costing.ts` — which is what
+§4 asked for in the first place: "Store `unitCost` in `costCurrency` **and** the `costFxRate` used at
+the time of quoting."
 
-That reads as *store the supplier's raw figure and the rate*, and derive landed cost on read. Doing
-that makes every save idempotent by construction and deletes this entire class of bug, including the
-one just patched. It touches the costing engine, both PDF documents, the what-if calculator, the RFQ
-apply and the stored meaning of existing rows, so it is the next session's first item rather than
-this one's last.
+The property this buys is worth stating plainly: **a save is now idempotent by construction.**
+Feeding a stored line back through the engine produces the same numbers, because what is stored are
+the *inputs* rather than a previous output. There is a test that saves the same line four times and
+asserts the cost never moves; under the old design it went 6,025.50 → 6,206.27 → 6,392.46 → 6,584.23.
 
-**Until then:** setting the FX buffer and then editing a quotation repeatedly inflates its cost.
-Leave `fxBufferPct` at 0 and price the buffer into the rate, or check the margin panel after a run
-of edits.
+The `costsAreLanded` flag added an hour earlier was deleted. It existed to disambiguate raw from
+landed, and there is nothing left to disambiguate.
+
+**No data migration was needed**, and that was checked rather than assumed: the database held one
+quotation line, at cost 0, rate 1, buffer 0 — where raw and landed are the same number.
+
+What changed elsewhere, all of it mechanical once the rule was clear: the costing sheet derives the
+cost column instead of reading it; the what-if calculator feeds the stored line's own rate and the
+quotation's buffer, so its answer is the number a real save would produce; the RFQ apply hands the
+supplier's figure straight through and only has to decide the *rate*; and the builder round-trips
+`costCurrency` and `costFxRate` per line — without which the next save would reset an imported
+EUR line's rate to 1 and understate its cost sixty-fivefold, which is the original bug wearing a
+different hat.
+
+**What is still open:** the builder shows the raw cost and has no field for the rate, so a
+foreign-currency line can only be costed through the RFQ flow today. Adding a rate column to the
+line editor is small and belongs with §4's FX work.
 

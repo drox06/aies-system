@@ -103,8 +103,10 @@ describe("a salesperson editing a quotation cannot destroy its costs", () => {
   });
 
   it("does not re-apply FX or the buffer on a price-only save", async () => {
-    // The preserved cost is already landed. Applying the buffer again would inflate it a little
-    // more on every save — a slow leak that would only ever be noticed as shrinking margin.
+    // The leak this guards: cost creeping up a little on every save, visible only as margin that
+    // quietly shrank. It used to be possible because the stored cost was landed and indistinguishable
+    // from a raw one; now the stored figure is the supplier's own, so re-feeding it is harmless by
+    // construction. docs/DECISIONS.md #32.
     const account = await db.customerAccount.create({
       data: { code: `CX-${randomUUID().slice(0, 12)}`, name: `CX Co ${suffix}`, ownerId: OWNER },
     });
@@ -131,12 +133,12 @@ describe("a salesperson editing a quotation cannot destroy its costs", () => {
       fxBufferPct: "3",
     });
 
-    const landed = (
-      await db.quotationLine.findFirstOrThrow({
-        where: { quotationId: quotation.id },
-      })
-    ).unitCost.toString();
-    expect(landed).toBe("6025.5");
+    const afterFirst = await db.quotationLine.findFirstOrThrow({
+      where: { quotationId: quotation.id },
+    });
+    // Raw in, raw stored — with the landed figure showing up in what was computed from it.
+    expect(afterFirst.unitCost.toString()).toBe("100");
+    expect(afterFirst.lineCost.toString()).toBe("6025.5");
 
     // Three price-only saves in a row must not move the cost at all.
     let version = first.version;
@@ -151,8 +153,11 @@ describe("a salesperson editing a quotation cannot destroy its costs", () => {
     }
 
     const after = await db.quotationLine.findFirstOrThrow({ where: { quotationId: quotation.id } });
-    expect(after.unitCost.toString()).toBe("6025.5");
-    expect(after.costFxRate.toString()).toBe("1");
+    expect(after.unitCost.toString()).toBe("100");
+    // The rate is carried over with the cost it belongs to. It used to be replaced with 1, which
+    // was correct only because the cost it accompanied had already been multiplied by it.
+    expect(after.costFxRate.toString()).toBe("58.5");
+    expect(after.lineCost.toString()).toBe("6025.5");
   });
 
   it("gives a line the salesperson added no cost, rather than inventing one", async () => {

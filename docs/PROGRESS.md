@@ -939,27 +939,51 @@ this to move to the next column a PO should be uploaded in the Sent column."*
       an entry changes what every later test in the file sees. The first version of the reuse suite
       failed exactly that way, and the failure looked like a bug in the candidate query.
 
+### Also in session 4 — cost is stored raw, and the FX class of bug is gone
+
+Asked whether the RFQ apply was sound. It was not, and the cause ran deeper than the symptom.
+
+- [x] **The symptom:** a supplier's EUR 1,450 was stored as a cost of 1,450 **pesos** — about a
+      sixty-fifth of the truth. Margin looked enormous, §4's floor never tripped, and the quotation
+      would have reached the VP's queue looking like the best deal of the year. The comment beside it
+      claimed a conversion the code did not perform.
+- [x] **The cause:** `QuotationLine.unitCost` held the cost *after* FX and the buffer, and nothing
+      recorded that it did — so no caller could tell a raw supplier figure from a converted one. A
+      second live instance was found by probing rather than guessing: the builder reloaded the landed
+      cost and re-sent the buffer with it, so a 3% buffer compounded on every save (1,000 → 1,030 →
+      1,060.90).
+- [x] **The fix, which is what §4 asked for all along** — "Store `unitCost` in `costCurrency` **and**
+      the `costFxRate` used at the time of quoting". `unitCost` is now the supplier's raw figure;
+      landed cost is derived by `landedUnitCost()` in `costing.ts`.
+- [x] **A save is now idempotent by construction**, because what is stored are the *inputs* rather
+      than a previous output. There is a test that saves the same line four times and asserts the
+      cost never moves; under the old design it went 6,025.50 → 6,206.27 → 6,392.46 → 6,584.23.
+- [x] **No data migration was needed, and that was checked rather than assumed:** the database held
+      one quotation line, at cost 0, rate 1, buffer 0 — where raw and landed are the same number.
+- [x] The `costsAreLanded` flag added an hour earlier was deleted; there is nothing left to
+      disambiguate. The costing sheet derives its cost column, the what-if calculator feeds the
+      stored rate and the quotation's buffer, and the builder round-trips `costCurrency` and
+      `costFxRate` per line — without which the next save would reset an imported EUR line's rate to
+      1 and reproduce the original bug.
+- [x] 167 tests across the quotation suite; four existing assertions were rewritten because they
+      asserted the old contract, two of them by name. docs/DECISIONS.md #32.
+
+**Still open on FX:** the builder shows the raw cost and has no field for the rate, so a
+foreign-currency line can only be costed through the RFQ flow today. A rate column on the line editor
+is small and belongs with §4's FX work.
+
 ### Next concrete step
 
-**Module 02 is feature-complete against specs/02-quotation.md except §9's quote templates — but fix
-the FX defect first.**
+**Module 02 is feature-complete against specs/02-quotation.md except §9's quote templates.**
 
-1. **Store raw cost, not landed cost** (docs/DECISIONS.md #32). `QuotationLine.unitCost` holds the
-   cost *after* FX and the buffer, and nothing records that it does — so no caller can tell a raw
-   supplier figure from a converted one. It has already produced two bugs: a EUR cost stored as
-   pesos (patched), and the builder's FX buffer compounding on every save (**still live** — a 3%
-   buffer takes 1,000 to 1,030 to 1,060.90). §4 asks for the raw figure and the rate to be stored
-   and landed cost derived, which makes every save idempotent and deletes the class. Touches the
-   costing engine, both PDFs, the what-if calculator and the RFQ apply.
-   *Until it is done:* leave `fxBufferPct` at 0 and price the buffer into the rate.
-2. **§9's quote templates** ("for repeat scopes — annual PM contract, standard calibration
+1. **§9's quote templates** ("for repeat scopes — annual PM contract, standard calibration
    package") are the one thing in the spec's list that is not built. They were left rather than
    rushed: a template is a *saved* quotation shape with no customer, which is either a new model or
    a flag on `Quotation`, and that choice deserves its own sitting rather than the tail of a long
    session. Duplicating an existing quotation covers most of the same ground today.
-3. **Module 02's review gate**, following module 00's pattern: read specs/02-quotation.md §12 end to
+2. **Module 02's review gate**, following module 00's pattern: read specs/02-quotation.md §12 end to
    end against what exists, then tag `module-02-complete`.
-4. Then **module 03** proper — its `CustomerPO` opening act is already in place from session 3, and
+3. Then **module 03** proper — its `CustomerPO` opening act is already in place from session 3, and
    `specs/03-order-procurement.md` §1 fans out into sales order, procurement, finance and
    operations.
 
@@ -1021,6 +1045,12 @@ Notes for whoever picks this up:
     against a compile-time problem. docs/DECISIONS.md #28.
   - `.tsx` outside Next's own compilation (the PDF documents) needs the automatic JSX runtime
     configured explicitly — `vitest.config.ts` sets it; plain `tsx` scripts cannot import them.
+  - **The pre-commit hook rewrites your files.** `.husky/pre-commit` runs `lint-staged`, which runs
+    `eslint --fix` and `prettier --write` over everything staged — so what lands in a commit is not
+    byte-for-byte what was staged, and every commit in this build has been reformatted on the way in.
+    It stashes first and restores after, so if a commit is interrupted, check `git stash list` before
+    concluding that work was lost. Treat `.husky/` as reviewable code: it is one line today, and a
+    hook is arbitrary code running with your permissions and access to `.env`.
   - **Run nothing else against the dev database while the suite runs** — no dev server, and no
     second `vitest` invocation. Both have produced a red run that looked like a regression:
     `queue.test.ts` once failed asserting `dead` on a job the dev drainer had already claimed, and

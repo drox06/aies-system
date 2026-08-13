@@ -5,7 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
 import { formatMoneyCode } from "@/lib/format";
-import { MARGIN_FLOOR_PCT } from "@/server/core/quotation/costing";
+import { fromCentavos, landedUnitCost, MARGIN_FLOOR_PCT } from "@/server/core/quotation/costing";
 import { quotationDisplayNumber } from "@/server/core/quotation/quotation-number";
 import { termsFromRecord } from "@/server/core/quotation/terms";
 import {
@@ -193,6 +193,7 @@ export async function buildCostingPdfProps(
 ): Promise<CostingSheetPdfProps> {
   const quotation = await loadQuotation(quotationId);
   const currency = quotation.currency;
+  const fxBufferPct = quotation.fxBufferPct.toString();
 
   const lines: CostingLine[] = quotation.lines.map((line) => {
     const lineTotal = Number(line.lineTotal);
@@ -203,7 +204,14 @@ export async function buildCostingPdfProps(
       description: line.description,
       quantity: line.quantity.toString(),
       unit: line.unit,
-      unitCost: formatMoneyCode(line.unitCost.toString(), currency),
+      // Derived, not read: `unitCost` is the supplier's raw figure in `costCurrency`, and this
+      // column is the cost to AIES in the quotation's currency (docs/DECISIONS.md #32).
+      unitCost: formatMoneyCode(
+        fromCentavos(
+          landedUnitCost(line.unitCost.toString(), line.costFxRate.toString(), fxBufferPct),
+        ),
+        currency,
+      ),
       unitPrice: formatMoneyCode(line.unitPrice.toString(), currency),
       lineCost: formatMoneyCode(line.lineCost.toString(), currency),
       lineTotal: formatMoneyCode(line.lineTotal.toString(), currency),

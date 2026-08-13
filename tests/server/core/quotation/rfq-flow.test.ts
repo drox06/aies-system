@@ -14,6 +14,7 @@ import {
 } from "@/server/core/quotation/rfq-service";
 import { saveQuotationLinesService } from "@/server/core/quotation/quotation-line-service";
 import { createQuotationService } from "@/server/core/quotation/quotation-service";
+import { fromCentavos, landedUnitCost } from "@/server/core/quotation/costing";
 
 /**
  * specs/02-quotation.md §3's supplier RFQ sub-flow.
@@ -422,11 +423,15 @@ describe("§3.5: applying the pricing back", () => {
     const line = await db.quotationLine.findFirstOrThrow({
       where: { quotationId: quotation.id, lineNo: 1 },
     });
-    expect(line.unitCost.toString()).toBe("94250"); // 1,450 × 65
+    // The supplier's own figure, in the supplier's own currency, with the rate beside it — §4's
+    // wording exactly. Nothing is pre-multiplied into storage.
+    expect(line.unitCost.toString()).toBe("1450");
     expect(line.costCurrency).toBe("EUR");
-    // §4: "Never overwrite a historical rate" — the rate used is on the line, so the arithmetic can
-    // be checked later even though the stored cost is already converted.
     expect(Number(line.costFxRate)).toBe(65);
+    // The cost to AIES is derived, and it is what the margin was computed against.
+    expect(fromCentavos(landedUnitCost("1450", "65", "0"))).toBe("94250.00");
+    // `lineCost` is that times the quantity, which is 2 on this line.
+    expect(line.lineCost.toString()).toBe("188500");
   }, 60_000);
 
   it("applies the FX buffer once, and does not compound it on a later apply", async () => {
@@ -445,14 +450,19 @@ describe("§3.5: applying the pricing back", () => {
     const first = await db.quotationLine.findFirstOrThrow({
       where: { quotationId: quotation.id, lineNo: 1 },
     });
-    expect(first.unitCost.toString()).toBe("1030"); // §4's buffer, applied once
+    // Stored raw; §4's 3% buffer shows up in the derived cost, applied exactly once. `lineCost` is
+    // the unit figure times the quantity, which is 2 on this line.
+    expect(first.unitCost.toString()).toBe("1000");
+    expect(fromCentavos(landedUnitCost("1000", "1", "3"))).toBe("1030.00");
+    expect(first.lineCost.toString()).toBe("2060");
 
     // Applying the same request again must land on the same number, not 1,060.90.
     await applyRfqToQuotationService(actor, { rfqId: rfq.id });
     const second = await db.quotationLine.findFirstOrThrow({
       where: { quotationId: quotation.id, lineNo: 1 },
     });
-    expect(second.unitCost.toString()).toBe("1030");
+    expect(second.unitCost.toString()).toBe("1000");
+    expect(second.lineCost.toString()).toBe("2060");
 
     // And the quotation's own buffer setting survives — applying supplier pricing says nothing
     // about it.
