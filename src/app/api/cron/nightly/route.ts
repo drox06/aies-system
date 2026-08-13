@@ -6,6 +6,7 @@ import {
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 import { sweepPrincipalExpiries } from "@/server/core/crm/principal-service";
 import { sweepQuotationExpiries } from "@/server/core/quotation/expiry-service";
+import { sweepOverdueRfqs } from "@/server/core/quotation/rfq-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepFollowUps } from "@/server/core/crm/pipeline-service";
 
@@ -89,6 +90,15 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] quotation expiry sweep failed:", error);
     results.quotationExpiries = { error: String(error) };
+  }
+
+  // specs/02-quotation.md §3.3: "Overdue RFQs (past `dueBy`) surface in a dashboard list and notify
+  // the owner." Nothing can be costed until the supplier answers.
+  try {
+    results.overdueRfqs = await sweepOverdueRfqs();
+  } catch (error) {
+    console.error("[cron/nightly] overdue RFQ sweep failed:", error);
+    results.overdueRfqs = { error: String(error) };
   }
 
   return NextResponse.json(results);

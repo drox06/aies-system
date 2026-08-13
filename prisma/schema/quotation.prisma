@@ -262,6 +262,17 @@ model SupplierQuoteLine {
   requestId String
   lineNo    Int
 
+  // The quotation line this was raised from, by **line number** rather than by id.
+  //
+  // `saveQuotationLinesService` deletes and recreates every line on each save, so a `QuotationLine`
+  // id is not stable and a foreign key to it would dangle after the next edit. Line number is what
+  // the rest of this module already matches on (see the cost-preservation logic in that service).
+  //
+  // Recorded rather than inferred from position: an RFQ raised on quotation lines 2 and 5 has RFQ
+  // lines 1 and 2, and without this the mapping back is gone. Null when a line was typed straight
+  // into the RFQ — asking a supplier about something not yet on the quotation is legitimate.
+  sourceLineNo Int?
+
   description  String
   manufacturer String?
   modelNumber  String?

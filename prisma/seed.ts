@@ -274,6 +274,9 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
     format: "AIESIQ{YY}{####}",
     label: "Quotation (indent / international)",
   },
+  // specs/02-quotation.md §3's supplier price request. Its own series: an RFQ is a document AIES
+  // sends to a principal and refers to by number in the follow-up email.
+  { documentType: "supplier_rfq", format: "RFQ-{YY}-{####}", label: "Supplier RFQ" },
   { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
   { documentType: "supplier_po", format: "PO-{YY}-{#####}", label: "Supplier PO" },
   { documentType: "ticket", format: "TKT-{YY}-{#####}", label: "Ticket" },

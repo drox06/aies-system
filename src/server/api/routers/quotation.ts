@@ -23,6 +23,15 @@ import {
   recordQuotationDownloadService,
 } from "@/server/core/quotation/send-service";
 import {
+  applyRfqToQuotationService,
+  compareRfqsForQuotationService,
+  createSupplierRfqService,
+  listRfqsForQuotationService,
+  listRfqSuppliersService,
+  markRfqSentService,
+  recordRfqResponseService,
+} from "@/server/core/quotation/rfq-service";
+import {
   decideQuotationApprovalService,
   getQuotationApprovalStateService,
   listQuotationApprovalQueueService,
@@ -223,6 +232,82 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => confirmQuotationSentService(actorMeta(ctx), input)),
+
+  // ---- §3 supplier RFQ ------------------------------------------------------------------------
+
+  /** Appointed principals only — §5c makes that the stage at which an agreement exists. */
+  rfqSuppliers: p("supplier_rfq.manage").query(() => listRfqSuppliersService()),
+
+  rfqsForQuotation: p("quotation.view")
+    .input(z.object({ quotationId: z.string() }))
+    .query(({ input }) => listRfqsForQuotationService(input.quotationId)),
+
+  /** §3.6's matrix. Read-gated with the quotation, since it carries supplier cost. */
+  rfqComparison: p("finance.view_cost")
+    .input(z.object({ quotationId: z.string() }))
+    .query(({ input }) => compareRfqsForQuotationService(input.quotationId)),
+
+  createRfq: p("supplier_rfq.manage")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        supplierId: z.string(),
+        sourceLineNos: z.array(z.number().int().positive()).optional(),
+        dueBy: z.coerce.date().nullish(),
+        notes: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createSupplierRfqService(actorMeta(ctx), input)),
+
+  /** §3.2's "mark as sent", which starts the response clock. */
+  markRfqSent: p("supplier_rfq.manage")
+    .input(
+      z.object({
+        rfqId: z.string(),
+        sentAt: z.coerce.date().nullish(),
+        dueBy: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => markRfqSentService(actorMeta(ctx), input)),
+
+  recordRfqResponse: p("supplier_rfq.manage")
+    .input(
+      z.object({
+        rfqId: z.string(),
+        lines: z.array(
+          z.object({
+            lineNo: z.number().int().positive(),
+            unitCost: z.string().min(1),
+            currency: z.string().optional(),
+            leadTimeDays: z.number().int().nullish(),
+            notes: z.string().nullish(),
+          }),
+        ),
+        responseNotes: z.string().nullish(),
+        currency: z.string().nullish(),
+        validUntil: z.coerce.date().nullish(),
+        leadTimeDays: z.number().int().nullish(),
+        responseFileId: z.string().nullish(),
+        respondedAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordRfqResponseService(actorMeta(ctx), input)),
+
+  /**
+   * §3.5. Gated on `supplier_rfq.manage`, **not** on `finance.view_cost`.
+   *
+   * §3 gives this to PD, who by Spec.md §4.3 cannot see quotation cost. The service reads the
+   * figures from the stored RFQ rather than from the request body, so applying them does not
+   * require the caller to have been shown them — see its doc comment.
+   */
+  applyRfq: p("supplier_rfq.manage")
+    .input(
+      z.object({
+        rfqId: z.string(),
+        lineNos: z.array(z.number().int().positive()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => applyRfqToQuotationService(actorMeta(ctx), input)),
 
   // ---- §5 revisions --------------------------------------------------------------------------
 
