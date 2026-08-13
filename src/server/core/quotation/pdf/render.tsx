@@ -17,6 +17,7 @@ import {
   type CostingLine,
   type CostingSheetPdfProps,
 } from "./CostingSheetDocument";
+import { RfqDocument, type RfqPdfProps } from "./RfqDocument";
 
 /**
  * Assembling a quotation into one of the two documents (specs/02-quotation.md §7).
@@ -245,4 +246,55 @@ export async function renderCostingSheetPdf(
   return renderToBuffer(
     <CostingSheetDocument {...await buildCostingPdfProps(quotationId, generatedFor)} />,
   );
+}
+
+/**
+ * §3.2's attachable request.
+ *
+ * Assembled here with the other documents so `logoDataUri` and the date formatter stay in one place,
+ * and split from the renderer for the same reason the others are: props can be asserted on, bytes
+ * cannot.
+ */
+export async function buildRfqPdfProps(rfqId: string): Promise<RfqPdfProps> {
+  const rfq = await db.supplierQuoteRequest.findFirstOrThrow({
+    where: { id: rfqId, deletedAt: null },
+    include: { lines: { orderBy: { lineNo: "asc" } } },
+  });
+
+  const supplier = await db.principalProspect.findUnique({
+    where: { id: rfq.supplierId },
+    select: { companyName: true, contactName: true },
+  });
+  const requester = await db.user.findUnique({
+    where: { id: rfq.requestedById },
+    select: { name: true },
+  });
+
+  return {
+    number: rfq.number,
+    issuedOn: fmtDate(rfq.sentAt ?? rfq.createdAt),
+    dueBy: rfq.dueBy ? fmtDate(rfq.dueBy) : null,
+    company: getCompanyDetails(),
+    supplier: {
+      name: supplier?.companyName ?? "Supplier",
+      contactName: supplier?.contactName ?? null,
+    },
+    // Any free-text note went into the stored request body when the RFQ was raised, so it is not
+    // re-derived here: the PDF carries the line list and the questions, the email carries the rest.
+    notes: null,
+    lines: rfq.lines.map((line) => ({
+      lineNo: line.lineNo,
+      description: line.description,
+      manufacturer: line.manufacturer,
+      modelNumber: line.modelNumber,
+      quantity: line.quantity.toString(),
+      unit: line.unit,
+    })),
+    requestedBy: requester?.name ?? rfq.requestedById,
+    logoSrc: logoDataUri(),
+  };
+}
+
+export async function renderRfqPdf(rfqId: string): Promise<Buffer> {
+  return renderToBuffer(<RfqDocument {...await buildRfqPdfProps(rfqId)} />);
 }

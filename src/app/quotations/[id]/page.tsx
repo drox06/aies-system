@@ -17,6 +17,7 @@ import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
+import { RfqPanel } from "./RfqPanel";
 
 const STATUS_TONE: Record<string, StatusTone> = {
   draft: "draft",
@@ -200,6 +201,17 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               </p>
             )}
           </Card>
+
+          <RfqPanel
+            quotationId={data.id}
+            editable={editable}
+            canSeeCost={canSeeCost}
+            lines={data.lines.map((line, index) => ({
+              lineNo: index + 1,
+              description: line.description,
+            }))}
+            onApplied={refresh}
+          />
 
           <TermsPanel
             quotationId={data.id}
