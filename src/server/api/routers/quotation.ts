@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { p, router, type Context } from "@/server/api/trpc";
 import { QUOTE_CURRENCIES, VAT_MODES } from "@/server/core/quotation/costing";
+import { LOST_REASONS } from "@/server/core/crm/inquiry-lifecycle";
+import {
+  listNegotiationRoundsService,
+  logNegotiationRoundService,
+  rejectQuotationService,
+  startNegotiationService,
+  whatIfService,
+} from "@/server/core/quotation/negotiation-service";
 import { QUOTE_TYPES } from "@/server/core/quotation/quotation-number";
 import { REVISION_REASONS } from "@/server/core/quotation/quotation-lifecycle";
 import {
@@ -308,6 +316,54 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => applyRfqToQuotationService(actorMeta(ctx), input)),
+
+  // ---- §8 negotiation -------------------------------------------------------------------------
+
+  startNegotiation: p("quotation.edit")
+    .input(z.object({ quotationId: z.string() }))
+    .mutation(({ ctx, input }) => startNegotiationService(actorMeta(ctx), input)),
+
+  negotiationRounds: p("quotation.view")
+    .input(z.object({ quotationId: z.string() }))
+    .query(({ input }) => listNegotiationRoundsService(input.quotationId)),
+
+  logNegotiationRound: p("quotation.edit")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        customerPosition: z.string().min(1),
+        aiesResponse: z.string().min(1),
+        agreedTotal: z.string().nullish(),
+        resultingQuotationId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => logNegotiationRoundService(actorMeta(ctx), input)),
+
+  /**
+   * §8's what-if. Gated on `finance.view_cost` because the answer *is* a margin — a calculator that
+   * returned it to somebody who may not see margin would be the gate's own back door.
+   */
+  whatIf: p("finance.view_cost")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        targetTotal: z.string().optional(),
+        targetDiscountPct: z.string().optional(),
+      }),
+    )
+    .query(({ input }) => whatIfService(input)),
+
+  /** The customer said no. §8's loss reason is module 01's picklist, deliberately. */
+  recordRejection: p("quotation.edit")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        lostReason: z.enum(LOST_REASONS),
+        competitor: z.string().nullish(),
+        notes: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => rejectQuotationService(actorMeta(ctx), input)),
 
   // ---- §5 revisions --------------------------------------------------------------------------
 

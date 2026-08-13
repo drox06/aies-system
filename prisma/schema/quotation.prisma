@@ -111,7 +111,16 @@ model Quotation {
   sentToContactIds String[]  @default([])
 
   decisionAt      DateTime?
+  // Why the **VP** sent it back to draft (§6). Distinct from `lostReason` below, which is why the
+  // *customer* said no — conflating them would make a report about internal rework and one about
+  // lost business read from the same column.
   rejectionReason String?
+
+  // §8's win/loss analytics. `lostReason` uses module 01's LOST_REASONS picklist, deliberately, so
+  // a loss recorded on a quotation and one recorded on an inquiry aggregate together instead of
+  // being two vocabularies for one question.
+  lostReason String?
+  competitor String?
 
   // §5's revision reason — ISO 9001 clause 8.2.4 evidence for changes to requirements.
   revisionReason String?
@@ -136,15 +145,16 @@ model Quotation {
   deletedAt DateTime?
   deletedBy String?
 
-  account     CustomerAccount        @relation(fields: [accountId], references: [id])
-  inquiry     Inquiry?               @relation(fields: [inquiryId], references: [id])
-  site        Site?                  @relation(fields: [siteId], references: [id])
-  contact     Contact?               @relation(fields: [contactId], references: [id])
-  parent      Quotation?             @relation("QuotationRevisions", fields: [parentQuotationId], references: [id])
-  children    Quotation[]            @relation("QuotationRevisions")
-  lines       QuotationLine[]
-  rfqs        SupplierQuoteRequest[]
-  customerPOs CustomerPO[]
+  account           CustomerAccount        @relation(fields: [accountId], references: [id])
+  inquiry           Inquiry?               @relation(fields: [inquiryId], references: [id])
+  site              Site?                  @relation(fields: [siteId], references: [id])
+  contact           Contact?               @relation(fields: [contactId], references: [id])
+  parent            Quotation?             @relation("QuotationRevisions", fields: [parentQuotationId], references: [id])
+  children          Quotation[]            @relation("QuotationRevisions")
+  lines             QuotationLine[]
+  rfqs              SupplierQuoteRequest[]
+  customerPOs       CustomerPO[]
+  negotiationRounds NegotiationRound[]
 
   // One row per revision of a number.
   @@unique([number, revision])
@@ -345,4 +355,44 @@ model PaymentTerm {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// §8: "Status `under_negotiation` with a structured log: each round records the customer's
+// counter-position, AIES's response, who authorised it, and the resulting revision (if any)."
+//
+// A **log**, not fields on the quotation. A negotiation is a sequence — three rounds of push and
+// counter-push is the normal case — and columns can only hold the last one. §1 makes this module the
+// place the company's margin decisions are recorded, and "we came down twice and they still walked"
+// is exactly the kind of thing that is invisible if only the final position is kept.
+model NegotiationRound {
+  id          String @id @default(cuid())
+  quotationId String
+  roundNo     Int
+
+  occurredAt DateTime @default(now())
+
+  // What they asked for, in their words where possible.
+  customerPosition String
+  // What AIES said back.
+  aiesResponse     String
+
+  // Who agreed to it. §8 asks for this by name because a concession is a margin decision, and the
+  // person who made it should be answerable for it later.
+  authorisedById String
+
+  // The revision this round produced, if it produced one. Null when the round was a conversation
+  // that changed nothing — which is itself worth recording.
+  resultingQuotationId String?
+
+  // Where the price landed after this round, so the log reads as a sequence of positions rather
+  // than requiring a reader to reconstruct it from revisions.
+  agreedTotal Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotation Quotation @relation(fields: [quotationId], references: [id])
+
+  @@unique([quotationId, roundNo])
+  @@index([quotationId])
 }

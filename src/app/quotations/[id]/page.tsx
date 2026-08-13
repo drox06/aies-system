@@ -17,6 +17,7 @@ import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
+import { NegotiationPanel } from "./NegotiationPanel";
 import { RfqPanel } from "./RfqPanel";
 
 const STATUS_TONE: Record<string, StatusTone> = {
@@ -165,6 +166,13 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               marginAmount={data.marginAmount}
               marginPct={data.marginPct}
               stale={dirty}
+            />
+            <NegotiationPanel
+              quotationId={data.id}
+              status={data.status}
+              currency={data.currency}
+              canSeeCost={canSeeCost}
+              onChanged={refresh}
             />
             <RevisionPanel
               quotationId={data.id}

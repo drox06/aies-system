@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
 import { formatMoneyCode } from "@/lib/format";
+import { MARGIN_FLOOR_PCT } from "@/server/core/quotation/costing";
 import { quotationDisplayNumber } from "@/server/core/quotation/quotation-number";
 import { termsFromRecord } from "@/server/core/quotation/terms";
 import {
@@ -184,7 +185,7 @@ export async function renderCustomerQuotationPdf(quotationId: string): Promise<B
 }
 
 /** §4's margin floor, until module 09's settings can hold it. */
-export const MARGIN_FLOOR_PCT = 15;
+export { MARGIN_FLOOR_PCT } from "@/server/core/quotation/costing";
 
 export async function buildCostingPdfProps(
   quotationId: string,

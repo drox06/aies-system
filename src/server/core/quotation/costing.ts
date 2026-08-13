@@ -85,6 +85,17 @@ export function fromCentavos(value: Centavos): string {
  * Not a database table: a currency list that changes is module 09's settings problem, and inventing
  * a second settings mechanism here is the trap this build has refused repeatedly.
  */
+/**
+ * §4's margin floor: "a warning when any line is below the configured floor".
+ *
+ * Here rather than in the PDF renderer, which is where it was first written. It is a pricing rule —
+ * the costing sheet prints it, the what-if calculator tests against it, and §8's approval offer
+ * turns on it — and a rule three callers need has no business living in a document.
+ *
+ * A constant until module 09's settings exist, like every other "configurable" value in this build.
+ */
+export const MARGIN_FLOOR_PCT = 15;
+
 export const QUOTE_CURRENCIES = ["PHP", "USD", "EUR"] as const;
 export type QuoteCurrency = (typeof QUOTE_CURRENCIES)[number];
 
