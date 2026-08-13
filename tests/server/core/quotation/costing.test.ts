@@ -278,3 +278,77 @@ describe("discountForTargetTotal — §8's what-if", () => {
     expect(discountForTargetTotal(input, "2800.00").discountAmount).toBe(0);
   });
 });
+
+describe("§4: a header discount distributes across the lines", () => {
+  it("takes each line's share and leaves the total intact", () => {
+    // Two lines, 1,000 and 3,000, with a 400 header discount: 100 off the first, 300 off the second.
+    const result = computeCosting({
+      lines: [
+        { quantity: "1", unitCost: "500", unitPrice: "1000" },
+        { quantity: "1", unitCost: "1500", unitPrice: "3000" },
+      ],
+      headerDiscount: "400",
+      vatMode: "zero_rated",
+    });
+
+    expect(fromCentavos(result.lines[0]!.lineTotal)).toBe("900.00");
+    expect(fromCentavos(result.lines[1]!.lineTotal)).toBe("2700.00");
+    // The header figures are unchanged by the distribution — it is a view onto the same money.
+    expect(fromCentavos(result.subtotal)).toBe("4000.00");
+    expect(fromCentavos(result.discountAmount)).toBe("400.00");
+    expect(fromCentavos(result.total)).toBe("3600.00");
+    // 3,600 net against 2,000 cost.
+    expect(fromCentavos(result.marginAmount)).toBe("1600.00");
+  });
+
+  it("makes the floor warning tell the truth about a discounted quotation", () => {
+    // The reason this matters. At list price the line clears the 15% floor comfortably; after a
+    // heavy header discount it does not, and before this the warning stayed silent.
+    const atList = computeCosting({
+      lines: [{ quantity: "1", unitCost: "850", unitPrice: "1000" }],
+      headerDiscount: "0",
+      vatMode: "zero_rated",
+      marginFloorPct: 15,
+    });
+    expect(atList.linesBelowFloor).toEqual([]);
+
+    const discounted = computeCosting({
+      lines: [{ quantity: "1", unitCost: "850", unitPrice: "1000" }],
+      headerDiscount: "100",
+      vatMode: "zero_rated",
+      marginFloorPct: 15,
+    });
+    expect(discounted.linesBelowFloor).toEqual([0]);
+  });
+
+  it("leaves an optional line alone, since it is not in the subtotal", () => {
+    const result = computeCosting({
+      lines: [
+        { quantity: "1", unitCost: "500", unitPrice: "1000" },
+        { quantity: "1", unitCost: "100", unitPrice: "500", isOptional: true },
+      ],
+      headerDiscount: "100",
+      vatMode: "zero_rated",
+    });
+
+    expect(fromCentavos(result.lines[0]!.lineTotal)).toBe("900.00");
+    expect(fromCentavos(result.lines[1]!.lineTotal)).toBe("500.00");
+  });
+
+  it("gives the rounding remainder to the largest line, so the parts sum exactly", () => {
+    // Three equal lines and a discount that does not divide by three.
+    const result = computeCosting({
+      lines: [
+        { quantity: "1", unitCost: "0", unitPrice: "100" },
+        { quantity: "1", unitCost: "0", unitPrice: "100" },
+        { quantity: "1", unitCost: "0", unitPrice: "100" },
+      ],
+      headerDiscount: "10",
+      vatMode: "zero_rated",
+    });
+
+    const summed = result.lines.reduce((sum, line) => sum + line.lineTotal, 0);
+    expect(fromCentavos(summed)).toBe("290.00");
+    expect(fromCentavos(result.subtotal - result.discountAmount)).toBe("290.00");
+  });
+});

@@ -272,6 +272,45 @@ export function computeCosting(input: CostingInput): CostingResult {
   // negotiated. This is the number §8's what-if calculator moves.
   const marginAmount = netAmount - totalCost;
 
+  /**
+   * §4: "Header-level discount distributes proportionally across lines and recomputes margin."
+   *
+   * Without this, every line reports the margin it had *before* the discount — so a quotation
+   * discounted twenty per cent still shows healthy line margins, and §4's floor warning stays
+   * silent on lines that are now underwater. The header total was always right; it was the per-line
+   * view, which is what the margin panel colours and the costing sheet flags, that was not.
+   *
+   * Distributed by share of `lineTotal`, with the rounding remainder given to the largest line so
+   * the parts sum to the discount exactly. Optional lines are excluded, because they are not in the
+   * subtotal the discount was taken from.
+   */
+  if (discountAmount > 0 && subtotal > 0) {
+    const countedIndexes = lines.flatMap((line, index) => (line.isOptional ? [] : [index]));
+    let allocated = 0;
+    let largest = countedIndexes[0] ?? 0;
+
+    for (const index of countedIndexes) {
+      const line = lines[index]!;
+      const share = roundHalfUp((line.lineTotal / subtotal) * discountAmount);
+      line.lineTotal -= share;
+      allocated += share;
+      if (line.lineTotal > lines[largest]!.lineTotal) largest = index;
+    }
+
+    // The remainder is a centavo or two either way; putting it anywhere but the biggest line would
+    // be visible as a rounding artefact on a small one.
+    const remainder = discountAmount - allocated;
+    if (remainder !== 0 && countedIndexes.length > 0) {
+      lines[largest]!.lineTotal -= remainder;
+    }
+
+    for (const index of countedIndexes) {
+      const line = lines[index]!;
+      line.lineMargin = line.lineTotal - line.lineCost;
+      line.marginPct = line.lineTotal === 0 ? null : (line.lineMargin / line.lineTotal) * 100;
+    }
+  }
+
   const vatRate = input.vatRatePct === undefined ? 12 : pct(input.vatRatePct);
   const vatMode: VatMode = input.vatMode ?? "exclusive";
 

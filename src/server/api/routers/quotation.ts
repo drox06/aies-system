@@ -5,7 +5,11 @@ import { LOST_REASONS } from "@/server/core/crm/inquiry-lifecycle";
 import {
   addProductFromLineService,
   catalogueCandidatesService,
+  createQuotationFromTemplateService,
+  deactivateQuoteTemplateService,
   duplicateQuotationService,
+  listQuoteTemplatesService,
+  saveQuotationAsTemplateService,
   staleCostReportService,
 } from "@/server/core/quotation/reuse-service";
 import {
@@ -414,6 +418,35 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => addProductFromLineService(actorMeta(ctx), input)),
+
+  /** §9's templates: the shape of a repeat job, with the customer left out. */
+  templates: p("quotation.create").query(() => listQuoteTemplatesService()),
+
+  saveAsTemplate: p("quotation.create")
+    .input(
+      z.object({
+        quotationId: z.string(),
+        name: z.string().min(1),
+        description: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveQuotationAsTemplateService(actorMeta(ctx), input)),
+
+  createFromTemplate: p("quotation.create")
+    .input(
+      z.object({
+        templateId: z.string(),
+        accountId: z.string(),
+        title: z.string().nullish(),
+        inquiryId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createQuotationFromTemplateService(actorMeta(ctx), input)),
+
+  /** Retiring one is curation, so it sits with the catalogue permission rather than with quoting. */
+  deactivateTemplate: p("product.manage")
+    .input(z.object({ templateId: z.string() }))
+    .mutation(({ ctx, input }) => deactivateQuoteTemplateService(actorMeta(ctx), input)),
 
   // ---- §5 revisions --------------------------------------------------------------------------
 

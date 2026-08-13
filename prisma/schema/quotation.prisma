@@ -396,3 +396,87 @@ model NegotiationRound {
   @@unique([quotationId, roundNo])
   @@index([quotationId])
 }
+
+// §9: "Quote templates for repeat scopes (annual PM contract, standard calibration package)."
+//
+// **Its own model, not an `isTemplate` flag on `Quotation`.** A flag would mean every query in the
+// module — the list, the pipeline, the approval queue, the expiry sweep, the win/loss report — has
+// to remember to exclude templates, and the first one that forgets shows a template to a customer
+// as a live quotation. It would also leave most of a `Quotation` meaningless: a template has no
+// account, no number, no validity, no status, no revision and no approval.
+//
+// What it *is* is the shape: the scope narrative, the commercial terms, and the lines with their
+// costs. Everything a repeat job has in common before anybody knows who it is for.
+model QuoteTemplate {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+
+  quoteType String @default("local")
+  currency  String @default("PHP")
+
+  // The narrative and terms, which are the slow part of writing a quotation and the part that
+  // barely changes between two annual PM contracts.
+  scopeOfWork          String
+  exclusions           String?
+  assumptions          String?
+  deliveryTermIncoterm String?
+  deliveryLeadTime     String?
+  paymentTermsText     String?
+  warrantyTerms        String?
+
+  vatMode     String  @default("exclusive")
+  vatRatePct  Decimal @default(12) @db.Decimal(7, 4)
+  fxBufferPct Decimal @default(0) @db.Decimal(7, 4)
+
+  // Deactivated rather than deleted: a template that produced quotations is part of how they came
+  // to look the way they do.
+  isActive Boolean @default(true)
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines QuoteTemplateLine[]
+
+  @@index([isActive, name])
+}
+
+model QuoteTemplateLine {
+  id         String @id @default(cuid())
+  templateId String
+  lineNo     Int
+
+  groupLabel      String?
+  itemType        String  @default("product")
+  productId       String?
+  description     String
+  longDescription String?
+  manufacturer    String?
+  modelNumber     String?
+  partNumber      String?
+
+  quantity Decimal @default(1) @db.Decimal(14, 3)
+  unit     String  @default("pc")
+
+  // Raw supplier cost and its rate, exactly as `QuotationLine` stores them (docs/DECISIONS.md #32).
+  // A template's costs are a starting point and will usually be stale — §9's refresh-costs prompt is
+  // what catches that once a real quotation exists.
+  unitCost     Decimal  @default(0) @db.Decimal(14, 2)
+  costCurrency String   @default("PHP")
+  costFxRate   Decimal  @default(1) @db.Decimal(12, 6)
+  markupPct    Decimal? @db.Decimal(7, 4)
+
+  lineDiscountPct Decimal? @db.Decimal(7, 4)
+  leadTimeDays    Int?
+  isOptional      Boolean  @default(false)
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  template QuoteTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, lineNo])
+  @@index([templateId])
+}

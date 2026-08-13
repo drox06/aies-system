@@ -390,3 +390,284 @@ export async function addProductFromLineService(
 
   return product;
 }
+
+// ---- §9's quote templates ------------------------------------------------------------------------
+
+/**
+ * §9: "Quote templates for repeat scopes (annual PM contract, standard calibration package)."
+ *
+ * A template is the *shape* of a quotation with the customer removed: the scope narrative, the
+ * commercial terms and the lines. Those are the slow part of writing a quotation and the part that
+ * barely changes between two annual PM contracts — the customer, the dates and the numbering are the
+ * fast part, and they are exactly what a template does not carry.
+ *
+ * Captured **from a real quotation** rather than authored in a separate editor. §9's whole theme is
+ * that the system should accrete from real work; a template screen nobody fills in is a template
+ * screen nobody uses.
+ */
+export async function saveQuotationAsTemplateService(
+  actor: ActorMeta,
+  input: { quotationId: string; name: string; description?: string | null },
+) {
+  const name = input.name.trim();
+  if (name.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A template needs a name — it is what somebody picks it by later.",
+    });
+  }
+
+  const source = await db.quotation.findFirst({
+    where: { id: input.quotationId, deletedAt: null },
+    include: { lines: { orderBy: { lineNo: "asc" } } },
+  });
+  if (!source) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That quotation no longer exists." });
+  }
+  if (source.lines.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A template with no lines saves nobody any work.",
+    });
+  }
+
+  const existing = await db.quoteTemplate.findUnique({ where: { name } });
+  if (existing) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `There is already a template called "${name}".`,
+    });
+  }
+
+  const template = await db.quoteTemplate.create({
+    data: {
+      name,
+      description: input.description?.trim() || null,
+      quoteType: source.quoteType,
+      currency: source.currency,
+      scopeOfWork: source.scopeOfWork,
+      exclusions: source.exclusions,
+      assumptions: source.assumptions,
+      deliveryTermIncoterm: source.deliveryTermIncoterm,
+      deliveryLeadTime: source.deliveryLeadTime,
+      paymentTermsText: source.paymentTermsText,
+      warrantyTerms: source.warrantyTerms,
+      vatMode: source.vatMode,
+      vatRatePct: source.vatRatePct,
+      fxBufferPct: source.fxBufferPct,
+      createdById: actor.actorId,
+      lines: {
+        create: source.lines.map((line) => ({
+          lineNo: line.lineNo,
+          groupLabel: line.groupLabel,
+          itemType: line.itemType,
+          productId: line.productId,
+          description: line.description,
+          longDescription: line.longDescription,
+          manufacturer: line.manufacturer,
+          modelNumber: line.modelNumber,
+          partNumber: line.partNumber,
+          quantity: line.quantity,
+          unit: line.unit,
+          // Raw cost and its rate, the same way `QuotationLine` holds them (docs/DECISIONS.md #32).
+          // A template's costs go stale by definition; §9's refresh-costs prompt is what catches
+          // that on the quotation the template produces.
+          unitCost: line.unitCost,
+          costCurrency: line.costCurrency,
+          costFxRate: line.costFxRate,
+          markupPct: line.markupPct,
+          lineDiscountPct: line.lineDiscountPct,
+          leadTimeDays: line.leadTimeDays,
+          isOptional: line.isOptional,
+          notes: line.notes,
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+
+  await db.$transaction(async (tx) => {
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "template_saved",
+      entityType: QUOTATION_ENTITY_TYPE,
+      entityId: source.id,
+      summary: `Saved ${source.number} as the template "${name}"`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return template;
+}
+
+export async function listQuoteTemplatesService() {
+  const templates = await db.quoteTemplate.findMany({
+    where: { isActive: true },
+    include: { lines: { orderBy: { lineNo: "asc" } } },
+    orderBy: { name: "asc" },
+  });
+
+  return templates.map((template) => ({
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    quoteType: template.quoteType,
+    currency: template.currency,
+    lineCount: template.lines.length,
+    scopeOfWork: template.scopeOfWork,
+  }));
+}
+
+/**
+ * Raises a real quotation from a template.
+ *
+ * The template supplies the shape; the caller supplies the customer, which is the one thing a
+ * template cannot know. Numbering, validity and status come from the same places they always do, so
+ * a quotation started this way is indistinguishable from one typed by hand — which is the point.
+ */
+export async function createQuotationFromTemplateService(
+  actor: ActorMeta,
+  input: {
+    templateId: string;
+    accountId: string;
+    title?: string | null;
+    inquiryId?: string | null;
+  },
+) {
+  const template = await db.quoteTemplate.findFirst({
+    where: { id: input.templateId, isActive: true },
+    include: { lines: { orderBy: { lineNo: "asc" } } },
+  });
+  if (!template) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That template no longer exists." });
+  }
+
+  const account = await db.customerAccount.findFirst({
+    where: { id: input.accountId, deletedAt: null },
+    select: { id: true, name: true },
+  });
+  if (!account) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "That customer no longer exists." });
+  }
+
+  const quoteType = template.quoteType as QuoteType;
+  const number = await allocateNumber(QUOTE_NUMBER_DOCUMENT_TYPES[quoteType]);
+
+  return db.$transaction(async (tx) => {
+    const quotation = await tx.quotation.create({
+      data: {
+        number,
+        revision: 0,
+        quoteType,
+        inquiryId: input.inquiryId ?? null,
+        accountId: account.id,
+        title: input.title?.trim() || template.name,
+        scopeOfWork: template.scopeOfWork,
+        exclusions: template.exclusions,
+        assumptions: template.assumptions,
+        status: "draft",
+        currency: template.currency,
+        fxBufferPct: template.fxBufferPct,
+        validUntil: new Date(Date.now() + DEFAULT_VALIDITY_DAYS * DAY_MS),
+        deliveryTermIncoterm: template.deliveryTermIncoterm,
+        deliveryLeadTime: template.deliveryLeadTime,
+        paymentTermsText: template.paymentTermsText,
+        warrantyTerms: template.warrantyTerms,
+        vatMode: template.vatMode,
+        vatRatePct: template.vatRatePct,
+        // Seeded for *this* customer, like every other quotation: clause 1 names the client, and a
+        // template cannot know who that is.
+        termsAndConditions: applyCustomerName(DEFAULT_TERMS_AND_CONDITIONS, account.name),
+        preparedById: actor.actorId,
+      },
+    });
+
+    if (template.lines.length > 0) {
+      await tx.quotationLine.createMany({
+        data: template.lines.map((line) => ({
+          quotationId: quotation.id,
+          lineNo: line.lineNo,
+          groupLabel: line.groupLabel,
+          itemType: line.itemType,
+          productId: line.productId,
+          description: line.description,
+          longDescription: line.longDescription,
+          manufacturer: line.manufacturer,
+          modelNumber: line.modelNumber,
+          partNumber: line.partNumber,
+          quantity: line.quantity,
+          unit: line.unit,
+          unitCost: line.unitCost,
+          costCurrency: line.costCurrency,
+          costFxRate: line.costFxRate,
+          markupPct: line.markupPct,
+          lineDiscountPct: line.lineDiscountPct,
+          leadTimeDays: line.leadTimeDays,
+          isOptional: line.isOptional,
+          notes: line.notes,
+        })),
+      });
+    }
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "create",
+      entityType: QUOTATION_ENTITY_TYPE,
+      entityId: quotation.id,
+      summary: `Created ${number} for ${account.name} from the template "${template.name}"`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    await emit(
+      tx,
+      "quotation.created",
+      {
+        quotationId: quotation.id,
+        number: quotation.number,
+        accountId: account.id,
+        fromTemplateId: template.id,
+      },
+      { actorId: actor.actorId, requestId: actor.requestId },
+    );
+
+    return quotation;
+  });
+}
+
+/** Deactivated, never deleted: a template that produced quotations is part of their history. */
+export async function deactivateQuoteTemplateService(
+  actor: ActorMeta,
+  input: { templateId: string },
+) {
+  const template = await db.quoteTemplate.findUnique({ where: { id: input.templateId } });
+  if (!template) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That template no longer exists." });
+  }
+
+  const updated = await db.quoteTemplate.update({
+    where: { id: template.id },
+    data: { isActive: false },
+  });
+
+  await db.$transaction(async (tx) => {
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "template_deactivated",
+      entityType: "QuoteTemplate",
+      entityId: template.id,
+      summary: `Retired the template "${template.name}"`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return updated;
+}

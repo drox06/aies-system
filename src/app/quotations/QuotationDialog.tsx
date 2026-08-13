@@ -40,9 +40,14 @@ export function QuotationDialog({
   const [scopeOfWork, setScopeOfWork] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [currency, setCurrency] = useState<QuoteCurrency>("PHP");
+  const [templateId, setTemplateId] = useState("");
 
   const accounts = trpc.crm.listAccounts.useQuery({ pageSize: 100 }, { enabled: open });
   const create = trpc.quotation.create.useMutation();
+  // §9's repeat scopes. Enabled with the dialog, because the list is short and an empty picker on
+  // first paint reads as "there are none".
+  const templates = trpc.quotation.templates.useQuery(undefined, { enabled: open });
+  const fromTemplate = trpc.quotation.createFromTemplate.useMutation();
 
   function reset() {
     setAccountId("");
@@ -51,11 +56,27 @@ export function QuotationDialog({
     setScopeOfWork("");
     setValidUntil("");
     setCurrency("PHP");
+    setTemplateId("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
+      if (templateId) {
+        // A template carries the scope, the terms and the lines; everything else is the same path
+        // an empty quotation takes.
+        const started = await fromTemplate.mutateAsync({
+          templateId,
+          accountId,
+          title: title || null,
+        });
+        toastSuccess(`Created ${started.number} from a template`);
+        reset();
+        onOpenChange(false);
+        onCreated(started.id);
+        return;
+      }
+
       const quotation = await create.mutateAsync({
         accountId,
         quoteType,
@@ -127,6 +148,28 @@ export function QuotationDialog({
             </div>
 
             <div>
+              <Label htmlFor="q-template">Start from a template</Label>
+              <Select
+                id="q-template"
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+              >
+                <option value="">Start empty</option>
+                {(templates.data ?? []).map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name} ({template.lineCount} line
+                    {template.lineCount === 1 ? "" : "s"})
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-0.5 text-xs text-text-muted">
+                {/* Said plainly, because the fields below stop applying when one is chosen. */}A
+                template brings its own scope, terms, lines and currency. The series and title below
+                are ignored when you pick one.
+              </p>
+            </div>
+
+            <div>
               <Label htmlFor="q-currency">Currency *</Label>
               <Select
                 id="q-currency"
@@ -190,7 +233,12 @@ export function QuotationDialog({
               </Dialog.Close>
               <Button
                 type="submit"
-                disabled={create.isPending || !accountId || title.trim().length === 0}
+                disabled={
+                  create.isPending ||
+                  fromTemplate.isPending ||
+                  !accountId ||
+                  (!templateId && title.trim().length === 0)
+                }
               >
                 {create.isPending ? "Creating…" : "Create quotation"}
               </Button>

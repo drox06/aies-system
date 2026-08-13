@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card } from "@/components/ui/layout";
-import { Label, Select } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -38,6 +38,8 @@ export function ReusePanel({
   const utils = trpc.useUtils();
   const [duplicating, setDuplicating] = useState(false);
   const [accountId, setAccountId] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
 
   const accounts = trpc.crm.listAccounts.useQuery({ pageSize: 100 }, { enabled: duplicating });
   const stale = trpc.quotation.staleCosts.useQuery(
@@ -52,6 +54,7 @@ export function ReusePanel({
 
   const duplicate = trpc.quotation.duplicate.useMutation();
   const addProduct = trpc.quotation.addProductFromLine.useMutation();
+  const saveTemplate = trpc.quotation.saveAsTemplate.useMutation();
 
   const staleLines = (stale.data ?? []).filter((line) => line.isStale || line.hasNewerCost);
   const newProducts = candidates.error ? [] : (candidates.data ?? []);
@@ -108,6 +111,52 @@ export function ReusePanel({
                 }}
               >
                 Duplicate
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-2 border-t border-border pt-3">
+        {!savingTemplate ? (
+          <Button variant="ghost" size="sm" onClick={() => setSavingTemplate(true)}>
+            Save as a template…
+          </Button>
+        ) : (
+          <div className="space-y-2">
+            <div>
+              <Label htmlFor="tpl-name">Template name</Label>
+              <Input
+                id="tpl-name"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="Annual PM contract, 12 loops"
+              />
+              <p className="mt-1 text-xs text-text-muted">
+                {/* §9's repeat scopes. The customer is deliberately not part of it. */}
+                Keeps the scope, terms and lines. Not the customer, the dates or the number.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setSavingTemplate(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={saveTemplate.isPending || templateName.trim().length === 0}
+                onClick={async () => {
+                  try {
+                    await saveTemplate.mutateAsync({ quotationId, name: templateName });
+                    toastSuccess(`Saved "${templateName}" as a template.`);
+                    setSavingTemplate(false);
+                    setTemplateName("");
+                    void utils.quotation.templates.invalidate();
+                  } catch (error) {
+                    toastError(error);
+                  }
+                }}
+              >
+                Save template
               </Button>
             </div>
           </div>

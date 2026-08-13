@@ -972,20 +972,66 @@ Asked whether the RFQ apply was sound. It was not, and the cause ran deeper than
 foreign-currency line can only be costed through the RFQ flow today. A rate column on the line editor
 is small and belongs with §4's FX work.
 
+### Module 02's review gate — passed, with one defect found and fixed
+
+specs/02-quotation.md read end to end against what exists, in the shape module 00's gate used.
+
+**§12's seven named tests all exist and are real** (checked by name, not by assumption):
+
+| §12 asks for | Lives in |
+| --- | --- |
+| Sent quotations reject edits at the service layer | `quotation-flow`, `revisions` |
+| R0 → R1 → R2 keeps one root, supersedes, diff accurate | `revisions` |
+| Margin maths table-driven with fixed expected values | `costing` |
+| Every quotation routes to the VP; none sent unapproved | `approval-flow` |
+| 24 working hours → president, recorded as a fallback | `approval-flow` |
+| `finance.view_cost` denial strips cost from the payload | `quotation-flow`, `cost-preservation` |
+| Concurrent edit conflicts rather than overwrites | `revisions` |
+
+**The gate found one thing, and it was worth running for.** §4 asks that a "header-level discount
+distributes proportionally across lines and recomputes margin". The header total was always right,
+but per-line margins were computed *before* the discount — so a quotation discounted twenty per cent
+still showed healthy line margins, and §4's floor warning stayed silent on lines that were by then
+underwater. The floor is a safety mechanism for exactly that case. Now distributed by share of line
+total, with the rounding remainder given to the largest line so the parts sum exactly, and optional
+lines left alone because they are not in the subtotal the discount came from. Four tests, one of
+which is the case above stated directly: at list price the line clears the floor, after the discount
+it does not.
+
+**Sections, against the spec's own list:** §2 data model ✓ · §3 supplier RFQ, all six numbered items
+✓ · §4 costing, FX, margin panel, VAT modes ✓ · §5 revisions, diff, reasons ✓ · §6 approval with
+§4.4's fallback ✓ · §7 issuance and auto-expire ✓ (outbound email is module 10's, documented in
+DECISIONS #27) · §8 negotiation and what-if ✓ · §9 duplicate, templates, self-building catalogue ✓ ·
+§10 all eleven events emitted ✓ · §11 permissions ✓ · §12 tests ✓.
+
+**Tagged `module-02-complete`.**
+
 ### Next concrete step
 
-**Module 02 is feature-complete against specs/02-quotation.md except §9's quote templates.**
+**Module 03 — Customer PO, Sales Order, Procurement and Delivery.**
 
-1. **§9's quote templates** ("for repeat scopes — annual PM contract, standard calibration
-   package") are the one thing in the spec's list that is not built. They were left rather than
-   rushed: a template is a *saved* quotation shape with no customer, which is either a new model or
-   a flag on `Quotation`, and that choice deserves its own sitting rather than the tail of a long
-   session. Duplicating an existing quotation covers most of the same ground today.
-2. **Module 02's review gate**, following module 00's pattern: read specs/02-quotation.md §12 end to
-   end against what exists, then tag `module-02-complete`.
-3. Then **module 03** proper — its `CustomerPO` opening act is already in place from session 3, and
-   `specs/03-order-procurement.md` §1 fans out into sales order, procurement, finance and
-   operations.
+Its opening act is already in place: `CustomerPO`, its manifest and `customer_po.received` were
+pulled forward in session 3 for the pipeline's Received PO column, and module 02 already reacts to
+that event by marking a quotation `accepted`. What specs/03-order-procurement.md adds is the rest of
+§2's models — `SalesOrder`, `SalesOrderLine`, `Supplier`, `SupplierPO`, `GoodsReceipt` — and §1's
+fan-out into finance, procurement and operations, which it is explicit should be **independent
+workstreams rather than one status chain**.
+
+Two things to carry in:
+
+1. `SupplierQuoteRequest.supplierId` and `PrincipalProspect.supplierId` are plain ids waiting for
+   module 03's `Supplier` to exist. Both become foreign keys on the day it does, and the RFQ flow
+   should move from "appointed principals" to real suppliers.
+2. `po_received → won` is still system-set with nothing setting it. A received PO is not a delivered
+   job; module 03 is where that becomes decidable.
+
+**Small and still open in module 02:** the line editor shows the raw cost but has no field for the
+FX rate, so a foreign-currency line can only be costed through the RFQ flow today.
+
+*Both of the items this section used to list are done:* §9's quote templates are built (a separate
+`QuoteTemplate` model, not an `isTemplate` flag — a flag would have to be excluded from every
+quotation query, and the first one that forgot would show a template to a customer as a live
+quotation), and the review gate above has been run.
 
 *Still wanting a human eye:* the RFQ panel, the negotiation panel and the reuse panel were verified
 by server tests and a clean production build, not on screen — all three sit behind the TOTP login.
