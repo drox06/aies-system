@@ -132,7 +132,10 @@ export default function PipelinePage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           {BOARD_STATUSES.map((status) => {
             const column = cards.filter((card) => card.status === status);
-            const value = column.reduce((sum, card) => sum + Number(card.estimatedValue ?? 0), 0);
+            // Sums the same best-known figure each card shows, not the intake estimate. Adding
+            // guesses under a column of cards that display quoted and ordered amounts would produce
+            // a total that matches none of the numbers above it.
+            const value = column.reduce((sum, card) => sum + Number(card.value.amount ?? 0), 0);
             return (
               <section
                 key={status}
