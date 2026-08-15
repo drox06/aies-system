@@ -56,8 +56,12 @@ export function RevisionPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Revisions</h2>
         {isRevisable(status) && (
-          <Button size="sm" variant="ghost" onClick={() => setReviseOpen((v) => !v)}>
-            Revise
+          // Blue, at the company's request. §5 makes a sent quotation immutable, so once one is out
+          // with a customer this is the *only* way to change anything on it — and a ghost button on
+          // the one action a screen still permits reads as decoration. Spec.md §6.3 gives blue to
+          // "every primary action", which this now plainly is.
+          <Button size="sm" onClick={() => setReviseOpen((v) => !v)}>
+            {reviseOpen ? "Cancel" : "Revise"}
           </Button>
         )}
       </div>

@@ -362,6 +362,16 @@ describe("§3.5: applying the pricing back", () => {
   it("applies only the lines asked for", async () => {
     const { rfq, quotation } = await respondedRfq();
 
+    // Recording a response now carries uncontested prices straight onto the lines, so by this point
+    // both are already costed. Zeroed again here deliberately: what this test is about is the
+    // `lineNos` filter, which the per-offer "Use this" control in §3.6's matrix depends on — it is
+    // how one line gets costed from one supplier without disturbing a line another supplier won.
+    // Without the reset the assertion would pass whether the filter worked or not.
+    await db.quotationLine.updateMany({
+      where: { quotationId: quotation.id },
+      data: { unitCost: 0 },
+    });
+
     const result = await applyRfqToQuotationService(actor, { rfqId: rfq.id, lineNos: [1] });
     expect(result.applied).toBe(1);
 

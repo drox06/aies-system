@@ -267,24 +267,53 @@ export async function createSupplierRfqService(actor: ActorMeta, input: CreateRf
  * rolling it back to keep the batch tidy would throw away a document and burn its number for
  * nothing. The result says exactly which ones exist.
  */
+export interface RfqSupplierAsk {
+  supplierId: string;
+  /**
+   * The quotation lines to put to *this* supplier. Empty or absent means every line.
+   *
+   * Per supplier rather than shared across the batch, at the company's request: "make it so, that a
+   * line item is requested to a selected supplier." Without it, asking two manufacturers about a
+   * two-line job meant sending both lines to both — so each came back having priced one line and
+   * written zero against the other, which is a comparison matrix full of holes and a supplier shown
+   * an item they do not sell.
+   */
+  sourceLineNos?: number[];
+}
+
 export async function createSupplierRfqsService(
   actor: ActorMeta,
-  input: Omit<CreateRfqInput, "supplierId"> & { supplierIds: string[] },
+  input: Omit<CreateRfqInput, "supplierId" | "sourceLineNos"> & {
+    asks: RfqSupplierAsk[];
+  },
 ) {
-  if (input.supplierIds.length === 0) {
+  if (input.asks.length === 0) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one principal to ask." });
   }
 
-  const created: { id: string; number: string; supplierId: string }[] = [];
+  const created: { id: string; number: string; supplierId: string; lineCount: number }[] = [];
   const failed: { supplierId: string; reason: string }[] = [];
 
-  for (const supplierId of [...new Set(input.supplierIds)]) {
+  const seen = new Set<string>();
+  for (const ask of input.asks) {
+    if (seen.has(ask.supplierId)) continue;
+    seen.add(ask.supplierId);
+
     try {
-      const rfq = await createSupplierRfqService(actor, { ...input, supplierId });
-      created.push({ id: rfq.id, number: rfq.number, supplierId });
+      const rfq = await createSupplierRfqService(actor, {
+        ...input,
+        supplierId: ask.supplierId,
+        sourceLineNos: ask.sourceLineNos,
+      });
+      created.push({
+        id: rfq.id,
+        number: rfq.number,
+        supplierId: ask.supplierId,
+        lineCount: rfq.lines.length,
+      });
     } catch (error) {
       failed.push({
-        supplierId,
+        supplierId: ask.supplierId,
         reason: error instanceof Error ? error.message : "Could not be raised.",
       });
     }
@@ -509,7 +538,120 @@ export async function recordRfqResponseService(actor: ActorMeta, input: RecordRf
     return row;
   });
 
-  return updated;
+  const carried = await carryUncontestedPricesToQuotation(actor, rfq.id);
+
+  return { ...updated, ...carried };
+}
+
+// ---- carrying an uncontested price straight onto the line -----------------------------------------
+
+export interface CarriedPrices {
+  /** Quotation line numbers this response costed on its own. */
+  autoApplied: number[];
+  /** Line numbers with a competing offer, left for a person to choose between. */
+  awaitingChoice: number[];
+  /** Why nothing was carried, when something should have been — an FX rate, a sent quotation. */
+  notCarriedReason: string | null;
+}
+
+/**
+ * Puts a just-recorded supplier price onto the quotation line, when there is nothing to decide.
+ *
+ * The company asked the right question: *"the recorded response of the supplier for unit price is
+ * not reflected on the lines. does this need manual input… should the manual record already be
+ * reflected in the lines?"* — and the honest answer was that §3.5's Apply was a second button they
+ * had not pressed, on a panel that gave no sign it was waiting.
+ *
+ * §3.5 models applying as an explicit action, and it is right to *when there is a choice*: with
+ * three suppliers on one line, silently costing whichever answered last would make a purchasing
+ * decision on somebody's behalf, and §3.6's whole matrix exists so a person weighs price against
+ * lead time. But that reasoning does not apply when exactly one supplier has priced a line. There
+ * is no decision, so asking for one is just a step to forget.
+ *
+ * So: **uncontested lines are costed immediately; contested ones wait.** The caller is told which
+ * did which, so the panel can say so rather than leaving somebody to wonder.
+ *
+ * It never throws. This runs *after* the response has been committed, and the response is a fact
+ * about the outside world that must survive whatever happens next — a quotation already sent, an
+ * FX rate nobody has set. Those come back as `notCarriedReason` for the screen to show.
+ */
+async function carryUncontestedPricesToQuotation(
+  actor: ActorMeta,
+  rfqId: string,
+): Promise<CarriedPrices> {
+  const empty: CarriedPrices = { autoApplied: [], awaitingChoice: [], notCarriedReason: null };
+
+  const rfq = await db.supplierQuoteRequest.findFirst({
+    where: { id: rfqId, deletedAt: null },
+    include: { lines: { orderBy: { lineNo: "asc" } } },
+  });
+  if (!rfq?.quotationId) return empty;
+
+  const quotation = await db.quotation.findFirst({
+    where: { id: rfq.quotationId, deletedAt: null },
+    select: { id: true, number: true, status: true },
+  });
+  if (!quotation) return empty;
+  if (!isEditable(quotation.status)) {
+    return {
+      ...empty,
+      notCarriedReason:
+        `${quotation.number} is ${quotation.status.replace(/_/g, " ")}, so its costs are fixed. ` +
+        `The response is recorded against the request; create a revision to use it.`,
+    };
+  }
+
+  const priced = rfq.lines.filter(
+    (line) => line.sourceLineNo !== null && Number(line.unitCost) > 0,
+  );
+  if (priced.length === 0) return empty;
+
+  // Every other answered request on this quotation, so "is there a competing offer?" is a fact
+  // about the whole quotation rather than about this one request.
+  const siblings = await db.supplierQuoteRequest.findMany({
+    where: {
+      quotationId: quotation.id,
+      deletedAt: null,
+      status: "responded",
+      id: { not: rfq.id },
+    },
+    select: { lines: { select: { sourceLineNo: true, unitCost: true } } },
+  });
+  const contested = new Set<number>();
+  for (const sibling of siblings) {
+    for (const line of sibling.lines) {
+      if (line.sourceLineNo !== null && Number(line.unitCost) > 0) {
+        contested.add(line.sourceLineNo);
+      }
+    }
+  }
+
+  const uncontested = priced.filter((line) => !contested.has(line.sourceLineNo!));
+  const awaitingChoice = priced
+    .filter((line) => contested.has(line.sourceLineNo!))
+    .map((line) => line.sourceLineNo!);
+
+  if (uncontested.length === 0) return { ...empty, awaitingChoice };
+
+  try {
+    await applyRfqToQuotationService(actor, {
+      rfqId: rfq.id,
+      lineNos: uncontested.map((line) => line.lineNo),
+    });
+    return {
+      autoApplied: uncontested.map((line) => line.sourceLineNo!),
+      awaitingChoice,
+      notCarriedReason: null,
+    };
+  } catch (error) {
+    // The common one is a foreign-currency response with no exchange rate on the quotation, which
+    // `applyRfqToQuotationService` refuses rather than guesses. Surfaced, not swallowed.
+    return {
+      autoApplied: [],
+      awaitingChoice,
+      notCarriedReason: error instanceof Error ? error.message : "The costs could not be applied.",
+    };
+  }
 }
 
 // ---- applying it back ------------------------------------------------------------------------------
@@ -711,15 +853,35 @@ export async function listRfqsForQuotationService(quotationId: string) {
   });
   const nameById = new Map(suppliers.map((s) => [s.id, s.companyName]));
 
-  return rows.map((row) => ({
-    ...row,
-    supplierName: nameById.get(row.supplierId) ?? row.supplierId,
-    lines: row.lines.map((line) => ({
-      ...line,
-      quantity: line.quantity.toString(),
-      unitCost: line.unitCost.toString(),
-    })),
-  }));
+  // Which supplier line each quotation line was actually costed from — the answer to §3.5's "where
+  // did this cost come from?", and here the answer to the plainer question the panel needs: has
+  // this response reached the quotation at all?
+  const quotationLines = await db.quotationLine.findMany({
+    where: { quotationId },
+    select: { supplierQuoteLineId: true },
+  });
+  const appliedLineIds = new Set(
+    quotationLines.map((line) => line.supplierQuoteLineId).filter(Boolean) as string[],
+  );
+
+  return rows.map((row) => {
+    const pricedLines = row.lines.filter((line) => Number(line.unitCost) > 0);
+    return {
+      ...row,
+      supplierName: nameById.get(row.supplierId) ?? row.supplierId,
+      /** True once at least one of this request's prices is on a quotation line. */
+      appliedToQuotation: pricedLines.some((line) => appliedLineIds.has(line.id)),
+      /** The quotation lines this supplier actually put a price against. */
+      pricedLineNos: pricedLines
+        .map((line) => line.sourceLineNo)
+        .filter((n): n is number => n !== null),
+      lines: row.lines.map((line) => ({
+        ...line,
+        quantity: line.quantity.toString(),
+        unitCost: line.unitCost.toString(),
+      })),
+    };
+  });
 }
 
 /**

@@ -47,10 +47,21 @@ export function RfqPanel({
 }) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
-  const [supplierIds, setSupplierIds] = useState<string[]>([]);
+  /**
+   * Which lines each principal is being asked about.
+   *
+   * A map rather than one shared list, because that is the company's actual purchasing pattern:
+   * "make it so, that a line item is requested to a selected supplier." Sending every line to every
+   * supplier produced exactly the mess they hit — each came back having priced its own item and
+   * written a zero against the other, on a document that showed a manufacturer an item they do not
+   * sell.
+   *
+   * An empty array against a supplier means "ask about everything", which is the right default for
+   * the common single-supplier job.
+   */
+  const [asks, setAsks] = useState<Record<string, number[]>>({});
   const [dueBy, setDueBy] = useState("");
   const [notes, setNotes] = useState("");
-  const [chosen, setChosen] = useState<number[]>([]);
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [costs, setCosts] = useState<Record<number, string>>({});
   const [leadTimes, setLeadTimes] = useState<Record<number, string>>({});
@@ -80,10 +91,26 @@ export function RfqPanel({
     void utils.quotation.rfqComparison.invalidate({ quotationId });
   };
 
-  const toggle = (lineNo: number) =>
-    setChosen((current) =>
-      current.includes(lineNo) ? current.filter((n) => n !== lineNo) : [...current, lineNo],
-    );
+  const supplierIds = Object.keys(asks);
+
+  const toggleSupplier = (supplierId: string) =>
+    setAsks((current) => {
+      if (!(supplierId in current)) return { ...current, [supplierId]: [] };
+      const next = { ...current };
+      delete next[supplierId];
+      return next;
+    });
+
+  const toggleLine = (supplierId: string, lineNo: number) =>
+    setAsks((current) => {
+      const chosen = current[supplierId] ?? [];
+      return {
+        ...current,
+        [supplierId]: chosen.includes(lineNo)
+          ? chosen.filter((n) => n !== lineNo)
+          : [...chosen, lineNo],
+      };
+    });
 
   return (
     <Card className="p-4">
@@ -111,39 +138,74 @@ export function RfqPanel({
       {open && (
         <div className="mt-3 space-y-3 rounded border border-border p-3">
           <fieldset>
-            {/* Checkboxes rather than a dropdown, because asking three manufacturers about one job
-                is the normal case, not the exception — a skid is a flowmeter from one, a valve from
-                another and a gauge from a third. Each ticked principal gets its own numbered
-                request; none of them sees the others. */}
-            <legend className="text-xs font-medium">Principals to ask *</legend>
-            <p className="mb-1 text-xs text-text-muted">
-              Tick as many as the job needs. Each gets its own request, and none of them is told
-              about the others.
+            {/* Supplier and lines together, one block each, rather than two independent lists.
+                Two lists could only express "these lines to all of these suppliers", which is what
+                sent a valve manufacturer a request for a flowmeter and came back with a zero. */}
+            <legend className="text-xs font-medium">Who to ask, and about what *</legend>
+            <p className="mb-2 text-xs text-text-muted">
+              Tick a principal, then tick the lines that principal actually supplies. Each gets its
+              own request and none of them is told about the others.
             </p>
-            <div className="space-y-1">
-              {(suppliers.data ?? []).map((supplier) => (
-                <label key={supplier.id} className="flex items-start gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={supplierIds.includes(supplier.id)}
-                    onChange={() =>
-                      setSupplierIds((current) =>
-                        current.includes(supplier.id)
-                          ? current.filter((id) => id !== supplier.id)
-                          : [...current, supplier.id],
-                      )
+
+            <div className="space-y-2">
+              {(suppliers.data ?? []).map((supplier) => {
+                const selected = supplier.id in asks;
+                const chosen = asks[supplier.id] ?? [];
+                return (
+                  <div
+                    key={supplier.id}
+                    className={
+                      selected
+                        ? "rounded border border-blue-400 bg-surface-2 p-2"
+                        : "rounded border border-border p-2"
                     }
-                  />
-                  <span>
-                    <span className="font-medium">{supplier.name}</span>
-                    {supplier.productLines.length > 0 && (
-                      <span className="text-text-muted"> — {supplier.productLines.join(", ")}</span>
+                  >
+                    <label className="flex items-start gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={selected}
+                        onChange={() => toggleSupplier(supplier.id)}
+                      />
+                      <span>
+                        <span className="font-medium">{supplier.name}</span>
+                        {supplier.productLines.length > 0 && (
+                          <span className="text-text-muted">
+                            {" "}
+                            — {supplier.productLines.join(", ")}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+
+                    {selected && (
+                      <div className="mt-1.5 ml-5 space-y-1 border-l border-border pl-2">
+                        <p className="text-xs text-text-muted">
+                          {chosen.length === 0
+                            ? "Asking about every line. Tick some to narrow it."
+                            : `Asking about ${chosen.length} of ${lines.length} lines.`}
+                        </p>
+                        {lines.map((line) => (
+                          <label key={line.lineNo} className="flex items-start gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={chosen.includes(line.lineNo)}
+                              onChange={() => toggleLine(supplier.id, line.lineNo)}
+                            />
+                            <span>
+                              <span className="tabular text-text-muted">{line.lineNo}.</span>{" "}
+                              {line.description}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
                     )}
-                  </span>
-                </label>
-              ))}
+                  </div>
+                );
+              })}
             </div>
+
             {(suppliers.data ?? []).length === 0 && (
               <p className="mt-1 text-xs text-text-muted">
                 {/* Not an empty list with no explanation: the reason is a business rule, and
@@ -152,29 +214,6 @@ export function RfqPanel({
                 distributor agreement is signed (§5c).
               </p>
             )}
-          </fieldset>
-
-          <fieldset>
-            <legend className="text-xs font-medium">Lines to ask about</legend>
-            <p className="mb-1 text-xs text-text-muted">
-              Leave all unticked to ask about every line.
-            </p>
-            <div className="space-y-1">
-              {lines.map((line) => (
-                <label key={line.lineNo} className="flex items-start gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={chosen.includes(line.lineNo)}
-                    onChange={() => toggle(line.lineNo)}
-                  />
-                  <span>
-                    <span className="tabular text-text-muted">{line.lineNo}.</span>{" "}
-                    {line.description}
-                  </span>
-                </label>
-              ))}
-            </div>
           </fieldset>
 
           <div>
@@ -206,8 +245,12 @@ export function RfqPanel({
               try {
                 const result = await create.mutateAsync({
                   quotationId,
-                  supplierIds,
-                  sourceLineNos: chosen.length > 0 ? chosen : undefined,
+                  asks: supplierIds.map((supplierId) => ({
+                    supplierId,
+                    // Empty means every line, which the service reads the same way.
+                    sourceLineNos:
+                      (asks[supplierId] ?? []).length > 0 ? asks[supplierId] : undefined,
+                  })),
                   dueBy: dueBy ? new Date(dueBy) : null,
                   notes: notes || null,
                 });
@@ -224,8 +267,7 @@ export function RfqPanel({
                   toastError(new Error(failure.reason));
                 }
                 setOpen(false);
-                setSupplierIds([]);
-                setChosen([]);
+                setAsks({});
                 setDueBy("");
                 setNotes("");
                 refresh();
@@ -260,6 +302,19 @@ export function RfqPanel({
                   </>
                 )}
               </p>
+
+              {/* The state the company got stuck in: a response recorded, prices sitting on the
+                  request, and the quotation lines still uncosted with nothing on screen saying so.
+                  Uncontested prices now carry across on save, so this only appears when there is a
+                  genuine choice to make — and then it says which line and where to make it. */}
+              {rfq.status === "responded" && !rfq.appliedToQuotation && (
+                <p className="mt-1 rounded bg-warning/10 px-2 py-1 text-xs text-warning">
+                  Priced, but not yet on the quotation
+                  {rfq.pricedLineNos.length > 0 && ` (line ${rfq.pricedLineNos.join(", ")})`}.
+                  Another supplier has also priced it — choose one in the comparison below, or apply
+                  this whole request.
+                </p>
+              )}
 
               {mayManage && (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -407,12 +462,34 @@ export function RfqPanel({
                           toastError(new Error("Nothing priced yet."));
                           return;
                         }
-                        await record.mutateAsync({
+                        const result = await record.mutateAsync({
                           rfqId: rfq.id,
                           currency,
                           lines: priced,
                         });
-                        toastSuccess(`Recorded ${priced.length} price(s) for ${rfq.number}.`);
+
+                        // Recording and costing used to be two buttons, and the second one gave no
+                        // sign it was waiting — so a recorded price sat on the request and never
+                        // reached the quotation. Uncontested prices are now carried straight to the
+                        // lines, and the toast says exactly what happened to each.
+                        if (result.autoApplied.length > 0) {
+                          toastSuccess(
+                            `Recorded, and line ${result.autoApplied.join(", ")} costed from this ` +
+                              `supplier. Check the margin panel.`,
+                          );
+                          onApplied();
+                        } else {
+                          toastSuccess(`Recorded ${priced.length} price(s) for ${rfq.number}.`);
+                        }
+                        if (result.awaitingChoice.length > 0) {
+                          toastSuccess(
+                            `Line ${result.awaitingChoice.join(", ")} has more than one offer — ` +
+                              `pick one in the comparison below.`,
+                          );
+                        }
+                        if (result.notCarriedReason) {
+                          toastError(new Error(result.notCarriedReason));
+                        }
                         setRespondingTo(null);
                         refresh();
                       } catch (error) {

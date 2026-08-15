@@ -14,6 +14,7 @@ import { AccreditationPanel } from "../../accreditations/AccreditationPanel";
 import { AccountDialog } from "../AccountDialog";
 import { ContactsPanel } from "./ContactsPanel";
 import { LogActivityForm } from "./LogActivityForm";
+import { SitesPanel } from "./SitesPanel";
 
 /**
  * §6's Account 360.
@@ -225,23 +226,9 @@ export default function AccountPage({ params }: { params: Promise<{ id: string }
             )}
           </Card>
 
-          <Card className="p-4">
-            <h2 className="text-sm font-semibold">Sites</h2>
-            {data.sites.length === 0 ? (
-              <p className="mt-1 text-sm text-text-muted">No sites recorded.</p>
-            ) : (
-              <ul className="mt-2 divide-y divide-border">
-                {data.sites.map((site) => (
-                  <li key={site.id} className="py-2 text-sm">
-                    <p className="font-medium">{site.name}</p>
-                    {site.accessNotes && (
-                      <p className="mt-0.5 text-xs text-text-muted">{site.accessNotes}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          {/* Plants before contacts, because a contact form asks which plant somebody runs and the
+              answer has to exist first. */}
+          <SitesPanel accountId={id} contacts={data.contacts} />
 
           <ContactsPanel accountId={id} sites={data.sites} />
 

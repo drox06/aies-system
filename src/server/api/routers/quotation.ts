@@ -302,8 +302,15 @@ export const quotationRouter = router({
     .input(
       z.object({
         quotationId: z.string(),
-        supplierIds: z.array(z.string()).min(1),
-        sourceLineNos: z.array(z.number().int().positive()).optional(),
+        /** One entry per principal, each naming the lines that supplier is being asked about. */
+        asks: z
+          .array(
+            z.object({
+              supplierId: z.string(),
+              sourceLineNos: z.array(z.number().int().positive()).optional(),
+            }),
+          )
+          .min(1),
         dueBy: z.coerce.date().nullish(),
         notes: z.string().nullish(),
       }),

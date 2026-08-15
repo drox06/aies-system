@@ -16,6 +16,11 @@ import {
   upsertContactService,
 } from "@/server/core/crm/contact-service";
 import {
+  deleteSiteService,
+  listSitesService,
+  upsertSiteService,
+} from "@/server/core/crm/site-service";
+import {
   ACCREDITATION_STATUSES,
   getAccreditationForAccount,
   listAccreditationsService,
@@ -206,6 +211,31 @@ export const crmRouter = router({
   deleteContact: p("crm.edit")
     .input(z.object({ contactId: z.string(), reason: z.string().nullish() }))
     .mutation(({ ctx, input }) => deleteContactService(actorMeta(ctx), input)),
+
+  // ---- plants ----------------------------------------------------------------------------------
+  // §1: "each has plants, each plant has equipment". Modelled since session 2, with nothing able to
+  // create one — so every site picker on an inquiry, quotation and inspection was empty.
+
+  listSites: p("crm.view")
+    .input(z.object({ accountId: z.string() }))
+    .query(({ input }) => listSitesService(input.accountId)),
+
+  upsertSite: p("crm.edit")
+    .input(
+      z.object({
+        siteId: z.string().nullish(),
+        accountId: z.string(),
+        name: z.string().min(1),
+        address: z.unknown().optional(),
+        accessNotes: z.string().nullish(),
+        contactId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => upsertSiteService(actorMeta(ctx), input)),
+
+  deleteSite: p("crm.edit")
+    .input(z.object({ siteId: z.string(), reason: z.string().nullish() }))
+    .mutation(({ ctx, input }) => deleteSiteService(actorMeta(ctx), input)),
 
   // ---- accreditation (specs/01-crm-inquiry.md §5b) --------------------------------------------
   // §9 puts this with admin_manager (PD), visible to president and vice_president.

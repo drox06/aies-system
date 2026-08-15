@@ -1213,6 +1213,50 @@ caveat the counter reset printed is gone.
 `PrincipalProspect.appointmentOverride{Reason,By,At}`, `Quotation.archivedAt`. Two new permissions
 seeded — `principal.appoint` and `quotation.view_archive`, both president and vice-president.
 
+### A third batch — including a security header that hid every photograph
+
+- [x] **No photograph in the app could ever be displayed, and the cause was CSP.**
+      `/api/files/[id]` checks permission and then **redirects** to a short-lived signed URL on the
+      storage host, which is exactly the shape specs/00-foundation.md §7.2 asks for. CSP evaluates
+      `img-src` against the URL a request *ends* at, not the one it starts at — so `img-src 'self'`
+      blocked every image, silently, with nothing in the server log and only a console violation.
+      Reported as "the uploaded photo does not show when clicked"; it was never the upload.
+      Certificates appeared to work because "View" is a link, and `img-src` does not govern
+      navigation, so the fault stayed invisible until something rendered bytes inline. Fixed by
+      allowing the configured storage origin — derived from `SUPABASE_URL`, so it is our own bucket
+      and nothing else.
+- [x] **Plants can be added to a customer.** The third instance of the same shape as contacts and
+      accreditation: `Site` was modelled properly in session 2, inquiries and quotations and
+      inspections all point at one, and every picker was empty because nothing could create one.
+      Access notes get their own field and their own emphasis, since §2 names gate pass, PPE and
+      induction and the cost of missing them is a lost day at a gate. Removal refuses while an
+      inquiry, quotation or inspection still names the plant; contacts attached to it survive and
+      simply stop being tied to a building.
+- [x] **Each supplier is asked about its own lines.** The company: "make it so, that a line item is
+      requested to a selected supplier." Yesterday's multi-supplier work sent the same line set to
+      everybody, and their own data shows what that produces — two requests where each supplier
+      priced its item and wrote a zero against the other's. The form is now one block per principal
+      with its lines nested inside it, which is the only shape that can express the real pattern.
+- [x] **A recorded price now reaches the quotation lines by itself, when there is nothing to
+      decide.** The company asked whether applying should be manual "since the response is also
+      manually recorded", and they were right to ask: §3.5's Apply was a second button on a panel
+      that gave no sign it was waiting, so prices sat on the request and the lines stayed at zero.
+      Uncontested lines are carried on save; contested ones still wait for a person, because with
+      two offers on one line there is a genuine purchasing decision and §3.6's matrix exists so
+      somebody makes it. When a carry cannot happen — a foreign-currency price with no rate, a sent
+      quotation — the response is still recorded and the screen is told why.
+- [x] A request whose price has not reached the quotation now says so on the row, in orange. That
+      state was previously indistinguishable from a finished one.
+- [x] **Revise is blue.** §5 makes a sent quotation immutable, so once one is with a customer this
+      is the only way to change anything on it — a ghost button on the sole permitted action reads
+      as decoration.
+
+**Found while checking the above, and worth its own line:** the two full-suite runs burned ~330
+quotation numbers from the **live** counter, because tests call `createQuotationService`, which
+allocates from the same `DocumentSequence` the app uses. The company's own "Test sale" quotation
+came out as `AIESLQ260332`. Nothing is corrupt and no number was reused, but the series no longer
+reads like a young company's. See "Known issues" — the fix is isolation, not another renumber.
+
 ### Next concrete step
 
 **Module 03 — Customer PO, Sales Order, Procurement and Delivery.**
@@ -1375,6 +1419,18 @@ found six defects that 186 automated tests did not, so this distinction is worth
   `self-host-fallback` CI job is its first real run.
 
 ## Known issues / to revisit
+- **The test suite allocates real document numbers.** `createQuotationService` and its siblings call
+  `allocateNumber`, which increments the one `DocumentSequence` row the running app uses — and the
+  suite creates a few hundred quotations per run against the same dev database. Two full runs on
+  2026-08-15 took the local quotation counter from 2 to 332, so a quotation the company created that
+  afternoon was numbered `AIESLQ260332`. Nothing is corrupt and Spec.md §5 is not violated (no number
+  was reused), but the series misrepresents the company's volume, and renumbering after every test
+  run is not a plan. Three ways out, in order of preference: **(a)** a separate test database, which
+  is the real fix and also removes the standing "run nothing else against the dev database during the
+  suite" rule; **(b)** a scope-key seam on the numbering service, so tests allocate under a
+  `test` scope the way `setHolidayProvider` lets them pin a calendar; **(c)** carry on renumbering by
+  hand, which is what has happened twice already. Do (a) before this database holds anything the
+  company would miss.
 - No per-device "revoke this session" / session list UI yet (docs/DECISIONS.md #4).
 - The optional Google Workspace OIDC provider is not wired up (adapter is ready for it).
 - Office IP allow-list (Spec.md §7.4) needs the `SystemSetting` mechanism (§10), not built yet.

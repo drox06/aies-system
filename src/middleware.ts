@@ -11,6 +11,33 @@ export const runtime = "nodejs";
 // specs/00-foundation.md §4.2) and must get JSON errors, not HTML redirects.
 const PUBLIC_PAGE_PATHS = ["/login"];
 
+/**
+ * The storage origin, so a stored photograph can actually be displayed.
+ *
+ * `/api/files/[id]` checks permission and then **redirects** to a short-lived signed URL on the
+ * storage host (specs/00-foundation.md §7.2 specifies exactly that shape). CSP evaluates `img-src`
+ * against the URL a request *ends* at, not the one it starts at — so `img-src 'self'` blocked every
+ * image in the app the moment one was rendered, silently, with nothing in the server log and only a
+ * console violation to show for it.
+ *
+ * Found by the company: "the uploaded photo does not show when clicked." It was not the upload.
+ * Certificates appeared to work because "View" is a link — a navigation, which `img-src` does not
+ * govern — so the failure was invisible until something tried to render bytes inline.
+ *
+ * Derived from the configured URL rather than hardcoded or wildcarded: this permits our own bucket
+ * host and nothing else, and it moves with the environment. If `SUPABASE_URL` is unset there is
+ * nothing to allow and no images to show, so the empty case is correct rather than lenient.
+ */
+function storageImageOrigin(): string {
+  const url = process.env.SUPABASE_URL;
+  if (!url) return "";
+  try {
+    return ` ${new URL(url).origin}`;
+  } catch {
+    return "";
+  }
+}
+
 function buildCsp(nonce: string): string {
   const scriptSrc =
     process.env.NODE_ENV === "production"
@@ -21,7 +48,7 @@ function buildCsp(nonce: string): string {
     `default-src 'self'`,
     `script-src ${scriptSrc}`,
     `style-src 'self' 'unsafe-inline'`,
-    `img-src 'self' blob: data:`,
+    `img-src 'self' blob: data:${storageImageOrigin()}`,
     `font-src 'self'`,
     `object-src 'none'`,
     `base-uri 'self'`,
