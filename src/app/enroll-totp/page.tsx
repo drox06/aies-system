@@ -25,13 +25,23 @@ export default function EnrollTotpPage() {
 
   const confirmEnrollment = trpc.auth.confirmTotpEnrollment.useMutation();
 
+  /**
+   * Held in state and shown on this screen, because there is no second chance.
+   *
+   * The obvious alternative — bounce straight to `/` and put the codes on the account page — cannot
+   * work: they are stored as argon2 hashes, so nothing can ever display them again. They are
+   * readable for exactly as long as this component holds them.
+   */
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState(false);
+
   async function handleConfirm(e: React.FormEvent) {
     e.preventDefault();
     setConfirmError(null);
     try {
-      await confirmEnrollment.mutateAsync({ code });
-      router.push("/");
-      router.refresh();
+      const result = await confirmEnrollment.mutateAsync({ code });
+      // Not `router.push` yet — leaving now would take the codes with it.
+      setRecoveryCodes(result.recoveryCodes);
     } catch (err) {
       setConfirmError(parseError(err).message);
     }
@@ -62,7 +72,83 @@ export default function EnrollTotpPage() {
             </p>
           )}
 
-          {startEnrollment.data && (
+          {/* Once the codes exist, they are the only thing on screen. The QR code and the field
+              that produced them are done, and leaving them visible invites somebody to treat this
+              as a step they have already finished. */}
+          {recoveryCodes && (
+            <div>
+              <p className="rounded-md border border-warning/40 bg-warning/5 p-3 text-sm">
+                <span className="font-medium">Write these down before you continue.</span> This is
+                the only time they will ever be shown — they are stored hashed, so nobody, including
+                an administrator, can look them up again.
+              </p>
+
+              <ul className="mt-4 grid grid-cols-2 gap-2">
+                {recoveryCodes.map((recoveryCode) => (
+                  <li
+                    key={recoveryCode}
+                    className="tabular rounded border border-border bg-surface-2 p-2 text-center font-mono text-sm"
+                  >
+                    {recoveryCode}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(recoveryCodes.join("\n"));
+                    } catch {
+                      // A browser that refuses clipboard access is not a failure worth a dialog —
+                      // the codes are on screen and can be typed.
+                    }
+                  }}
+                >
+                  Copy all
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    // A printed copy in the office safe is the intended home for these.
+                    window.print();
+                  }}
+                >
+                  Print
+                </Button>
+              </div>
+
+              <p className="mt-4 text-xs text-text-muted">
+                Each code works once. Using one signs you in and removes your authenticator, so you
+                will be asked to set it up again straight away — that is deliberate, in case the old
+                phone is in somebody else&apos;s hands.
+              </p>
+
+              <label className="mt-4 flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={saved}
+                  onChange={(e) => setSaved(e.target.checked)}
+                />
+                I have saved these somewhere I can find them without this device.
+              </label>
+
+              <Button
+                className="mt-3 w-full"
+                disabled={!saved}
+                onClick={() => {
+                  router.push("/");
+                  router.refresh();
+                }}
+              >
+                Continue
+              </Button>
+            </div>
+          )}
+
+          {startEnrollment.data && !recoveryCodes && (
             <>
               <div className="flex flex-col items-center gap-3">
                 <div className="rounded-md border border-border bg-surface p-2">
@@ -85,12 +171,11 @@ export default function EnrollTotpPage() {
                 </details>
               </div>
 
-              {/* There is no recovery-code path in this app, so losing the authenticator means an
-                  operator has to run scripts/reset-user-credentials.ts. Saying so here is cheaper
-                  than the support conversation later. */}
-              <p className="mt-4 rounded-md border border-warning/40 bg-warning/5 p-3 text-xs">
-                Save this key somewhere safe before continuing. There are no recovery codes — if you
-                lose access to your authenticator, an administrator has to reset the account.
+              <p className="mt-4 rounded-md border border-border bg-surface-2 p-3 text-xs">
+                {/* Was a warning that there is no way back. There is one now — see
+                    src/server/core/auth/recovery-codes.ts. */}
+                Once you confirm, you will be given ten recovery codes. Keep them somewhere you can
+                reach without this phone.
               </p>
 
               <form onSubmit={handleConfirm} className="mt-5 flex flex-col gap-3">

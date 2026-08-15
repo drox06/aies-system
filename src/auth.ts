@@ -5,6 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { authConfig } from "@/auth.config";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/server/core/audit/audit";
+import { redeemRecoveryCode } from "@/server/core/auth/recovery-codes";
 import { verifyTotp } from "@/server/core/auth/totp";
 import {
   isLockedOut,
@@ -74,9 +75,51 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (!totpCode) {
             throw new TotpRequiredError();
           }
-          if (!user.totpSecret || !verifyTotp(user.totpSecret, totpCode)) {
-            await recordFailedLogin(user.id);
-            throw new InvalidTotpError();
+
+          const totpOk = Boolean(user.totpSecret) && verifyTotp(user.totpSecret!, totpCode);
+
+          if (!totpOk) {
+            /**
+             * A recovery code, offered in the same field as the six digits.
+             *
+             * One field rather than two because the person using it has lost their phone and is
+             * already having a bad morning; making them find a second form is friction with no
+             * security value. The shapes cannot collide — a TOTP code is six digits, a recovery
+             * code is ten characters from an alphabet with no `I`, `L`, `O` or `U`.
+             *
+             * **Redeeming one revokes the enrolment**, which is what keeps this from being the
+             * "opt-out" §4.1 forbids: the sign-in succeeds, and the very next thing the app does is
+             * send them to /enroll-totp because `totpEnabled` is now false. The factor is restored
+             * rather than skipped, and the old authenticator — which may be in someone else's hands
+             * — stops working at the same moment.
+             */
+            const redeemed = await redeemRecoveryCode(user.id, totpCode);
+            if (!redeemed.ok) {
+              await recordFailedLogin(user.id);
+              throw new InvalidTotpError();
+            }
+
+            await db.user.update({
+              where: { id: user.id },
+              data: { totpSecret: null, totpEnabled: false, totpEnrolledAt: null },
+            });
+
+            // Its own audit row, because "somebody got in without their authenticator" is a
+            // security event worth finding on its own — not a footnote on a login.
+            try {
+              await writeAuditLog(db, {
+                actorId: user.id,
+                actorLabel: user.name,
+                action: "recovery_code_redeemed",
+                entityType: "User",
+                entityId: user.id,
+                summary:
+                  `${user.name} signed in with a recovery code. Their authenticator enrolment ` +
+                  `has been revoked and must be set up again. ${redeemed.remaining} code(s) left.`,
+              });
+            } catch (error) {
+              console.error("[auth] recovery code redeemed but the audit write failed:", error);
+            }
           }
         }
 

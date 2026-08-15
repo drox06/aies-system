@@ -3,7 +3,9 @@ import { TRPCError } from "@trpc/server";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { writeAuditLog } from "@/server/core/audit/audit";
 import { checkPasswordPolicy } from "@/server/core/auth/password-policy";
+import { countRemainingRecoveryCodes, issueRecoveryCodes } from "@/server/core/auth/recovery-codes";
 import { generateTotpSecret, totpProvisioningUri, verifyTotp } from "@/server/core/auth/totp";
 import { protectedProcedure, router } from "@/server/api/trpc";
 
@@ -37,12 +39,64 @@ export const authRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid code." });
       }
 
-      await db.user.update({
-        where: { id: user.id },
-        data: { totpEnabled: true, totpEnrolledAt: new Date() },
+      /**
+       * Enable the factor and issue the way back in, in one transaction.
+       *
+       * Both or neither: an enrolment that succeeded without codes would leave the user in exactly
+       * the state this feature exists to prevent, and codes issued against an enrolment that failed
+       * would be credentials for nothing.
+       */
+      const codes = await db.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: { totpEnabled: true, totpEnrolledAt: new Date() },
+        });
+        return issueRecoveryCodes(user.id, tx);
       });
 
-      return { ok: true as const };
+      // The only time these are readable. Returned, never logged.
+      return { ok: true as const, recoveryCodes: codes };
+    }),
+
+  /** How many codes are left, for the warning on the account screen. */
+  recoveryCodeStatus: protectedProcedure.query(async ({ ctx }) => ({
+    remaining: await countRemainingRecoveryCodes(ctx.user.id),
+  })),
+
+  /**
+   * Issues a fresh set, invalidating every existing code.
+   *
+   * Gated on the current password, which is the point: a recovery code is a credential that
+   * bypasses the second factor, so minting ten of them from an already-open session would let
+   * anybody who found an unlocked laptop walk away with permanent access. Re-authenticating proves
+   * the person at the keyboard is the account holder, not somebody who sat down after them.
+   */
+  regenerateRecoveryCodes: protectedProcedure
+    .input(z.object({ currentPassword: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await db.user.findUniqueOrThrow({ where: { id: ctx.user.id } });
+      if (!user.totpEnabled) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Enrol an authenticator first — recovery codes are a backup for it.",
+        });
+      }
+      if (!(await verify(user.passwordHash, input.currentPassword))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That password is not right." });
+      }
+
+      const codes = await issueRecoveryCodes(user.id);
+
+      await writeAuditLog(db, {
+        actorId: user.id,
+        actorLabel: user.name,
+        action: "recovery_codes_regenerated",
+        entityType: "User",
+        entityId: user.id,
+        summary: `${user.name} generated a new set of recovery codes. The previous set no longer works.`,
+      });
+
+      return { recoveryCodes: codes };
     }),
 
   changePassword: protectedProcedure

@@ -1256,3 +1256,85 @@ it" is a question an ISO 9001 auditor asks by itself and should be findable by i
 One case is easy to get wrong and is tested: passing an override reason when the documents were
 there all along must **not** mark the record as overridden. A false entry in an audit trail is worse
 than a missing one.
+
+
+## 37. Recovery codes, reversing "there is no way back in"
+
+**Module:** 00. **Asked for by:** the company, after this file and PROGRESS.md had both carried the
+lockout as a known risk for several sessions.
+
+specs/00-foundation.md §4.1 makes TOTP mandatory — "no opt-out, no admin-only carve-out" — and this
+build honoured it completely: no recovery codes, no admin reset, so a lost phone meant a permanent
+lockout recoverable only by an operator running `npm run reset:credentials` against the database.
+With five users and one of them the president, that is an operational risk created by a rule meant
+to reduce risk.
+
+### The fix that was rejected
+
+**An admin-initiated reset** is the obvious answer and it is wrong, for a reason
+`scripts/reset-user-credentials.ts` has stated since session 2: letting a signed-in president clear
+somebody else's second factor means one compromised officer account can take over every other
+account *without ever knowing a password*. That is privilege escalation straight through the control
+§4.1 calls non-negotiable, and it converts a lockout risk into a total-compromise risk.
+
+### What was built
+
+Ten single-use codes, generated at enrolment, shown exactly once, stored as argon2 hashes — a
+recovery code is a credential, and a database leak that hands over the second factor in plaintext
+defeats the point of having one.
+
+**A code is not an opt-out**, which is what keeps this compatible with §4.1. Redeeming one signs the
+user in *and revokes the enrolment*, so the next screen is enrolment again. The factor is restored,
+never skipped — and the old authenticator, which may be in somebody else's hands, stops working at
+the same moment.
+
+Four details worth keeping:
+
+- **Same field as the TOTP code at login.** The person using one has lost their phone and is already
+  having a bad morning; a second form is friction with no security value. The shapes cannot collide:
+  six digits versus ten characters from an alphabet with no `I`, `L`, `O` or `U`.
+- **Every unused code is checked even after a match**, with the result accumulated rather than
+  returned early. Argon2 is deliberately slow, so a first-match return leaks through timing roughly
+  where in the list the code sat. Three lines to avoid explaining why it did not matter.
+- **Regeneration requires the current password.** Minting ten bypass credentials from an already-open
+  session would let anybody who found an unlocked laptop walk away with permanent access.
+- **Spent codes are kept, not deleted.** "Which code was used, when, and from where" is evidence
+  about a real security event.
+
+The CLI script remains as the last resort for the case where every code is also gone.
+
+## 38. The end-to-end suite signs in for real, and that is the point
+
+**Module:** 00. **Asked for by:** the company — "what do you recommend?" about the standing caveat
+that no UI had ever been systematically reviewed.
+
+Every screen sits behind a mandatory TOTP gate, so nothing automated could reach any of them. That
+is why docs/PROGRESS.md carried a "Not visually verified" list from module 00 onward, and it is not a
+theoretical gap. Three bugs shipped that unit tests are *structurally incapable* of catching, because
+in each case the code was correct and what was missing was a route between two working halves:
+
+- **Accreditation** — service, panel, tests, and no way to create the first record. The register
+  listed records that already existed; its empty state pointed at an account page whose card was
+  read-only. Two screens pointing at each other.
+- **Contacts and plants** — modelled since session 2, with nothing in the UI able to create one, so
+  every picker depending on them was permanently empty.
+- **Photographs** — uploaded fine, stored fine, and blocked by a CSP header on the way back, with no
+  server log and no failed request. Only a console violation.
+
+`otpauth` was already a dependency, because the server uses it to *verify* codes. The same library
+generates them. So a Playwright test can compute a valid second factor from a known secret and log
+in exactly as a person does.
+
+`scripts/seed-e2e-user.ts` creates one account with a constant TOTP secret, refuses to run without
+`ALLOW_E2E_USER`, and uses a domain that cannot receive mail. The published secret is not a weakness:
+it exists on a development database, and anybody who can reach that database does not need a second
+factor.
+
+The tests are deliberately **shallow and wide**. They do not re-test business rules that already have
+unit coverage — they assert each screen loads, renders its own heading, resolves its loading state,
+raises no CSP violation, and shows the control that is the reason to open it. Two of them exist
+purely as regression tests for the failures above: one asserts a customer record offers "Add a
+plant", "Add a contact" and the accreditation control; the other asserts the quotation panels appear
+in the order the company asked for.
+
+It runs in CI after the build.

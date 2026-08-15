@@ -17,19 +17,40 @@ import { db } from "../src/lib/db";
  * path and it is soft. This is for clearing the company's own trial records so a series can restart,
  * and it prints everything it is about to destroy before it does.
  *
- * Arguments are inquiry numbers. Pass `--apply` to write.
+ * Arguments are inquiry numbers, or `--prefix <text>` to match on the subject instead. Pass
+ * `--apply` to write.
+ *
+ * The prefix form exists because of how the company works: they name trial records "test ..." so
+ * they can be cleared later. `--prefix test` then makes that one command instead of looking up five
+ * numbers by hand — which is the step where somebody eventually types a real one.
  */
 async function main() {
   const apply = process.argv.includes("--apply");
-  const numbers = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
-  if (numbers.length === 0) {
-    console.error("Give at least one inquiry number, e.g. INQ-2608-0003.");
+  const args = process.argv.slice(2);
+
+  const prefixFlag = args.indexOf("--prefix");
+  const prefix = prefixFlag >= 0 ? args[prefixFlag + 1] : undefined;
+  if (prefixFlag >= 0 && (!prefix || prefix.startsWith("--"))) {
+    console.error('--prefix needs a value, e.g. --prefix "test".');
+    process.exitCode = 1;
+    return;
+  }
+
+  const numbers = args.filter((arg, i) => !arg.startsWith("--") && i !== prefixFlag + 1);
+
+  if (!prefix && numbers.length === 0) {
+    console.error(
+      'Give at least one inquiry number (e.g. INQ-2608-0003), or --prefix "test" to match subjects.',
+    );
     process.exitCode = 1;
     return;
   }
 
   const inquiries = await db.inquiry.findMany({
-    where: { number: { in: numbers } },
+    where: prefix
+      ? // Case-insensitive, because "Test sale" and "test sale 2" both exist in practice.
+        { subject: { startsWith: prefix, mode: "insensitive" }, deletedAt: null }
+      : { number: { in: numbers } },
     select: {
       id: true,
       number: true,
@@ -43,15 +64,22 @@ async function main() {
   });
 
   if (inquiries.length === 0) {
-    console.log("Nothing matches those inquiry numbers.");
+    console.log(
+      prefix ? `No inquiry has a subject starting "${prefix}".` : "Nothing matches those numbers.",
+    );
     return;
   }
 
-  const missing = numbers.filter((n) => !inquiries.some((i) => i.number === n));
-  if (missing.length > 0) {
-    console.error(`Refusing: no inquiry named ${missing.join(", ")}. Check the numbers.`);
-    process.exitCode = 1;
-    return;
+  // Only when numbers were named. A prefix that matches nothing is answered above; a *number* that
+  // matches nothing means somebody mistyped, and going ahead with the rest would delete a set they
+  // did not ask for.
+  if (!prefix) {
+    const missing = numbers.filter((n) => !inquiries.some((i) => i.number === n));
+    if (missing.length > 0) {
+      console.error(`Refusing: no inquiry named ${missing.join(", ")}. Check the numbers.`);
+      process.exitCode = 1;
+      return;
+    }
   }
 
   const inquiryIds = inquiries.map((i) => i.id);

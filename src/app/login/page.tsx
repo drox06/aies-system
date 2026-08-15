@@ -133,17 +133,23 @@ function LoginForm() {
                 <Input
                   id="totpCode"
                   type="text"
-                  inputMode="numeric"
+                  // Not `inputMode="numeric"` and no `maxLength` any more: this field also takes a
+                  // ten-character recovery code, and a numeric keypad on a phone cannot type one.
+                  // The two shapes cannot be confused — six digits versus letters and digits from
+                  // an alphabet with no I, L, O or U.
                   autoComplete="one-time-code"
-                  maxLength={6}
                   required
                   autoFocus
                   value={totpCode}
                   onChange={(e) => setTotpCode(e.target.value)}
-                  // Tracking-wide tabular digits: a 6-digit code is read back off a phone screen
-                  // and re-typed, so the characters need to be individually countable.
-                  className="tabular text-center text-lg tracking-[0.4em]"
+                  // Tracking-wide tabular characters: a code is read back off a phone screen or a
+                  // printed sheet and re-typed, so they need to be individually countable.
+                  className="tabular text-center text-lg tracking-[0.3em]"
                 />
+                <p className="text-xs text-text-muted">
+                  Lost your phone? Type one of your recovery codes here instead. It signs you in
+                  once, then asks you to set up a new authenticator.
+                </p>
               </div>
             )}
 

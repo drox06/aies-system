@@ -56,6 +56,21 @@ jobs:
 
       - run: npm run build
 
+      # The end-to-end suite signs in for real — password, then a TOTP code computed from a seeded
+      # secret — and walks every screen. It is the only thing in CI that can catch the class of bug
+      # unit tests are structurally blind to: a service that works, a panel that renders, and no
+      # route between them. Three of those shipped before this existed.
+      - name: Seed the end-to-end account
+        run: npm run test:e2e:seed
+        env:
+          ALLOW_E2E_USER: "1"
+
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e
+        env:
+          ALLOW_E2E_USER: "1"
+
   # specs/00-foundation.md §9.2: the self-host fallback is "kept working but not the deployment
   # path. A test in CI must prove it still boots, or it will rot within two months." This builds
   # the image and brings the stack up far enough to prove the app answers through Caddy.

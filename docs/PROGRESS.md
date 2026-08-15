@@ -1290,6 +1290,33 @@ reads like a young company's. See "Known issues" — the fix is isolation, not a
       knew the most. Five tests pin the ladder, including that a card with no estimate shows blank
       rather than zero — "0" reads as a job worth nothing.
 
+### Clearing the four standing caveats
+
+The company asked what should be done about each of the four risks this file had been carrying.
+
+- [x] **No UI had ever been systematically reviewed → the end-to-end suite now signs in for real.**
+      The reason nothing automated had seen a single screen was the mandatory TOTP gate. `otpauth`
+      was already a dependency — the server uses it to *verify* codes, and the same library
+      generates them — so a Playwright test can compute a valid second factor from a seeded secret
+      and log in exactly as a person does. 14 tests: every route renders, resolves its loading state
+      and raises no CSP violation, plus two written as regressions for bugs that shipped (a customer
+      record must offer "Add a plant", "Add a contact" and the accreditation control; the quotation
+      panels must read Details → Lines → Supplier pricing → Terms). Runs in CI after the build.
+      docs/DECISIONS.md #38.
+- [x] **The suite burning real document numbers → renumber by hand, deliberately.** The company's
+      call, and the right one: isolating the suite in its own schema was built, verified working and
+      reverted because the cost had outgrown the problem. They will name trial records "test …", so
+      `purge-deal.ts` gained `--prefix test` to clear a whole set in one command.
+- [x] **Vercel → after module 03, not now and not at the very end.** Nothing in the build depends on
+      it, so deferring costs nothing today; what stays untested until then is the nightly cron, which
+      has never once run on a schedule. Module 03 is the point where the app covers a whole business
+      flow — inquiry to quotation to order — and so becomes worth putting in front of people on
+      their own phones, which is where every useful piece of feedback so far has come from.
+- [x] **The permanent TOTP lockout → recovery codes**, and explicitly not an admin reset, which
+      would trade a lockout risk for a total-compromise one. docs/DECISIONS.md #37.
+
+**Migration** `20260815130136_recovery_codes`: one `RecoveryCode` table.
+
 ### Next concrete step
 
 **Module 03 — Customer PO, Sales Order, Procurement and Delivery.**
@@ -1441,9 +1468,15 @@ Notes for whoever picks this up:
 
 ## Not visually verified
 
-Everything below passes typecheck, lint, tests and a production build, and was checked through
-the DOM or the served HTML — but **nobody has looked at it on screen**. The module 00 manual pass
-found six defects that 186 automated tests did not, so this distinction is worth keeping honest.
+**Every route in this list is now loaded, signed in, by `tests/e2e/screens.spec.ts`** — it asserts
+the page renders, resolves its loading state, raises no CSP violation, and shows the control that is
+the reason to open it. That closes the gap that let three "the service works and nothing reaches it"
+bugs ship.
+
+What it does **not** do is look at anything. Alignment, spacing, colour, whether a table is readable
+on a phone in a plant — none of that is asserted, and the module 00 manual pass found six defects
+that 186 automated tests did not. So the list below stays, with its meaning narrowed: these render
+and function; nobody has judged how they *look*.
 
 - The sidebar's white logo plate and the 20px lucide icons (module 00 session 5). The browser pane
   had signed itself out, so these were confirmed by computed geometry and a clean compile only.
@@ -1528,13 +1561,13 @@ found six defects that 186 automated tests did not, so this distinction is worth
   heavy on plant LTE the fix is a raster derivative for fixed-size screen use, keeping the SVG for
   PDF headers. See docs/DECISIONS.md #15's amendment. If artwork with real gradient fills is ever
   supplied, replace `brand/aies-logo-source.svg` and re-run `npm run brand`.
-- **Losing an authenticator locks a user out permanently.** specs/00-foundation.md §4.1 makes TOTP
-  mandatory with "no opt-out, no admin-only carve-out", and this app generates and redeems no
-  recovery codes, so there is no self-service path back in. The only recovery is an operator with
-  database access running `npm run reset:credentials -- <email>`. That is a deliberate trade
-  (a recovery-code path is a second, weaker authentication factor), and the enrolment screen now
-  warns about it — but with five accounts and one of them the president, it is worth revisiting
-  before this carries real business data.
+- ~~**Losing an authenticator locks a user out permanently.**~~ **Fixed** — ten single-use recovery
+  codes, issued at enrolment and shown once (docs/DECISIONS.md #37). Redeeming one signs the user in
+  *and revokes the enrolment*, so the factor is restored rather than skipped, which is what keeps it
+  compatible with §4.1's "no opt-out". Deliberately **not** an admin reset: letting a signed-in
+  president clear somebody else's second factor would mean one compromised officer account could
+  take over every other account without knowing a password. `npm run reset:credentials` remains the
+  last resort for the case where the codes are gone too. 12 tests, most of them refusals.
 - `docker/docker-compose.yml` and its Dockerfile have never been executed (no Docker on the build
   machine). The new `self-host-fallback` CI job is their first run.
 - No `/api/cron/nightly` route yet — Spec.md §7 calls for one, but nothing needs it until module

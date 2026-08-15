@@ -33,8 +33,44 @@ model User {
   permissionOverrides UserPermissionOverride[]
   accounts            Account[]
   sessions            Session[]
+  recoveryCodes       RecoveryCode[]
 
   @@index([email])
+}
+
+/// One single-use way back in when the authenticator is gone.
+///
+/// specs/00-foundation.md §4.1 makes TOTP mandatory — "no opt-out, no admin-only carve-out" — and
+/// this build honoured that so completely that a lost phone meant a permanent lockout with no path
+/// back except an operator running `npm run reset:credentials` against the database. With five
+/// users and one of them the president, that was the wrong trade.
+///
+/// **Recovery codes are not an opt-out.** Redeeming one signs you in *and* revokes the enrolment,
+/// so the next thing you do is enrol an authenticator again. The factor is restored, not skipped.
+///
+/// **And deliberately not an admin reset**, which is the other obvious fix: letting a signed-in
+/// president clear somebody's second factor would mean one compromised officer account could take
+/// over every other account without knowing a single password — a privilege-escalation path
+/// straight through the control §4.1 calls non-negotiable. See scripts/reset-user-credentials.ts,
+/// which has said so since session 2.
+model RecoveryCode {
+  id     String @id @default(cuid())
+  userId String
+
+  /// argon2, exactly like a password. A recovery code *is* a credential, and a database leak that
+  /// hands over the second factor in plaintext defeats the point of having one.
+  codeHash String
+
+  /// Single use. Kept rather than deleted so "which code was used, and when" stays answerable —
+  /// a redeemed code is evidence about a real event.
+  usedAt DateTime?
+  usedIp String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
 }
 
 model Role {
