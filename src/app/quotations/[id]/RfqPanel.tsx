@@ -506,7 +506,16 @@ export function RfqPanel({
         </ul>
       )}
 
-      {canSeeCost && (comparison.data ?? []).length > 1 && (
+      {/**
+       * Shown as soon as *anything* has been priced.
+       *
+       * This used to read `.length > 1`, which looks like "more than one supplier" and is not:
+       * `comparison.data` holds **one row per quotation line**, so the panel only appeared once two
+       * different lines had offers. A one-line job with three manufacturers competing — the exact
+       * case §3.6 exists for — never showed it, and the company reported the panel as appearing
+       * "sometimes". It was deterministic; the condition was just measuring the wrong thing.
+       */}
+      {canSeeCost && (comparison.data ?? []).length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
           <h3 className="text-sm font-semibold">Comparison</h3>
           <p className="mt-0.5 text-xs text-text-muted">
@@ -516,66 +525,94 @@ export function RfqPanel({
             {editable && " Cost each line from whichever supplier suits it."}
           </p>
           <div className="mt-2 overflow-x-auto">
+            {/* One table row per *offer*, not a nested stack inside a cell.
+
+                The old shape put every offer for a line into one cell as free-flowing flex rows, so
+                each offer's "Use this" landed wherever that offer's text happened to end — after a
+                lead time on one, after a "cheapest" badge on another. The company saw exactly that:
+                two suppliers on one line, one button apparently aligned and the other missing until
+                something below it moved. Real columns cannot do that: every offer gets the same
+                slots, and the action column is always there even when it holds a badge instead. */}
             <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-text-muted">
+                  <th className="py-1 pr-3 font-medium">Line</th>
+                  <th className="py-1 pr-3 font-medium">Supplier</th>
+                  <th className="py-1 pr-3 text-right font-medium">Unit cost</th>
+                  <th className="py-1 pr-3 text-right font-medium">Lead time</th>
+                  <th className="py-1 pr-3 font-medium"> </th>
+                  <th className="py-1 font-medium"> </th>
+                </tr>
+              </thead>
               <tbody>
-                {(comparison.data ?? []).map((row) => (
-                  <tr key={row.sourceLineNo} className="border-t border-border align-top">
-                    <td className="py-1.5 pr-3">
-                      <span className="tabular text-text-muted">{row.sourceLineNo}.</span>{" "}
-                      {row.description}
-                    </td>
-                    <td className="py-1.5">
-                      {row.offers.map((offer) => (
-                        <div
-                          key={offer.supplierQuoteLineId}
-                          className="flex flex-wrap items-center gap-2"
-                        >
-                          <span className="tabular">
-                            {offer.currency} {offer.unitCost}
-                          </span>
-                          <span className="text-text-muted">{offer.supplierName}</span>
-                          {offer.leadTimeDays !== null && (
-                            <span className="text-text-muted">{offer.leadTimeDays}d</span>
-                          )}
-                          {offer.isCheapest && <StatusBadge tone="approved">cheapest</StatusBadge>}
-                          {offer.isApplied ? (
-                            <StatusBadge tone="active">costed</StatusBadge>
-                          ) : (
-                            editable && (
-                              // One line, one supplier. The whole-RFQ Apply above is still the
-                              // right action when a single manufacturer supplies the job; this is
-                              // for the job that is three manufacturers, where applying an RFQ
-                              // wholesale would overwrite a line another supplier already won.
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-1.5"
-                                disabled={apply.isPending}
-                                onClick={async () => {
-                                  try {
-                                    await apply.mutateAsync({
-                                      rfqId: offer.rfqId,
-                                      lineNos: [offer.rfqLineNo],
-                                    });
-                                    toastSuccess(
-                                      `Line ${row.sourceLineNo} costed from ${offer.supplierName}.`,
-                                    );
-                                    refresh();
-                                    onApplied();
-                                  } catch (error) {
-                                    toastError(error);
-                                  }
-                                }}
-                              >
-                                Use this
-                              </Button>
-                            )
-                          )}
-                        </div>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
+                {(comparison.data ?? []).flatMap((row) =>
+                  row.offers.map((offer, index) => (
+                    <tr
+                      key={offer.supplierQuoteLineId}
+                      // Only the first offer of a line draws the divider, so the offers for one
+                      // line read as a group rather than as unrelated rows.
+                      className={index === 0 ? "border-t border-border" : undefined}
+                    >
+                      <td className="py-1.5 pr-3 align-top">
+                        {/* The line is named once and then left blank, so the eye groups the
+                            competing offers instead of re-reading the description each time. */}
+                        {index === 0 && (
+                          <>
+                            <span className="tabular text-text-muted">{row.sourceLineNo}.</span>{" "}
+                            {row.description}
+                          </>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-3 align-top">{offer.supplierName}</td>
+                      <td className="tabular py-1.5 pr-3 text-right align-top">
+                        {offer.currency} {offer.unitCost}
+                      </td>
+                      <td className="tabular py-1.5 pr-3 text-right align-top text-text-muted">
+                        {offer.leadTimeDays !== null ? `${offer.leadTimeDays}d` : "—"}
+                      </td>
+                      <td className="py-1.5 pr-3 align-top">
+                        {offer.isCheapest && row.offers.length > 1 && (
+                          <StatusBadge tone="approved">cheapest</StatusBadge>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right align-top whitespace-nowrap">
+                        {offer.isApplied ? (
+                          <StatusBadge tone="active">costed</StatusBadge>
+                        ) : (
+                          editable && (
+                            // One line, one supplier. The whole-RFQ Apply above is still the
+                            // right action when a single manufacturer supplies the job; this is
+                            // for the job that is three manufacturers, where applying an RFQ
+                            // wholesale would overwrite a line another supplier already won.
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5"
+                              disabled={apply.isPending}
+                              onClick={async () => {
+                                try {
+                                  await apply.mutateAsync({
+                                    rfqId: offer.rfqId,
+                                    lineNos: [offer.rfqLineNo],
+                                  });
+                                  toastSuccess(
+                                    `Line ${row.sourceLineNo} costed from ${offer.supplierName}.`,
+                                  );
+                                  refresh();
+                                  onApplied();
+                                } catch (error) {
+                                  toastError(error);
+                                }
+                              }}
+                            >
+                              Use this
+                            </Button>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  )),
+                )}
               </tbody>
             </table>
           </div>

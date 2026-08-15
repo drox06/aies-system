@@ -185,8 +185,17 @@ export default function PipelinePage() {
                         <p className="truncate text-xs text-text-muted">{card.account.name}</p>
                       )}
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-                        {card.estimatedValue && (
-                          <MoneyCell value={card.estimatedValue} currency={card.currency} />
+                        {card.value.amount && (
+                          <>
+                            <MoneyCell value={card.value.amount} currency={card.value.currency} />
+                            {/* Which number this is. Without it, a card whose figure changed from
+                                the intake estimate to the quoted total looks like somebody edited
+                                the record — and the difference between "we think" and "they have
+                                ordered" is the whole point of a pipeline. */}
+                            {card.value.basis !== "estimate" && (
+                              <span className="text-text-muted">{card.value.basis}</span>
+                            )}
+                          </>
                         )}
                         <span className="text-text-muted">{card.ownerLabel}</span>
                         <span className="text-text-muted">{card.ageDays}d</span>

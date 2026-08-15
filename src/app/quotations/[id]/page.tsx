@@ -240,6 +240,25 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
 
           <div onChangeCapture={() => setDirty(true)}>
             <LineEditor
+              /**
+               * Remounted whenever the stored version moves, which is what makes a cost applied
+               * from somewhere else actually appear here.
+               *
+               * `LineEditor` seeds its rows from `initialLines` with `useState`, so React uses that
+               * value **once** and ignores every later one. That is correct for a form — it is why
+               * typing survives a background refetch — and it was silently wrong for anything that
+               * changes the lines from outside the editor. Recording a supplier response wrote the
+               * cost to the database, the page refetched it, and this component went on rendering
+               * the zero it had been born with until somebody reloaded the browser. The company
+               * reported it as the supplier's price "not reflected on the lines".
+               *
+               * `version` is the right key because `saveQuotationLinesService` bumps it on every
+               * write, so it moves exactly when the stored lines do and never otherwise. Unsaved
+               * typing is not at risk from a *background* refetch, which leaves the version alone;
+               * it is discarded only when the lines genuinely changed underneath, and in that case
+               * optimistic locking would have refused the save anyway.
+               */
+              key={`lines-v${data.version}`}
               quotationId={data.id}
               version={data.version}
               currency={data.currency}

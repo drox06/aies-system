@@ -85,11 +85,33 @@ export async function getPipelineService(user: { id: string; permissions: Readon
         // The live quotation, for the cards sitting in "Sent". Recording a customer PO has to link
         // it to the quotation it answers, and asking for that per card as the dialog opens would
         // put a round-trip between a person and a document they are holding.
+        //
+        // Widened past `sent`/`under_negotiation` so the card can show what was actually quoted
+        // once the deal moves on — an accepted quotation is still the answer to "how much is this
+        // job?", and it is the last thing that answers it before the PO arrives.
         quotations: {
-          where: { deletedAt: null, status: { in: ["sent", "under_negotiation"] } },
+          where: {
+            deletedAt: null,
+            status: { in: ["sent", "under_negotiation", "accepted"] },
+          },
           orderBy: { revision: "desc" },
           take: 1,
-          select: { id: true, number: true, revision: true, total: true, currency: true },
+          select: {
+            id: true,
+            number: true,
+            revision: true,
+            total: true,
+            currency: true,
+            status: true,
+          },
+        },
+        // What the customer actually ordered. The final word on value, and the reason this query
+        // exists at all — see `value` below.
+        customerPOs: {
+          where: { deletedAt: null },
+          orderBy: { receivedAt: "desc" },
+          take: 1,
+          select: { id: true, poNumber: true, amount: true, currency: true },
         },
       },
     }),
@@ -102,18 +124,49 @@ export async function getPipelineService(user: { id: string; permissions: Readon
   return {
     truncated: total > PIPELINE_LIMIT,
     total,
-    cards: rows.map(({ quotations, ...row }) => ({
-      ...row,
-      estimatedValue: row.estimatedValue?.toString() ?? null,
-      liveQuotation: quotations[0]
-        ? { ...quotations[0], total: quotations[0].total.toString() }
-        : null,
-      ownerLabel: owners.get(row.ownerId) ?? row.ownerId,
-      // §6: the card shows "age" — days since it arrived, which is the number that makes a stale
-      // card look stale without anybody computing it.
-      ageDays: Math.floor((now.getTime() - row.receivedAt.getTime()) / DAY_MS),
-      sla: assessInquirySla(row, now),
-    })),
+    cards: rows.map(({ quotations, customerPOs, ...row }) => {
+      const quotation = quotations[0] ?? null;
+      const po = customerPOs[0] ?? null;
+
+      /**
+       * What the card shows for money, and where that figure comes from.
+       *
+       * The company caught this: a card that reached "Received PO" was still showing the 10,000
+       * somebody guessed at intake. `estimatedValue` is exactly that — a guess typed before anyone
+       * had costed anything — and it should stop being the answer the moment a better one exists.
+       *
+       * So the card reports the **best-known** figure and says which it is, rather than silently
+       * swapping one number for another: a purchase order beats a quotation, a quotation beats the
+       * estimate. The estimate is still what a brand-new inquiry has, which is correct — it is the
+       * only number anybody has on the day the phone rings.
+       */
+      const value = po
+        ? { amount: po.amount.toString(), currency: po.currency, basis: "purchase order" as const }
+        : quotation
+          ? {
+              amount: quotation.total.toString(),
+              currency: quotation.currency,
+              basis: "quoted" as const,
+            }
+          : {
+              amount: row.estimatedValue?.toString() ?? null,
+              currency: row.currency,
+              basis: "estimate" as const,
+            };
+
+      return {
+        ...row,
+        estimatedValue: row.estimatedValue?.toString() ?? null,
+        value,
+        liveQuotation: quotation ? { ...quotation, total: quotation.total.toString() } : null,
+        customerPo: po ? { ...po, amount: po.amount.toString() } : null,
+        ownerLabel: owners.get(row.ownerId) ?? row.ownerId,
+        // §6: the card shows "age" — days since it arrived, which is the number that makes a stale
+        // card look stale without anybody computing it.
+        ageDays: Math.floor((now.getTime() - row.receivedAt.getTime()) / DAY_MS),
+        sla: assessInquirySla(row, now),
+      };
+    }),
   };
 }
 

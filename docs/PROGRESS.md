@@ -1257,6 +1257,39 @@ allocates from the same `DocumentSequence` the app uses. The company's own "Test
 came out as `AIESLQ260332`. Nothing is corrupt and no number was reused, but the series no longer
 reads like a young company's. See "Known issues" — the fix is isolation, not another renumber.
 
+### A fourth batch — three of the five were bugs, and two were invisible
+
+- [x] **The supplier's price *was* reaching the database and never reaching the screen.** Yesterday's
+      carry wrote the cost correctly; `LineEditor` never re-read it. It seeds its rows from
+      `initialLines` with `useState`, so React takes that value once and ignores every later one —
+      right for a form, since it is what lets typing survive a background refetch, and silently
+      wrong for anything that changes the lines from *outside* the editor. The page refetched, the
+      data was correct, and the component went on rendering the zero it was born with until somebody
+      reloaded the browser. Now keyed on `version`, which `saveQuotationLinesService` bumps on every
+      write — so it remounts exactly when the stored lines move and never otherwise.
+- [x] **The comparison panel appeared "sometimes".** It was deterministic; the condition measured
+      the wrong thing. `comparison.data.length > 1` reads like "more than one supplier" and is not —
+      the array holds **one row per quotation line**, so the panel only appeared once two different
+      lines had offers. A one-line job with three manufacturers competing, which is precisely what
+      §3.6 exists for, never showed it.
+- [x] **"Use this" appeared to be missing on one supplier and aligned on another.** Every offer for
+      a line was a free-flowing flex row inside a single cell, so each button landed wherever that
+      offer's text happened to end — after a lead time on one, after a "cheapest" badge on the next.
+      Now a real table: one row per offer, fixed columns, and the action column always present even
+      when it holds a "costed" badge instead of a button.
+- [x] **A plant can be chosen when logging an inquiry, and it carries to the site inspection** —
+      which is what the company asked for and why: "so that the technician assigned will know which
+      plant to go to." The inspection form defaults to the inquiry's plant and shows that plant's
+      access notes inline, so gate pass and PPE are read before somebody leaves rather than at the
+      gate. Both dropdowns stay hidden for a customer with no plants, because a picker offering only
+      "not sure yet" is a field to skip past on every intake.
+- [x] **A pipeline card no longer shows the intake guess forever.** It reports the best-known figure
+      and names which it is — **purchase order** beats **quoted** beats **estimate**. The specific
+      gap: the card's quotation query looked only at `sent`/`under_negotiation`, and recording a PO
+      flips the quotation to `accepted`, so the card fell back to the guess at the exact moment it
+      knew the most. Five tests pin the ladder, including that a card with no estimate shows blank
+      rather than zero — "0" reads as a job worth nothing.
+
 ### Next concrete step
 
 **Module 03 — Customer PO, Sales Order, Procurement and Delivery.**
@@ -1288,8 +1321,8 @@ quotation), and the review gate above has been run.
 by server tests and a clean production build, not on screen — all three sit behind the TOTP login.
 The RFQ PDF was rendered from a throwaway record and its props asserted.
 
-**State at this stop.** Working tree clean, tagged `module-02-complete`. **609 tests** across 71
-files pass on a clean run; lint and typecheck clean. Everything is ahead of `origin/main` and
+**State at this stop.** Working tree clean, tagged `module-02-complete`. **628 tests** across 74
+files pass on a clean run with the dev server stopped; lint and typecheck clean. Everything is ahead of `origin/main` and
 **unpushed** — push it, or don't, but know that it is only on this machine.
 
 Module 02 is finished, sessions 3 and 4 both: §6's approval and its queue, §7's auto-expire, the

@@ -40,6 +40,7 @@ export function InquiryDialog({
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [siteId, setSiteId] = useState("");
   const [source, setSource] = useState<string>("phone");
   const [receivedAt, setReceivedAt] = useState("");
   const [requiredByDate, setRequiredByDate] = useState("");
@@ -49,6 +50,21 @@ export function InquiryDialog({
 
   // Enough for a five-person company; a combobox is session 3's problem when there are hundreds.
   const accounts = trpc.crm.listAccounts.useQuery({ pageSize: 100 }, { enabled: open });
+  /**
+   * The chosen customer's plants, so an inquiry records *which* one it came from.
+   *
+   * Asked for by the company, and §1's reason is the same: "each has plants, each plant has
+   * equipment, and the same account may run several unrelated inquiries at once." A water district
+   * with four treatment plants raising three inquiries is three different buildings, and without
+   * this the site visit that follows has no address to go to — which is the second half of what
+   * they asked for.
+   *
+   * Only fetched once an account is chosen, because until then there is nothing to ask about.
+   */
+  const sites = trpc.crm.listSites.useQuery(
+    { accountId },
+    { enabled: open && accountId.length > 0 },
+  );
   // Not gated on `open`: an empty dropdown on first paint reads as "nobody can be assigned", and
   // this list is five rows.
   const owners = trpc.crm.inquiryOwners.useQuery();
@@ -58,6 +74,7 @@ export function InquiryDialog({
     setSubject("");
     setDescription("");
     setAccountId("");
+    setSiteId("");
     setSource("phone");
     setReceivedAt("");
     setRequiredByDate("");
@@ -77,6 +94,7 @@ export function InquiryDialog({
         subject,
         description: description || null,
         accountId: accountId || null,
+        siteId: siteId || null,
         source: source as (typeof INQUIRY_SOURCES)[number],
         // Backdating is expected: people log Friday's call on Monday, and the SLA clock has to
         // start when the customer called, not when the form was opened.
@@ -142,7 +160,11 @@ export function InquiryDialog({
                 <Select
                   id="inq-account"
                   value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
+                  onChange={(e) => {
+                    setAccountId(e.target.value);
+                    // A plant belongs to one customer, so changing the customer invalidates it.
+                    setSiteId("");
+                  }}
                 >
                   <option value="">Not linked yet</option>
                   {(accounts.data?.rows ?? []).map((account) => (
@@ -152,6 +174,25 @@ export function InquiryDialog({
                   ))}
                 </Select>
               </div>
+
+              {/* Only when the chosen customer actually has plants. A dropdown offering one option
+                  called "no particular plant" is a field to skip past on every single intake. */}
+              {(sites.data ?? []).length > 0 && (
+                <div>
+                  <Label htmlFor="inq-site">Which plant?</Label>
+                  <Select id="inq-site" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+                    <option value="">Not sure yet</option>
+                    {(sites.data ?? []).map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    Carried onto the site inspection, so whoever goes knows where.
+                  </p>
+                </div>
+              )}
               <div>
                 <Label htmlFor="inq-source">Source</Label>
                 <Select id="inq-source" value={source} onChange={(e) => setSource(e.target.value)}>

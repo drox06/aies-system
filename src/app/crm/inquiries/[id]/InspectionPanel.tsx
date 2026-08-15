@@ -31,6 +31,20 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
   const [assignedToId, setAssignedToId] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [findings, setFindings] = useState("");
+  /**
+   * Which plant the technician is being sent to.
+   *
+   * Defaults to the plant the inquiry came from, which is the answer nine times out of ten — and is
+   * why the company asked for the plant on intake as well: "so that the technician assigned will
+   * know which plant to go to for the inspection." It stays changeable because the visit is not
+   * always to the plant that raised the question.
+   */
+  const [inspectionSiteId, setInspectionSiteId] = useState(inquiry.siteId ?? "");
+
+  const sites = trpc.crm.listSites.useQuery(
+    { accountId: inquiry.accountId ?? "" },
+    { enabled: Boolean(inquiry.accountId) },
+  );
 
   // Not gated on `open`. That flag belongs to the raise-a-new-request form, so gating the query on
   // it meant the assignee list was never fetched for an *existing* request — the dropdown on the
@@ -104,6 +118,24 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               }
             }}
           />
+          {/* Where, on the request itself. The person who opens this is usually the person driving
+              there, and a visit whose destination lives only in somebody's memory is the failure
+              §5 is trying to remove. */}
+          {(() => {
+            const site = (sites.data ?? []).find((s) => s.id === item.siteId);
+            if (!site) return null;
+            return (
+              <p className="mt-1 text-xs">
+                <span className="font-medium">{site.name}</span>
+                {site.accessNotes && (
+                  <span className="mt-0.5 block rounded bg-surface-2 p-1.5 text-text-muted">
+                    Getting in: {site.accessNotes}
+                  </span>
+                )}
+              </p>
+            );
+          })()}
+
           {item.requiredOutputs.length > 0 && (
             <p className="mt-1 text-xs text-text-muted">
               Bring back: {item.requiredOutputs.join(", ").replace(/_/g, " ")}
@@ -235,6 +267,34 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               ))}
             </div>
           </fieldset>
+          {(sites.data ?? []).length > 0 && (
+            <div>
+              <Label htmlFor="insp-site">Which plant is the visit to?</Label>
+              <Select
+                id="insp-site"
+                value={inspectionSiteId}
+                onChange={(e) => setInspectionSiteId(e.target.value)}
+              >
+                <option value="">Not decided</option>
+                {(sites.data ?? []).map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </Select>
+              {/* §2 puts gate pass, PPE and induction on the site for exactly this moment: the
+                  person being sent needs to read them before they leave, not at the gate. */}
+              {(() => {
+                const chosen = (sites.data ?? []).find((s) => s.id === inspectionSiteId);
+                return chosen?.accessNotes ? (
+                  <p className="mt-1 rounded bg-surface-2 p-1.5 text-xs">
+                    <span className="font-medium">Getting in:</span> {chosen.accessNotes}
+                  </p>
+                ) : null;
+              })()}
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="insp-start">Window from</Label>
@@ -294,6 +354,7 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               try {
                 await request.mutateAsync({
                   inquiryId: inquiry.id,
+                  siteId: inspectionSiteId || null,
                   purpose,
                   questions: questions || null,
                   requiredOutputs: outputs as (typeof INSPECTION_OUTPUTS)[number][],
