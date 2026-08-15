@@ -1,16 +1,14 @@
-// Module 03 — Customer PO (specs/03-order-procurement.md §2).
+// Module 03 — Customer PO, Sales Order, Procurement and Delivery (specs/03-order-procurement.md §2).
 //
-// **Only `CustomerPO`, and only because the company asked for it now.** Module 03 is not being
-// built here: there is no SalesOrder, no Supplier, no SupplierPO, no GoodsReceipt. What the company
-// asked for is a pipeline column that a deal enters when the customer's purchase order arrives, and
-// PO receipt is module 03's opening act — §1 calls it "the pivot point… where the deal stops being
-// a sales artifact and becomes an obligation".
+// §1 names what this module is: "the pivot point… where the deal stops being a sales artifact and
+// becomes an obligation." `CustomerPO` was pulled forward during module 02 for the pipeline's
+// Received PO column; the rest arrives here.
 //
-// The alternative was to hang `customerPoNumber` / `customerPoFileId` off `Inquiry`. That is the
-// trap this build has refused twice already (module 05's `PaymentTerm`, ISO 8.4's supplier
-// register): a second mechanism for a thing a later module already owns, which that module then has
-// to reconcile or migrate. The fields below are §2's field list, so module 03 extends this row
-// rather than replacing it.
+// **The one structural instruction §1 gives, and the reason most of these columns exist:** model a
+// sales order as *independent workstreams*, not a linear status chain — "a single status field
+// cannot represent 'goods received, downpayment still unpaid, installation scheduled'." So
+// `SalesOrder` carries four status columns that move independently, and the overall `status` is a
+// summary of them rather than the thing they derive from.
 
 model CustomerPO {
   id String @id @default(cuid())
@@ -53,11 +51,204 @@ model CustomerPO {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  account   CustomerAccount @relation(fields: [accountId], references: [id])
-  quotation Quotation?      @relation(fields: [quotationId], references: [id])
-  inquiry   Inquiry?        @relation(fields: [inquiryId], references: [id])
+  account    CustomerAccount @relation(fields: [accountId], references: [id])
+  quotation  Quotation?      @relation(fields: [quotationId], references: [id])
+  inquiry    Inquiry?        @relation(fields: [inquiryId], references: [id])
+  salesOrder SalesOrder?
 
   @@index([accountId, receivedAt])
   @@index([quotationId])
   @@index([inquiryId])
+}
+
+/// The people AIES buys from (§2).
+///
+/// §2 is unusually specific about how this gets populated, and it shapes the whole model:
+/// "Confirmed: this directory is maintained by users, not by any integration. Make the create/edit
+/// form fast and forgiving — it is the only way suppliers get in." So `name` is the only required
+/// field beyond the generated code. Everything else can follow.
+///
+/// **This is the model two earlier modules were waiting for.** `PrincipalProspect.supplierId` and
+/// `SupplierQuoteRequest.supplierId` have been plain id columns since sessions 3 and 4, documented
+/// as "a foreign key on the day module 03 lands". Today is that day — see the relations below.
+///
+/// `isApproved` is ISO 9001 clause 8.4's approved-supplier control, which docs/PROGRESS.md has
+/// listed as owed since module 01: the company asked to know both "can we legally sell to this
+/// customer" (§5b accreditation, built) and "is this vendor approved to buy from" (this).
+model Supplier {
+  id   String @id @default(cuid())
+  /// SUP-{####} from the numbering service. Permanent, like an account code — no year segment,
+  /// because a supplier relationship is not a dated document.
+  code String @unique
+  name String
+
+  /// True when this supplier is a manufacturer AIES represents, rather than a trading source.
+  /// §5c's appointment sets it; it is what separates "we sell their equipment" from "we buy bar
+  /// stock here".
+  isPrincipal Boolean @default(false)
+
+  country  String?
+  currency String  @default("PHP")
+
+  contactName String?
+  email       String?
+  phone       String?
+  /// Json for the same reason as CustomerAccount.billingAddress: Philippine addresses do not
+  /// decompose cleanly, and every consumer wants the whole block.
+  address     Json    @default("{}")
+
+  paymentTerms        String?
+  leadTimeDaysTypical Int?
+  incoterm            String?
+  /// The brands this supplier represents. Array rather than a join table — read whole, never
+  /// queried across.
+  productLines        String[] @default([])
+
+  /// ISO 9001 clause 8.4 supplier control. `approvalExpiry` gets the same renewal ladder §5c's
+  /// distributor agreements have, for the same reason: an approval that lapses unnoticed means
+  /// buying from an unapproved vendor and finding out at the audit.
+  rating         Int?
+  isApproved     Boolean   @default(false)
+  approvedAt     DateTime?
+  approvalExpiry DateTime?
+
+  notes String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  /// The §5c prospect this supplier was converted from, when it came that way. Nullable because a
+  /// supplier can equally be typed in directly — most are not principals.
+  principalProspect PrincipalProspect?
+
+  /// **No relation to `SupplierQuoteRequest`, deliberately — and `prisma format` will try to add
+  /// one back.** Declaring either side makes Prisma emit a foreign key on
+  /// `SupplierQuoteRequest.supplierId`, and that column holds `PrincipalProspect` ids: every RFQ
+  /// ever raised points at one, so the constraint fails against live rows. It was written, the
+  /// generated migration was read, and it was taken out again. If a `supplierQuoteRequests` field
+  /// reappears here, `prisma format` put it there — delete it and check the migration diff.
+  /// The relation arrives in session 2, with the data migration that repoints those ids.
+
+  @@index([isPrincipal, deletedAt])
+  @@index([name])
+}
+
+/// The obligation (§2), and the module's centre of gravity.
+///
+/// §1: "Model this as a sales order with **independent workstreams**, not a linear status chain. A
+/// single status field cannot represent 'goods received, downpayment still unpaid, installation
+/// scheduled.'" That instruction is why there are four status columns here instead of one, and it
+/// is the single most load-bearing decision in this module — a linear chain would have forced every
+/// screen to lie about at least one of the three fan-outs §1 describes.
+model SalesOrder {
+  id     String @id @default(cuid())
+  /// SO-{YY}{MM}-{####} from the numbering service.
+  number String @unique
+
+  accountId    String
+  siteId       String?
+  quotationId  String
+  /// One sales order per customer PO. The unique constraint is the guard: raising a second order
+  /// against the same PO is double-committing to the same money, and it is the kind of mistake that
+  /// only shows up when the customer is invoiced twice.
+  customerPOId String  @unique
+
+  orderDate      DateTime  @default(now())
+  requiredByDate DateTime?
+
+  currency     String  @default("PHP")
+  subtotal     Decimal @default(0) @db.Decimal(14, 2)
+  vatAmount    Decimal @default(0) @db.Decimal(14, 2)
+  total        Decimal @default(0) @db.Decimal(14, 2)
+  /// Permission-gated on the way out, exactly as on the quotation (Spec.md §4.3).
+  totalCost    Decimal @default(0) @db.Decimal(14, 2)
+  marginAmount Decimal @default(0) @db.Decimal(14, 2)
+
+  /// Plain id: `PaymentTerm` is module 05's and does not exist yet. Same deferral the quotation
+  /// makes, so module 05 fills both in rather than reconciling two mechanisms.
+  paymentTermsId    String?
+  downpaymentPct    Decimal @default(0) @db.Decimal(7, 4)
+  downpaymentAmount Decimal @default(0) @db.Decimal(14, 2)
+
+  /// open | in_progress | partially_delivered | delivered | in_execution | completed | closed |
+  /// cancelled. A **summary** of the three workstreams below, never their source.
+  status String @default("open")
+
+  /// The three independent workstreams §1 insists on. Each moves on its own evidence: procurement
+  /// on supplier POs and goods receipts, finance on module 05's payments, execution on module 04's
+  /// tickets. None of them waits for the others.
+  procurementStatus String @default("not_required")
+  financeStatus     String @default("awaiting_downpayment")
+  executionStatus   String @default("not_required")
+
+  ownerId          String
+  projectManagerId String?
+
+  closedAt DateTime?
+  /// Spec.md §10 requires optimistic locking on the records two people edit at once. A sales order
+  /// is worked by sales, procurement and operations simultaneously by design.
+  version  Int       @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account    CustomerAccount  @relation(fields: [accountId], references: [id])
+  site       Site?            @relation(fields: [siteId], references: [id])
+  quotation  Quotation        @relation(fields: [quotationId], references: [id])
+  customerPO CustomerPO       @relation(fields: [customerPOId], references: [id])
+  lines      SalesOrderLine[]
+
+  @@index([accountId, status])
+  @@index([ownerId, status])
+  @@index([status, orderDate])
+}
+
+/// A line of the obligation, carrying its own fulfilment counters (§2).
+///
+/// The three counters are what make partial fulfilment representable: §11 asks for "partial receipt
+/// then partial delivery keeps qtyOrdered/Received/Delivered consistent; over-receipt and
+/// over-delivery are rejected". They are stored rather than derived because they are summed from
+/// records in three different modules, and a derived value would mean every screen re-deriving it.
+model SalesOrderLine {
+  id           String @id @default(cuid())
+  salesOrderId String
+  lineNo       Int
+
+  /// The quotation line this came from — the answer to "what did we actually promise?" once the
+  /// quotation has been superseded by a later revision.
+  quotationLineId String?
+
+  itemType    String  @default("product")
+  productId   String?
+  description String
+  quantity    Decimal @default(1) @db.Decimal(14, 3)
+  unit        String  @default("pc")
+
+  unitPrice Decimal @default(0) @db.Decimal(14, 2)
+  lineTotal Decimal @default(0) @db.Decimal(14, 2)
+  unitCost  Decimal @default(0) @db.Decimal(14, 2)
+
+  qtyOrdered   Decimal @default(0) @db.Decimal(14, 3)
+  qtyReceived  Decimal @default(0) @db.Decimal(14, 3)
+  qtyDelivered Decimal @default(0) @db.Decimal(14, 3)
+
+  /// §3: service and labour lines, and products flagged as needing installation. If any line on the
+  /// order sets this, `executionStatus` starts at `pending` and module 04 is signalled — so this
+  /// flag is what decides whether a sale is also a job.
+  requiresExecution Boolean @default(false)
+
+  /// pending | ordered | received | delivered | executed | cancelled
+  status String @default("pending")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([salesOrderId, lineNo])
+  @@index([salesOrderId])
 }

@@ -166,6 +166,7 @@ model Quotation {
   rfqs              SupplierQuoteRequest[]
   customerPOs       CustomerPO[]
   negotiationRounds NegotiationRound[]
+  salesOrders       SalesOrder[]
 
   // One row per revision of a number.
   @@unique([number, revision])
@@ -241,9 +242,17 @@ model SupplierQuoteRequest {
 
   quotationId String?
   inquiryId   String?
-  // Plain id, no relation: module 03 owns `Supplier` and does not exist yet. Module 01's appointed
-  // `PrincipalProspect` is the interim source of who to ask — same deferral as
-  // PrincipalProspect.supplierId, and it gets a foreign key when module 03 lands.
+  // Still a plain id, and now for a different reason than before.
+  //
+  // `Supplier` exists as of module 03, but this column holds a **`PrincipalProspect` id** — module
+  // 01's appointed principals were the interim source of who to ask, and every RFQ ever raised
+  // points at one. Adding the foreign key is therefore a *data* migration, not a schema one: each
+  // appointed prospect needs its `Supplier` created and every RFQ repointed, in that order, before
+  // the constraint can hold.
+  //
+  // Deliberately not attempted in the same change that introduces the model. See docs/PROGRESS.md's
+  // next concrete step — it is the first task of module 03 session 2, when there is a supplier
+  // directory with rows in it to repoint *to*.
   supplierId  String
 
   // draft | sent | responded | declined | expired
@@ -271,6 +280,8 @@ model SupplierQuoteRequest {
 
   quotation Quotation?          @relation(fields: [quotationId], references: [id])
   lines     SupplierQuoteLine[]
+  // No `supplier` relation yet — see the note on `supplierId` above. `prisma format` adds one
+  // unprompted; if it reappears, so will a foreign key that cannot hold against live rows.
 
   @@index([supplierId, status])
   // The §3.3 overdue sweep's exact query.

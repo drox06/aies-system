@@ -73,6 +73,7 @@ model CustomerAccount {
   inquiries      Inquiry[]
   quotations     Quotation[]
   customerPOs    CustomerPO[]
+  salesOrders    SalesOrder[]
 
   @@index([ownerId, status])
   @@index([status, name])
@@ -107,6 +108,7 @@ model Site {
   inquiries   Inquiry[]
   inspections InspectionRequest[]
   quotations  Quotation[]
+  salesOrders SalesOrder[]
 
   @@index([accountId, deletedAt])
 }
@@ -527,10 +529,15 @@ model PrincipalProspect {
   appointmentOverrideAt     DateTime?
 
   // Set when the prospect converts (§5c: "On `stage = appointed`, the prospect converts into a
-  // `Supplier` (module 03) with `isPrincipal = true`"). A plain id with no relation, because that
-  // model does not exist yet — module 03 fills this in when it consumes `principal.appointed`.
-  // Its presence is also what stops a second conversion.
-  supplierId String?
+  // `Supplier` (module 03) with `isPrincipal = true`"). Its presence is also what stops a second
+  // conversion.
+  //
+  // **A real foreign key as of module 03.** It was a plain id from session 3, documented as
+  // "becomes a foreign key on the day that model exists" — that day arrived. `@unique` because §10
+  // asks that appointing "creates exactly one supplier", and a constraint says that better than a
+  // service check nobody can bypass by accident.
+  supplierId String?   @unique
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
