@@ -277,6 +277,9 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // specs/02-quotation.md §3's supplier price request. Its own series: an RFQ is a document AIES
   // sends to a principal and refers to by number in the follow-up email.
   { documentType: "supplier_rfq", format: "RFQ-{YY}-{####}", label: "Supplier RFQ" },
+  // specs/03-order-procurement.md §2's supplier directory. No year segment, like `account`: a
+  // supplier relationship is a permanent identifier, not a dated document.
+  { documentType: "supplier", format: "SUP-{####}", label: "Supplier code" },
   { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
   { documentType: "supplier_po", format: "PO-{YY}-{#####}", label: "Supplier PO" },
   { documentType: "ticket", format: "TKT-{YY}-{#####}", label: "Ticket" },

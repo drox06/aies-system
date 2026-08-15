@@ -13,10 +13,14 @@ import {
  * specs/01-crm-inquiry.md §5c against the real database.
  *
  * §10 names one case here: "Appointing a principal prospect creates exactly one supplier carrying
- * agreement and price list." Module 03's `Supplier` does not exist, so what is asserted is the half
- * this module owns — that the appointment emits exactly one `principal.appointed` carrying
- * everything the conversion needs, and that linking the resulting supplier is idempotent. The other
- * half is owed by module 03's gate.
+ * agreement and price list." This file asserts the half module 01 owns — that the appointment emits
+ * exactly one `principal.appointed` carrying everything the conversion needs, and that linking the
+ * resulting supplier is idempotent and refuses a second, different one.
+ *
+ * The other half now exists: module 03's manifest subscribes to that event and
+ * `createSupplierFromPrincipalService` does the conversion. It is tested from module 03's side, not
+ * here — a subscriber runs through the job queue rather than inline, so an appointment in this file
+ * still leaves the prospect unlinked until something drains.
  */
 
 const DAY_MS = 86_400_000;
@@ -41,6 +45,24 @@ const actor = {
 };
 
 const prospectIds: string[] = [];
+const supplierIds: string[] = [];
+
+/**
+ * A real supplier row.
+ *
+ * `PrincipalProspect.supplierId` was a plain string when this file was written — module 03 did not
+ * exist — so these tests used to pass `"sup_1"` and `"sup_2"`. It is a foreign key now, and the
+ * database rejects an id that points at nothing. That is the constraint working: the whole promise
+ * of §5c is that an appointed principal has a supplier record, and a link to a fictional one keeps
+ * the letter of the rule while breaking the point of it.
+ */
+async function makeSupplier() {
+  const supplier = await db.supplier.create({
+    data: { code: `SUPT-${randomUUID().slice(0, 10)}`, name: `Test Supplier ${suffix}` },
+  });
+  supplierIds.push(supplier.id);
+  return supplier;
+}
 
 async function makeProspect(name?: string) {
   const prospect = await createPrincipalService(actor, {
@@ -64,6 +86,8 @@ afterAll(async () => {
   await db.notification.deleteMany({ where: { entityId: { in: prospectIds } } });
   await db.eventOutbox.deleteMany({ where: { actorId: EM } });
   await db.principalProspect.deleteMany({ where: { id: { in: prospectIds } } });
+  // After the prospects, because the foreign key points this way.
+  await db.supplier.deleteMany({ where: { id: { in: supplierIds } } });
 });
 
 describe("the §5c pipeline, persisted", () => {
@@ -195,35 +219,39 @@ describe("linking the module 03 supplier", () => {
     // Module 00's queue guarantees at-least-once delivery, so the same event can arrive twice. A
     // second link with the same id must be a no-op rather than an error or a duplicate.
     const prospect = await appointed();
+    const supplier = await makeSupplier();
     const first = await linkPrincipalSupplierService({
       prospectId: prospect.id,
-      supplierId: "sup_1",
+      supplierId: supplier.id,
     });
     expect(first.alreadyLinked).toBe(false);
 
     const second = await linkPrincipalSupplierService({
       prospectId: prospect.id,
-      supplierId: "sup_1",
+      supplierId: supplier.id,
     });
     expect(second.alreadyLinked).toBe(true);
 
     const row = await db.principalProspect.findUnique({ where: { id: prospect.id } });
-    expect(row?.supplierId).toBe("sup_1");
+    expect(row?.supplierId).toBe(supplier.id);
   });
 
   it("refuses a second, different supplier — that is the 'exactly one' rule", async () => {
     const prospect = await appointed();
-    await linkPrincipalSupplierService({ prospectId: prospect.id, supplierId: "sup_1" });
+    const first = await makeSupplier();
+    const second = await makeSupplier();
+    await linkPrincipalSupplierService({ prospectId: prospect.id, supplierId: first.id });
 
     await expect(
-      linkPrincipalSupplierService({ prospectId: prospect.id, supplierId: "sup_2" }),
+      linkPrincipalSupplierService({ prospectId: prospect.id, supplierId: second.id }),
     ).rejects.toThrow(/already linked to a different supplier/);
   });
 
   it("refuses to link a prospect that was never appointed", async () => {
     const prospect = await makeProspect();
+    const supplier = await makeSupplier();
     await expect(
-      linkPrincipalSupplierService({ prospectId: prospect.id, supplierId: "sup_x" }),
+      linkPrincipalSupplierService({ prospectId: prospect.id, supplierId: supplier.id }),
     ).rejects.toThrow(/not appointed/);
   });
 });

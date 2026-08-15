@@ -284,5 +284,8 @@ export function listCustomerPosForQuotation(quotationId: string) {
   return db.customerPO.findMany({
     where: { quotationId, deletedAt: null },
     orderBy: { receivedAt: "desc" },
+    // The sales order comes along because §3's panel needs to know whether one was already raised —
+    // otherwise the only way to find out is to press the button and read the error.
+    include: { salesOrder: { select: { id: true, number: true } } },
   });
 }

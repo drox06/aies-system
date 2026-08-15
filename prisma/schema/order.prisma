@@ -123,13 +123,14 @@ model Supplier {
   /// supplier can equally be typed in directly — most are not principals.
   principalProspect PrincipalProspect?
 
-  /// **No relation to `SupplierQuoteRequest`, deliberately — and `prisma format` will try to add
-  /// one back.** Declaring either side makes Prisma emit a foreign key on
-  /// `SupplierQuoteRequest.supplierId`, and that column holds `PrincipalProspect` ids: every RFQ
-  /// ever raised points at one, so the constraint fails against live rows. It was written, the
-  /// generated migration was read, and it was taken out again. If a `supplierQuoteRequests` field
-  /// reappears here, `prisma format` put it there — delete it and check the migration diff.
-  /// The relation arrives in session 2, with the data migration that repoints those ids.
+  /// The §3 price requests put to this supplier.
+  ///
+  /// This relation was deliberately absent for one commit. `SupplierQuoteRequest.supplierId` held
+  /// `PrincipalProspect` ids — appointed principals were the interim answer to "who do we ask" —
+  /// so declaring it emitted a foreign key that could not hold against live rows. It exists now
+  /// because `scripts/backfill-suppliers-from-principals.ts` converted the appointed prospects and
+  /// repointed the RFQs first.
+  supplierQuoteRequests SupplierQuoteRequest[]
 
   @@index([isPrincipal, deletedAt])
   @@index([name])
@@ -144,7 +145,7 @@ model Supplier {
 /// screen to lie about at least one of the three fan-outs §1 describes.
 model SalesOrder {
   id     String @id @default(cuid())
-  /// SO-{YY}{MM}-{####} from the numbering service.
+  /// SO-{YY}-{#####}, the format Spec.md §5 lists and prisma/seed.ts already seeds.
   number String @unique
 
   accountId    String

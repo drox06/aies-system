@@ -39,6 +39,7 @@ const SCREENS = [
   { path: "/crm/accreditations", heading: "Customer accreditations" },
   { path: "/crm/principals", heading: "Principal" },
   { path: "/quotations", heading: "Quotations" },
+  { path: "/suppliers", heading: "Suppliers" },
   { path: "/quotations/approvals", heading: "Awaiting approval" },
   { path: "/notifications", heading: "Notification" },
   { path: "/admin/users", heading: "Users" },
@@ -72,7 +73,7 @@ test("the sidebar offers the sections this user can reach", async ({ page }) => 
   await page.goto("/");
   // Built from the module manifests at runtime, so an empty sidebar means the registry failed to
   // boot rather than a styling problem.
-  for (const label of ["My day", "Pipeline", "Accounts", "Inquiries", "Quotations"]) {
+  for (const label of ["My day", "Pipeline", "Accounts", "Inquiries", "Quotations", "Suppliers"]) {
     await expect(page.getByRole("link", { name: label })).toBeVisible();
   }
 });

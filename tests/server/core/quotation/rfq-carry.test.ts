@@ -32,17 +32,24 @@ const quotationIds: string[] = [];
 const prospectIds: string[] = [];
 const rfqIds: string[] = [];
 
+/**
+ * A principal in module 03's supplier directory.
+ *
+ * Was a `PrincipalProspect` at stage `appointed`, because until module 03 landed there was no
+ * supplier model and an appointed prospect stood in for one. `SupplierQuoteRequest.supplierId` is a
+ * real foreign key to `Supplier` now, so the fixture creates what the column points at.
+ */
 async function makePrincipal(name: string) {
-  const prospect = await db.principalProspect.create({
+  const supplier = await db.supplier.create({
     data: {
-      companyName: `${name} ${randomUUID().slice(0, 6)}`,
-      stage: "appointed",
-      ownerId: OWNER,
-      agreementExpiresAt: new Date(Date.now() + 365 * 86_400_000),
+      code: `SUP-T${randomUUID().slice(0, 10)}`,
+      name: `${name} ${randomUUID().slice(0, 6)}`,
+      isPrincipal: true,
+      isApproved: true,
     },
   });
-  prospectIds.push(prospect.id);
-  return prospect;
+  prospectIds.push(supplier.id);
+  return supplier;
 }
 
 /** A two-line quotation: a flowmeter and a valve, from different manufacturers in real life. */
@@ -90,7 +97,7 @@ afterAll(async () => {
   await db.searchIndex.deleteMany({ where: { entityId: { in: quotationIds } } });
   await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
-  await db.principalProspect.deleteMany({ where: { id: { in: prospectIds } } });
+  await db.supplier.deleteMany({ where: { id: { in: prospectIds } } });
 });
 
 describe("asking each supplier about its own lines", () => {

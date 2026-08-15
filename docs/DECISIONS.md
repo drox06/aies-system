@@ -1338,3 +1338,105 @@ plant", "Add a contact" and the accreditation control; the other asserts the quo
 in the order the company asked for.
 
 It runs in CI after the build.
+
+## 39. §3's check reports everything and blocks almost nothing
+
+**Module:** 03. **From:** specs/03-order-procurement.md §3.
+
+The spec puts more weight on this one function than on anything else in the module: *"System runs a
+three-way check against the source quotation… **This single check prevents the most expensive
+category of error in this business.**"*
+
+The expensive error is not arithmetic. It is a customer ordering four units against a quotation for
+five, or ordering at last quarter's price, and nobody noticing until the goods are bought, shipped
+and installed — at which point AIES is holding stock it cannot bill for. Thirty seconds at PO
+receipt; unrecoverable afterwards.
+
+So the question this decision settles is not *what* to compare but **what to stop**. A check that
+blocks on every difference gets worked around, and a check that blocks on nothing gets clicked past.
+The split is about who is entitled to decide:
+
+- **Currency mismatch — blocking, and it returns immediately.** Every other comparison is meaningless
+  across currencies, and reporting a PHP/USD difference as an "amount mismatch" would send somebody
+  looking for a discount that does not exist. The result says plainly that nothing else was compared.
+- **Amount difference — advisory.** A customer ordering part of a scope is ordinary, and so is one
+  who negotiated after the document went out. What must not happen is nobody *seeing* it.
+- **Quantity difference, and a quoted line not ordered — advisory.** Same reasoning. These are real
+  commercial facts the person recording the PO is entitled to accept.
+- **A line on the PO that is not on the quotation — blocking.** It has no agreed price and no costed
+  supply. Proceeding means committing to deliver something nobody has priced, which is precisely the
+  error the check exists to prevent. No note can accept it; the answer is a revision.
+
+Every finding is reported, never just the first: somebody resolving these wants the whole list, and a
+check that reveals one problem at a time turns a single conversation with the customer into three.
+
+**Where the advisory findings get their teeth** is `verifyCustomerPoService`, which refuses to record
+a verification with differences unless somebody writes down why. A `verified` flag with no
+explanation answers "did somebody check?" and not "what did they see, and why was it alright" — and
+the second question is the one asked six months later when the customer disputes what they ordered.
+The explanation is written to the record as well as to the audit log: the log is the evidence, the
+record is what the next person to open the PO actually reads.
+
+**`quantitiesChecked` is reported honestly.** `CustomerPO` has no line model — §2 does not give it
+one — so quantities can only come from a person reading the customer's scan and typing them. A check
+that silently passed when nobody typed them would be worse than no check: it would say "verified"
+about something it never looked at. The screen says the quantities were not compared, and the audit
+row says so too.
+
+The check is a pure function (`po-verification.ts`, no Prisma), so the screen shows exactly what the
+server enforces. Same split as `inquiry-lifecycle.ts` and `costing.ts`.
+
+## 40. The sales order copies the quotation, and that copy is the obligation
+
+**Module:** 03. **From:** specs/03-order-procurement.md §3, which says only "copies quotation lines".
+
+A reference would have been less code. It would also have been wrong. The quotation can be revised
+after the order is raised, and the obligation is to **what the customer ordered on the day**, not to
+whatever the document says later. `SalesOrderLine.quotationLineId` keeps the trail back without
+letting the trail move the obligation. There is a test that revises the quotation underneath a live
+sales order and asserts nothing on the order moved.
+
+Two smaller things settled with it:
+
+- **`requiresExecution` is set from `itemType` only.** §3 names two tests — service/labour, *or* a
+  product flagged as requiring installation. The second needs a flag on `Product` that does not
+  exist. Inventing one here would hand module 04 a second mechanism to reconcile, so it is recorded
+  rather than half-implemented, with an assertion in the test file as the reminder. That flag is what
+  separates a delivery from a job: wrong in one direction and a project never reaches operations,
+  wrong in the other and a box of spares generates an installation ticket nobody needs.
+- **`financeStatus` starts at `not_required`, not `awaiting_downpayment`.** Module 05 owns
+  `PaymentTerm` and its `downpaymentPct`, so there is nothing to read yet. Starting at
+  `awaiting_downpayment` would show a gate indicator on every order for a condition nobody has set.
+
+The `sales_order.created` event carries the **per-line** execution flags rather than a summary,
+because §3 asks module 04 to link each proposed ticket back to the specific lines it covers.
+Re-reading the order at job time would make the proposal a function of whenever the drain ran.
+
+## 41. Approving a supplier is a different permission from adding one
+
+**Module:** 03. **From:** specs/03-order-procurement.md §2, and ISO 9001 clause 8.4.
+
+§2 is blunt about the directory: *"this directory is maintained by users, not by any integration.
+Make the create/edit form fast and forgiving — it is the only way suppliers get in."* So `name` is
+the only required field. A form that demands a TIN before it will save is a form somebody works
+around by putting the order through on WhatsApp, and then the directory is wrong *and* incomplete.
+
+That forgiveness is exactly why the approval is separate. `supplier.manage` is wide (PD, EM, both
+officers); `supplier.approve` is the president and the vice-president. If they were one permission,
+anybody who could type a vendor in could also declare it approved, which is the one thing clause 8.4
+exists to prevent. The approval control is on the record panel, not the create form, and it demands a
+reason — an approval nobody can explain is not evidence of anything.
+
+**Approval gates buying, not knowing.** Recording what an unapproved supplier quoted is useful and
+allowed. Ordering from one is the decision clause 8.4 governs, and that gate belongs on the supplier
+PO in session 2, where it can be overridden with a reason by somebody accountable.
+
+**Expiry is derived, never stored as a swept flag.** `supplierApprovalState()` reads the date at the
+moment of asking, because a flag that needs a nightly sweep to stay true is a flag that is wrong
+between sweeps — and this one gates buying decisions. `expired` and `none` stay distinct states:
+one says somebody did the work and it lapsed, the other says nobody has done it yet, and colouring a
+fresh directory as failure would make the screen read as broken.
+
+A principal appointed under §5c arrives **already approved**, with the expiry following the
+distributor agreement's. An appointment means the agreement was signed and the officers weighed it,
+which is the evidence clause 8.4 asks for; and a lapsed agreement should lapse the approval with it.

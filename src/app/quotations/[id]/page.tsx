@@ -94,6 +94,9 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     account: { id: string; code: string; name: string } | null;
     inquiry: { id: string; number: string } | null;
     lines: {
+      // Sent all along; declared now because §3's PO check compares by line number, and a check
+      // that matched on array position would misread any quotation whose lines were reordered.
+      lineNo: number;
       groupLabel: string | null;
       description: string;
       quantity: string;
@@ -187,6 +190,16 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               quotationNumber={data.displayNumber}
               status={data.status}
               currency={data.currency}
+              // Optional lines are excluded here for the same reason the server excludes them: §7
+              // keeps them off the total, so they are not part of what was agreed and must not be
+              // reported as "quoted but not ordered".
+              quotationLines={data.lines
+                .filter((line) => !line.isOptional)
+                .map((line) => ({
+                  lineNo: line.lineNo,
+                  description: line.description,
+                  quantity: line.quantity,
+                }))}
               onRecorded={refresh}
             />
             <NegotiationPanel

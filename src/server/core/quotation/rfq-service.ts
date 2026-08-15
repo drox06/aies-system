@@ -83,41 +83,53 @@ export interface RfqSupplierOption {
  * how a company ends up committed to a price it cannot buy at.
  */
 export async function listRfqSuppliersService(): Promise<RfqSupplierOption[]> {
-  const principals = await db.principalProspect.findMany({
-    where: { stage: "appointed", deletedAt: null },
+  /**
+   * Read from module 03's `Supplier` now, not from module 01's `PrincipalProspect`.
+   *
+   * Until module 03 landed there was no supplier model, so an *appointed prospect* stood in for
+   * one and `SupplierQuoteRequest.supplierId` held a prospect id. The directory exists now, the
+   * prospects have been converted, and `supplierId` is a real foreign key — so this reads the
+   * table the column actually points at.
+   *
+   * `isPrincipal` keeps §3's rule intact: an RFQ goes to a manufacturer AIES represents, which is
+   * what an appointment establishes. A local fabricator in the directory is somebody to buy from,
+   * not somebody to quote a customer's equipment from.
+   */
+  const suppliers = await db.supplier.findMany({
+    where: { isPrincipal: true, deletedAt: null },
     select: {
       id: true,
-      companyName: true,
+      name: true,
       contactName: true,
       email: true,
       productLines: true,
     },
-    orderBy: { companyName: "asc" },
+    orderBy: { name: "asc" },
   });
 
-  return principals.map((p) => ({
-    id: p.id,
-    name: p.companyName,
-    contactName: p.contactName,
-    email: p.email,
-    productLines: p.productLines,
+  return suppliers.map((s) => ({
+    id: s.id,
+    name: s.name,
+    contactName: s.contactName,
+    email: s.email,
+    productLines: s.productLines,
   }));
 }
 
 async function loadSupplier(supplierId: string) {
-  const supplier = await db.principalProspect.findFirst({
+  const supplier = await db.supplier.findFirst({
     where: { id: supplierId, deletedAt: null },
-    select: { id: true, companyName: true, stage: true, contactName: true, email: true },
+    select: { id: true, name: true, isPrincipal: true, contactName: true, email: true },
   });
   if (!supplier) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "That principal no longer exists." });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "That supplier no longer exists." });
   }
-  if (supplier.stage !== "appointed") {
+  if (!supplier.isPrincipal) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        `${supplier.companyName} is not an appointed principal yet. Quoting on pricing from a ` +
-        `supplier with no signed agreement commits AIES to a price it may not be able to buy at.`,
+        `${supplier.name} is not an appointed principal. Quoting on pricing from a supplier with ` +
+        `no signed distributor agreement commits AIES to a price it may not be able to buy at.`,
     });
   }
   return supplier;
@@ -202,7 +214,7 @@ export async function createSupplierRfqService(actor: ActorMeta, input: CreateRf
           number,
           quotationNumber: quotation.number,
           title: quotation.title,
-          supplierName: supplier.companyName,
+          supplierName: supplier.name,
           contactName: supplier.contactName,
           dueBy: input.dueBy ?? null,
           notes: input.notes ?? null,
@@ -236,7 +248,7 @@ export async function createSupplierRfqService(actor: ActorMeta, input: CreateRf
       action: "rfq_raised",
       entityType: "Quotation",
       entityId: quotation.id,
-      summary: `Raised ${number} to ${supplier.companyName} for ${chosen.length} line(s)`,
+      summary: `Raised ${number} to ${supplier.name} for ${chosen.length} line(s)`,
       diff: { rfqId: { from: null, to: created.id } },
       ip: actor.ip,
       userAgent: actor.userAgent,
@@ -847,11 +859,11 @@ export async function listRfqsForQuotationService(quotationId: string) {
   });
 
   const supplierIds = [...new Set(rows.map((r) => r.supplierId))];
-  const suppliers = await db.principalProspect.findMany({
+  const suppliers = await db.supplier.findMany({
     where: { id: { in: supplierIds } },
-    select: { id: true, companyName: true },
+    select: { id: true, name: true },
   });
-  const nameById = new Map(suppliers.map((s) => [s.id, s.companyName]));
+  const nameById = new Map(suppliers.map((s) => [s.id, s.name]));
 
   // Which supplier line each quotation line was actually costed from — the answer to §3.5's "where
   // did this cost come from?", and here the answer to the plainer question the panel needs: has

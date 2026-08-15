@@ -242,17 +242,15 @@ model SupplierQuoteRequest {
 
   quotationId String?
   inquiryId   String?
-  // Still a plain id, and now for a different reason than before.
+  // A real foreign key at last, and it took a data migration to get here.
   //
-  // `Supplier` exists as of module 03, but this column holds a **`PrincipalProspect` id** — module
-  // 01's appointed principals were the interim source of who to ask, and every RFQ ever raised
-  // points at one. Adding the foreign key is therefore a *data* migration, not a schema one: each
-  // appointed prospect needs its `Supplier` created and every RFQ repointed, in that order, before
-  // the constraint can hold.
+  // This column used to hold a **`PrincipalProspect` id**: module 01's appointed principals were
+  // the interim answer to "who do we ask for pricing", so every RFQ ever raised pointed at one.
+  // `scripts/backfill-suppliers-from-principals.ts` created the `Supplier` for each appointed
+  // prospect and repointed the RFQs, in that order, which is what let the constraint hold.
   //
-  // Deliberately not attempted in the same change that introduces the model. See docs/PROGRESS.md's
-  // next concrete step — it is the first task of module 03 session 2, when there is a supplier
-  // directory with rows in it to repoint *to*.
+  // Future appointments convert automatically — the order manifest subscribes to
+  // `principal.appointed`, which is §5c's "no re-keying" promise finally kept.
   supplierId  String
 
   // draft | sent | responded | declined | expired
@@ -280,8 +278,7 @@ model SupplierQuoteRequest {
 
   quotation Quotation?          @relation(fields: [quotationId], references: [id])
   lines     SupplierQuoteLine[]
-  // No `supplier` relation yet — see the note on `supplierId` above. `prisma format` adds one
-  // unprompted; if it reappears, so will a foreign key that cannot hold against live rows.
+  supplier  Supplier            @relation(fields: [supplierId], references: [id])
 
   @@index([supplierId, status])
   // The §3.3 overdue sweep's exact query.

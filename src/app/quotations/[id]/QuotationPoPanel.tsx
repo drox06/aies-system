@@ -8,6 +8,7 @@ import { Input, Label } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
+import { PoVerification } from "./PoVerification";
 
 /**
  * The customer's purchase order, on the **quotation** record.
@@ -26,12 +27,15 @@ export function QuotationPoPanel({
   quotationNumber,
   status,
   currency,
+  quotationLines,
   onRecorded,
 }: {
   quotationId: string;
   quotationNumber: string;
   status: string;
   currency: string;
+  /** Non-optional lines, so §3's quantity check has something to compare the PO against. */
+  quotationLines: { lineNo: number; description: string; quantity: string }[];
   onRecorded: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -124,6 +128,17 @@ export function QuotationPoPanel({
                   Open the scanned PO
                 </a>
               </Button>
+
+              {/* §3's gate lives here, next to the document it compares — not on a screen somebody
+                  has to remember to visit. */}
+              <PoVerification
+                customerPOId={po.id}
+                poNumber={po.poNumber}
+                quotationLines={quotationLines}
+                status={po.status}
+                salesOrder={po.salesOrder}
+                onChanged={onRecorded}
+              />
             </li>
           ))}
         </ul>

@@ -1330,11 +1330,11 @@ workstreams rather than one status chain**.
 
 Two things to carry in:
 
-1. `SupplierQuoteRequest.supplierId` and `PrincipalProspect.supplierId` are plain ids waiting for
-   module 03's `Supplier` to exist. Both become foreign keys on the day it does, and the RFQ flow
-   should move from "appointed principals" to real suppliers.
+1. ~~`SupplierQuoteRequest.supplierId` and `PrincipalProspect.supplierId` are plain ids waiting for
+   module 03's `Supplier` to exist.~~ **Done in module 03 session 1** — both are foreign keys, the
+   live rows were backfilled first, and the RFQ flow reads real suppliers.
 2. `po_received → won` is still system-set with nothing setting it. A received PO is not a delivered
-   job; module 03 is where that becomes decidable.
+   job; module 03 is where that becomes decidable — session 3, when delivery exists.
 
 **Small and still open in module 02:** the line editor shows the raw cost but has no field for the
 FX rate, so a foreign-currency line can only be costed through the RFQ flow today.
@@ -1437,11 +1437,61 @@ Notes for whoever picks this up:
     pass `bySystem` instead — but it means a *new* router that forgets to populate `actorMeta` would
     silently lose the check. The crm router populates it; anything new must too.
 
+## In progress — Module 03, Customer PO, Sales Order, Procurement and Delivery
+
+### Session 1 — the supplier directory, §3's three-way check, and the sales order
+
+§1 calls this module's opening "where the deal stops being a sales artifact and becomes an
+obligation". This session builds that spine and nothing downstream of it.
+
+- [x] **§2's `Supplier`, and the RFQ cutover it unblocked.** `SupplierQuoteRequest.supplierId` and
+      `PrincipalProspect.supplierId` were plain ids waiting for this model; both are foreign keys
+      now, the two existing prospects were backfilled into SUP-0001 and SUP-0002, and
+      `rfq-service.ts` reads real suppliers rather than appointed principals. The RFQ flow no longer
+      pretends a prospect is a vendor.
+- [x] **§5c's conversion, finally wired.** Module 01 has emitted `principal.appointed` with a
+      complete payload since its session 3, and `createSupplierFromPrincipalService` sat waiting for
+      a caller. The order manifest is the caller. Idempotent, because the job queue guarantees
+      at-least-once and not exactly-once; the prospect's `supplierId` is the guard and the database
+      enforces it.
+- [x] **ISO 9001 clause 8.4 approval**, on its own permission — the control this build has listed as
+      owed since module 01. docs/DECISIONS.md #41.
+- [x] **`/suppliers`**: a searchable, sortable, exportable table, a fast-and-forgiving create form
+      (name is the only required field, as §2 insists), and a record panel carrying the approval
+      decision and its audit trail.
+- [x] **§3's three-way check** as a pure function — currency, amount, line quantities, missing and
+      extra lines — with the blocking/advisory split argued out in docs/DECISIONS.md #39. Twelve unit
+      tests, no database.
+- [x] **Verification is a decision somebody explains.** `verifyCustomerPoService` refuses to record a
+      verification with differences unless a reason is given, and writes that reason to the record as
+      well as to the log.
+- [x] **§3's sales order**: four independent status columns per §1's "independent workstreams rather
+      than one status chain", lines copied rather than referenced, `requiresExecution` set from
+      `itemType`, and `sales_order.created` emitted with per-line flags for module 04.
+      docs/DECISIONS.md #40.
+- [x] **The check has a screen**, on the quotation record beside the PO it compares — findings first,
+      then the note, then the button that raises the order. A service with no route to it is the
+      failure this build shipped three times (docs/DECISIONS.md #38); `/suppliers` is likewise
+      covered by the e2e sweep and by the nav-integrity test.
+
+**Migrations** `20260815140000_module_03_supplier_sales_order` (`Supplier`, `SalesOrder`,
+`SalesOrderLine`, and `PrincipalProspect.supplierId`) and `20260815150000_rfq_supplier_fk`, kept
+separate on purpose: the foreign key from `SupplierQuoteRequest` could only be added *after*
+`scripts/backfill-suppliers-from-principals.ts` had given every live RFQ a supplier row to point at.
+Adding both at once would have failed against real data.
+
+**Still to build in module 03:** the supplier PO (§4) with the clause 8.4 gate on it, goods receipt
+(§5), delivery (§6), and the §1 fan-out into finance and operations. `po_received → won` is still
+system-set with nothing setting it — a received PO is not a delivered job, and that becomes decidable
+once delivery exists.
+
 ## Not started
 - [ ] Modules 04–10
-- [ ] Module 03, apart from `CustomerPO` — no sales order, supplier, supplier PO, goods receipt or
-      ticket generation. The PO row exists because the pipeline's "Received PO" column needed it;
-      everything else in specs/03-order-procurement.md is still its own session's work.
+- [ ] Module 03 sessions 2 and 3 — supplier PO, goods receipt, delivery, and the finance and
+      operations fan-out. Their permissions are already declared in the manifest, deliberately: §10
+      lists them, and a permission that appears later means a role assignment that has to be redone.
+      Their *events* are deliberately **not** declared, because the registry accepts a subscription to
+      any declared event and a subscriber to something nothing emits fails silently.
 
 ## Decisions made this module
 - docs/DECISIONS.md #1-#3: session 1 (local DB deferred → real Supabase dev project instead;
@@ -1461,6 +1511,11 @@ Notes for whoever picks this up:
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #39-#41: module 03 session 1 (§3's check reports everything and blocks almost
+  nothing — currency and an unquoted line, and nothing else; the sales order copies the quotation
+  lines rather than referencing them, because the obligation is to what was ordered on the day;
+  approving a supplier under clause 8.4 is a narrower permission than maintaining the directory, and
+  the expiry is derived at read time rather than swept).
 - docs/DECISIONS.md #18-#19: module 01 (the CRM account model is `CustomerAccount` because Auth.js
   already owns `Account` and its adapter calls `prisma.account` by name; accreditation records the
   outcome only — certificate and expiry — because AIES's own documents live on each customer's
@@ -1493,6 +1548,12 @@ and function; nobody has judged how they *look*.
   show red.
 - The redesigned `/login`, `/change-password` and `/enroll-totp` screens carrying the full-colour
   lockup on a light ground. Markup verified by `curl`; appearance not.
+- **Module 03's two new surfaces**: `/suppliers` (table, create form, record panel with the clause
+  8.4 control) and the three-way-check block on the quotation record. `/suppliers` is in the e2e
+  sweep, so it loads and renders its heading; the check block is not, because reaching it needs a
+  quotation with a recorded PO and the suite must not create one. Its server side has sixteen tests
+  against the real database. **The findings list, the quantity boxes and the two-step verify → raise
+  flow have not been looked at on screen.**
 - `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the
   `self-host-fallback` CI job is its first real run.
 

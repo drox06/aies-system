@@ -1,28 +1,23 @@
 import { defineManifest } from "@/server/core/module-registry";
 
 /**
- * Module 03 — Customer PO (specs/03-order-procurement.md), **opening act only**.
+ * Module 03 — Customer PO, Sales Order, Procurement and Delivery
+ * (specs/03-order-procurement.md).
  *
- * This is not module 03. There is no sales order, no supplier, no supplier PO, no goods receipt, no
- * ticket generation — the four workstreams §1 fans out into are all still unbuilt, and this manifest
- * declares one model and one event.
+ * §1 names what this module is: "where the deal stops being a sales artifact and becomes an
+ * obligation", with three fan-outs that run in parallel — finance may want a downpayment,
+ * procurement places the supplier order, operations generates tickets.
  *
- * It exists because the company asked for a pipeline column a deal enters when the customer's
- * purchase order arrives, and §1 names PO receipt as exactly that moment: "this module is where the
- * deal stops being a sales artifact and becomes an obligation". Building it as module 03's
- * `CustomerPO` rather than as fields on `Inquiry` means module 03's own session extends this row
- * instead of migrating away from a second mechanism — the trap already refused for module 05's
- * `PaymentTerm` and ISO 8.4's supplier register.
- *
- * What that session inherits: the model, this manifest to grow, `customer_po.received` already
- * flowing, and module 02 already reacting to it. What it must add is everything §2 lists below
- * `CustomerPO`, plus the verification that makes `status` more than one value.
+ * **Session 1 builds the spine:** the supplier directory, the sales order, and §3's verification.
+ * Supplier PO, goods receipt and delivery are sessions 2 and 3; their permissions are declared here
+ * anyway, because §10 lists them and a permission that appears later means a role assignment that
+ * has to be redone. The ones with nothing behind them yet are marked.
  */
 export const orderManifest = defineManifest({
   key: "order",
   name: "Orders",
-  version: "0.1.0",
-  models: ["CustomerPO"],
+  version: "0.2.0",
+  models: ["CustomerPO", "Supplier", "SalesOrder", "SalesOrderLine"],
 
   permissions: [
     {
@@ -50,22 +45,123 @@ export const orderManifest = defineManifest({
         "finance_officer",
       ],
     },
+    // ---- §10's supplier and sales-order permissions ------------------------------------------
+    {
+      key: "supplier.manage",
+      label: "Maintain the supplier directory",
+      group: "Orders",
+      // §2: "this directory is maintained by users". PD does the paperwork, EM brings the
+      // principals in, and the two officers can always act.
+      defaultRoles: ["president", "vice_president", "admin_manager", "marketing_manager"],
+    },
+    {
+      key: "supplier.approve",
+      label: "Approve a supplier under ISO 9001 clause 8.4",
+      group: "Orders",
+      // Narrower than maintaining the directory on purpose: approving a vendor is the control an
+      // auditor asks about, and "who decided this" should be a short list.
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
+      key: "sales_order.view",
+      label: "View sales orders",
+      group: "Orders",
+      // Everybody who touches the obligation: sales owns the customer, procurement buys, operations
+      // executes, finance bills.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "marketing_manager",
+        "sales",
+        "admin_manager",
+        "operations_manager",
+        "finance_officer",
+      ],
+    },
+    {
+      key: "sales_order.view_all",
+      label: "View all sales orders, not just their own",
+      group: "Orders",
+      defaultRoles: ["president", "vice_president", "operations_manager", "finance_officer"],
+    },
+    {
+      key: "sales_order.create",
+      label: "Raise a sales order from a verified customer PO",
+      group: "Orders",
+      defaultRoles: ["president", "vice_president", "marketing_manager", "sales", "admin_manager"],
+    },
+    {
+      key: "sales_order.edit",
+      label: "Edit a sales order",
+      group: "Orders",
+      defaultRoles: ["president", "vice_president", "marketing_manager", "sales", "admin_manager"],
+    },
+    {
+      key: "sales_order.close",
+      label: "Close a completed sales order",
+      group: "Orders",
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
+      key: "sales_order.cancel",
+      label: "Cancel a sales order",
+      group: "Orders",
+      defaultRoles: ["president", "vice_president"],
+    },
   ],
 
   /**
-   * specs/02-quotation.md §10 already names this event as one module 02 consumes: "`customer_po
-   * .received` (module 03 → sets `accepted`)". Nothing emitted it, so the subscription could not
-   * exist — the registry rejects a subscription to an event no module emits. It can now.
+   * `customer_po.received` was already flowing and module 02 already reacts to it.
+   * `sales_order.created` is new, and module 04 is the consumer §3 describes: "module 04 proposes a
+   * ticket set… Each ticket links back to the specific sales order lines it covers."
+   *
+   * Only these two. §9 lists nine events for the finished module, and the registry rejects a
+   * subscription to an event nothing emits — declaring `goods.received` before anything can receive
+   * goods would let a later module subscribe to something that never fires, which is worse than a
+   * boot error.
    */
-  emits: ["customer_po.received"],
+  emits: ["customer_po.received", "sales_order.created"],
 
-  // Nothing. Module 03's real session subscribes to plenty — `quotation.accepted` to raise the
-  // sales order, and its own PO receipt to fan out to finance, procurement and operations (§1).
-  // None of those have anywhere to go yet.
-  consumes: [],
+  /**
+   * §5c's promise, finally kept: "On `stage = appointed`, the prospect converts into a `Supplier`
+   * (module 03) with `isPrincipal = true`, carrying the agreement, price list, and contacts across.
+   * No re-keying."
+   *
+   * Module 01 has emitted `principal.appointed` since session 3 with exactly this payload, and
+   * `linkPrincipalSupplierService` has sat waiting for a caller. This is the caller. The dependency
+   * runs downward — module 03 subscribes to module 01, never the reverse.
+   */
+  consumes: [
+    {
+      event: "principal.appointed",
+      // Dynamically imported so the manifest stays free of Prisma, which prisma/seed.ts and the
+      // nav tests both depend on.
+      handler: async (payload) => {
+        const { prospectId } = payload as { prospectId?: string };
+        if (!prospectId) return;
 
-  // Nothing yet. A PO is reached from the inquiry it belongs to and from the pipeline board; a
-  // top-level "Orders" screen belongs to module 03's session, when there is a sales order to put
-  // on it.
-  nav: [],
+        const { createSupplierFromPrincipalService } =
+          await import("@/server/core/order/supplier-service");
+        // `"system"` rather than null, matching the crm manifest's `quotation.sent` subscriber —
+        // `ActorMeta.actorId` is a string, and the audit log's null actor is reserved for the
+        // nightly sweeps that no request triggered at all.
+        await createSupplierFromPrincipalService(
+          { actorId: "system", actorLabel: "System (principal appointed)" },
+          prospectId,
+        );
+      },
+    },
+  ],
+
+  nav: [
+    {
+      label: "Suppliers",
+      href: "/suppliers",
+      icon: "truck",
+      permission: "supplier.manage",
+      // After the quotation block (20-21), because a supplier is who you buy from once a quotation
+      // has been won.
+      order: 30,
+    },
+  ],
 });

@@ -39,12 +39,22 @@ const principalIds: string[] = [];
 const rfqIds: string[] = [];
 const fileIds: string[] = [];
 
+/**
+ * A supplier in module 03's directory.
+ *
+ * `stage` used to be a `PrincipalProspect` stage, because before module 03 an appointed prospect
+ * stood in for a supplier. It now maps to `isPrincipal`: §3's rule is that an RFQ goes to a
+ * manufacturer AIES represents, which used to be expressed as "appointed" and is now expressed as a
+ * principal in the directory. Everything below `appointed` becomes a supplier that is *not* a
+ * principal — somebody to buy from, not somebody to quote a customer's equipment from.
+ */
 async function makePrincipal(stage = "appointed", name = `Krohne ${randomUUID().slice(0, 6)}`) {
-  const principal = await db.principalProspect.create({
+  const principal = await db.supplier.create({
     data: {
-      companyName: name,
-      stage,
-      ownerId: PD,
+      code: `SUP-T${randomUUID().slice(0, 10)}`,
+      name,
+      isPrincipal: stage === "appointed",
+      isApproved: stage === "appointed",
       contactName: "Anna Weber",
       email: "sales@example.test",
       productLines: ["flow", "level"],
@@ -97,7 +107,7 @@ afterAll(async () => {
   await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
   await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
-  await db.principalProspect.deleteMany({ where: { id: { in: principalIds } } });
+  await db.supplier.deleteMany({ where: { id: { in: principalIds } } });
 });
 
 async function raise(quotationId: string, supplierId: string, sourceLineNos?: number[]) {

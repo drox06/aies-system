@@ -1,6 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { Attachments } from "@/components/ui/attachments";
@@ -112,9 +113,18 @@ export function PrincipalPanel({
                   <StatusBadge tone="failed">Agreement expired</StatusBadge>
                 )}
                 {data.stage === "appointed" && !data.supplierId && (
-                  // Honest rather than hidden: the conversion §5c describes needs module 03, which
-                  // does not exist. Saying so beats a silently missing supplier record.
-                  <StatusBadge tone="draft">Supplier record pending module 03</StatusBadge>
+                  // §5c's conversion now exists and runs off `principal.appointed`, so this state
+                  // means the job has not drained yet — or failed. Still shown rather than hidden:
+                  // a principal with no supplier record cannot be bought from.
+                  <StatusBadge tone="pending">Supplier record not created yet</StatusBadge>
+                )}
+                {data.supplierId && (
+                  <Link
+                    href="/suppliers"
+                    className="text-xs text-blue-600 underline underline-offset-2"
+                  >
+                    Supplier record
+                  </Link>
                 )}
               </div>
 
