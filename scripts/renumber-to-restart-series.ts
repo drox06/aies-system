@@ -68,19 +68,49 @@ async function main() {
     return;
   }
 
+  const rfqs = await db.supplierQuoteRequest.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, number: true },
+  });
+
   // Series are renumbered from 1 in the order the records were created, so the sequence still
   // reflects the order things happened.
   const inquiryPlan = inquiries.map((row, i) => ({
     ...row,
     to: `${row.number.slice(0, -4)}${String(i + 1).padStart(4, "0")}`,
   }));
-  const quotationPlan = quotations.map((row, i) => ({
+  const rfqPlan = rfqs.map((row, i) => ({
     ...row,
     to: `${row.number.slice(0, -4)}${String(i + 1).padStart(4, "0")}`,
   }));
 
+  /**
+   * Quotations are numbered **by base number, not by row**, so a revision chain stays one document.
+   *
+   * `AIESLQ260332` exists twice — rev0 superseded, rev1 accepted — because §5 gives every revision
+   * of a quotation the same base number and bumps `revision`. Numbering row by row would have handed
+   * rev0 `0003` and rev1 `0004`, silently splitting one negotiation into two unrelated documents
+   * and leaving `parentQuotationId` pointing across the gap. The first version of this script did
+   * exactly that; it was only ever run on data with no revisions, so nothing showed.
+   */
+  const baseOrder: string[] = [];
+  for (const row of quotations) {
+    if (!baseOrder.includes(row.number)) baseOrder.push(row.number);
+  }
+  const newBaseFor = new Map(
+    baseOrder.map((number, i) => [
+      number,
+      `${number.slice(0, -4)}${String(i + 1).padStart(4, "0")}`,
+    ]),
+  );
+  const quotationPlan = quotations.map((row) => ({ ...row, to: newBaseFor.get(row.number)! }));
+
   for (const row of inquiryPlan) console.log(`INQUIRY   ${row.number} → ${row.to}`);
-  for (const row of quotationPlan) console.log(`QUOTATION ${row.number} → ${row.to}`);
+  for (const row of quotationPlan) {
+    console.log(`QUOTATION ${row.number} rev${row.revision} → ${row.to} rev${row.revision}`);
+  }
+  for (const row of rfqPlan) console.log(`RFQ       ${row.number} → ${row.to}`);
 
   if (!apply) {
     console.log("\nReport only. Re-run with --apply to write.");
@@ -129,6 +159,21 @@ async function main() {
         href: `/quotations/${quotation.id}`,
       });
     }
+  }
+
+  for (const row of rfqPlan) {
+    if (row.number === row.to) continue;
+    await db.$transaction(async (tx) => {
+      await tx.supplierQuoteRequest.update({ where: { id: row.id }, data: { number: row.to } });
+      await writeAuditLog(tx, {
+        ...ACTOR,
+        action: "renumbered",
+        entityType: "SupplierQuoteRequest",
+        entityId: row.id,
+        summary: `Renumbered ${row.number} to ${row.to} when the series was restarted after clearing sample data`,
+        diff: { number: { from: row.number, to: row.to } },
+      });
+    });
   }
 
   console.log("\nRenumbered. Run reset-numbering-counters.ts --apply to bring the counters down.");

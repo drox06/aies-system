@@ -44,6 +44,17 @@ async function highestInUse(documentType: string): Promise<number> {
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
     }
+    case "supplier_rfq": {
+      // Added after a dry run offered to reset this counter to 0 while `RFQ-26-0001` was still on
+      // the books — the next request would have been handed a number that already exists. The
+      // `default` below is not a safe fallback for a series that has rows; it is only safe for one
+      // that has none, and the two are indistinguishable from here without a case.
+      const rows = await db.supplierQuoteRequest.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
     default:
       return 0;
   }

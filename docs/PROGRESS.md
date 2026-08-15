@@ -1330,10 +1330,18 @@ working-hours fallback window, §3's supplier RFQ, §8's negotiation and what-if
 templates — and, added at the company's request rather than from the spec's running order, the
 pipeline's Sent and Received PO columns, four document corrections, and the five items above.
 
-*The database now holds only real work:* `ACC-0001` A4One → `INQ-2608-0001` → `AIESLQ260001` → PO
-123456798, with every counter at 1 — so the next quotation is `AIESLQ260002`. The sample data is
-gone and the series were renumbered. Do not run `npm run demo:crm` again unless demo data is wanted
-back.
+*The database now holds only real work*, after a second clear-out on 2026-08-15: two customer
+deals — `INQ-2608-0001` → `AIESLQ260001` → PO 123456798, and `INQ-2608-0002` → `AIESLQ260002` →
+PO 321654987 with `RFQ-26-0001` behind it — on `ACC-0001` A4One, plus two appointed principals and
+one accreditation. Counters sit at the floor: inquiry 2, quotation_local 2, supplier_rfq 1, account
+1, so the next of each is `0003`/`0003`/`0002`/`ACC-0002`.
+
+Three trial deals ("Test sale", "test sale 2", "test sale 3") were destroyed outright with
+`scripts/purge-deal.ts`, which takes inquiry numbers and removes the whole chain — inquiry, every
+quotation revision, the customer PO, the supplier RFQs, the inspections and the files. It exists
+because `purge-quotations.ts` deliberately *refuses* when a PO points at a quotation, which is right
+when the order is real and wrong when the entire deal was a test. Do not run `npm run demo:crm`
+again unless demo data is wanted back.
 
 *Still wanting a human eye:* the PDFs were verified by measurement and by asserting the assembled
 props, **not** by looking at them — no PDF renderer exists in this environment. The approval queue
@@ -1456,18 +1464,33 @@ found six defects that 186 automated tests did not, so this distinction is worth
   `self-host-fallback` CI job is its first real run.
 
 ## Known issues / to revisit
-- **The test suite allocates real document numbers.** `createQuotationService` and its siblings call
-  `allocateNumber`, which increments the one `DocumentSequence` row the running app uses — and the
-  suite creates a few hundred quotations per run against the same dev database. Two full runs on
-  2026-08-15 took the local quotation counter from 2 to 332, so a quotation the company created that
-  afternoon was numbered `AIESLQ260332`. Nothing is corrupt and Spec.md §5 is not violated (no number
-  was reused), but the series misrepresents the company's volume, and renumbering after every test
-  run is not a plan. Three ways out, in order of preference: **(a)** a separate test database, which
-  is the real fix and also removes the standing "run nothing else against the dev database during the
-  suite" rule; **(b)** a scope-key seam on the numbering service, so tests allocate under a
-  `test` scope the way `setHolidayProvider` lets them pin a calendar; **(c)** carry on renumbering by
-  hand, which is what has happened twice already. Do (a) before this database holds anything the
-  company would miss.
+- **The test suite allocates real document numbers**, and for now the answer is to renumber by hand
+  rather than to isolate. `createQuotationService` and its siblings call `allocateNumber`, which
+  increments the one `DocumentSequence` row the running app uses — and the suite creates a few
+  hundred quotations per run against the same dev database. Runs on 2026-08-15 took the local
+  quotation counter from 2 to 564. Nothing is corrupt and Spec.md §5 is not violated (no number was
+  reused), but the series misrepresents the company's volume.
+
+  **A separate `aies_test` schema was built and then reverted, at the company's instruction** — the
+  fix had grown out of proportion to the problem. It worked, and was verified: `public`'s counters
+  did not move for eight minutes while the suite drove `aies_test`'s from 32 to 88. What made it
+  expensive was one detail — `pg_trgm`. Prisma's migration engine requires `?schema=`, which pins
+  the search path to a single schema, so `similarity()`, the `%` operator and `gin_trgm_ops` all
+  became unreachable; making that work needed the extension relocated to `extensions`, a
+  failure-tolerant two-pass deploy, and `migrate resolve` either side of three hand-written
+  `CREATE INDEX` statements. For a five-person company that renumbers a handful of records now and
+  then, that is the wrong trade. See docs/DECISIONS.md — the near-miss it produced is worth reading
+  before anybody tries again.
+
+  **If it is attempted again**, the two things that cost the most time: `?schema=` and
+  `options=-c search_path=` are not interchangeable (Prisma overrides the latter with the former,
+  and `db push` silently diffs against `public` without the former), and a `search_path` fallback
+  does not fail on a missing table — it finds a different one. Assert the schema was actually built
+  before trusting any "success" message.
+
+  The standing rule therefore still applies: **run nothing else against the dev database while the
+  suite runs**, and renumber afterwards with `renumber-to-restart-series.ts` and
+  `reset-numbering-counters.ts`.
 - No per-device "revoke this session" / session list UI yet (docs/DECISIONS.md #4).
 - The optional Google Workspace OIDC provider is not wired up (adapter is ready for it).
 - Office IP allow-list (Spec.md §7.4) needs the `SystemSetting` mechanism (§10), not built yet.
