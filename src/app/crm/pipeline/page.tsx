@@ -199,9 +199,13 @@ export default function PipelinePage() {
                       {card.status === "quoted" && (
                         // Not everyone can drag: Spec.md §6.6 requires keyboard operation and
                         // forbids hover-dependent interactions, and HTML5 drag is neither.
+                        //
+                        // Blue rather than ghost, at the company's request. Spec.md §6.3 gives blue
+                        // to "every primary action", and on a card sitting in Sent this is the only
+                        // thing anybody does to it — a ghost button on a white card was easy to
+                        // read as a label rather than a control, which is exactly what happened.
                         <Button
                           size="sm"
-                          variant="ghost"
                           className="mt-1.5 w-full"
                           onClick={(e) => {
                             e.stopPropagation();

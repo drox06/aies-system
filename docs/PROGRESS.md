@@ -1053,6 +1053,166 @@ DECISIONS #27) · §8 negotiation and what-if ✓ · §9 duplicate, templates, s
 
 **Tagged `module-02-complete`.**
 
+### A second batch from using the app — twelve items, before module 03
+
+The company worked through the running app and came back with a list. Nothing here is from a spec;
+all of it is from somebody trying to do their job with what was built. Grouped by what it touched.
+
+**The site inspection could ask for photographs and had nowhere to put them.** §5 has listed
+"photos, tag list, measurements" as required outputs since session 2, and the panel printed
+"Bring back: photos" under every request — with no upload control anywhere on the page. Fixed by
+building the half of module 00's storage that was missing rather than a one-off: uploading has
+worked since session 4, but nothing could **list** what had been uploaded, so every attachment in
+the app was a single id stored on its parent row. That is right for a certificate and useless for
+eleven photographs.
+
+- [x] `registerFileManageChecker` beside the existing read registry — a second registry rather than
+      a flag, because reading and removing are different questions. Every read checker written so
+      far is permission-based, so folding removal in would have handed deletion to everyone who can
+      look. The default is uploader-only.
+- [x] `files.forEntity` / `files.remove`, both **ungated by any `p("…")`** and deliberately: "who
+      may see the files on this record" is a different answer for a certificate, a supplier's
+      quotation and a site photograph, and each module already answers it. A permission here would
+      either override those answers or lock out the people they exist to admit.
+- [x] `?download=1` on `/api/files/[id]`, which asks Supabase for a `Content-Disposition:
+      attachment` signed URL under the original filename. Inline stays the default — the company
+      asked for both, and they are different actions.
+- [x] An `Attachments` component: thumbnails from the `-web` derivative the upload path has always
+      generated, full size in a lightbox on click, a download control per file, and a remove control
+      that appears only when the server says this person may.
+- [x] Removal **refuses when a parent record still points at the file** — a principal's
+      `priceListFileId`, an accreditation certificate. The alternative is a dangling id whose only
+      symptom is a broken link on a page nobody opens until it matters.
+- [x] Site video gets §7.2's higher 200 MB ceiling, which is the case that section names by hand.
+
+**Supplier pricing assumed one supplier per job.**
+
+- [x] **Several principals at once.** The company's reason is the ordinary one the spec did not
+      anticipate: a skid is a flowmeter from one manufacturer, a valve from another and a gauge from
+      a third. One RFQ *per* supplier, not one shared — each gets its own number, its own clock and
+      its own document, because a supplier must never see that they are being compared or against
+      whom. Not transactional across suppliers: if the second of three fails, the first is a real
+      numbered sendable request and rolling it back would burn a number for nothing.
+- [x] **The comparison matrix can now cost one line from one supplier.** `applyRfq` already took a
+      line list; the UI only ever applied whole RFQs, which on a three-manufacturer job would
+      overwrite a line another supplier had won.
+- [x] **The RFQ document asked for four columns and printed three.** It said "complete the four
+      right-hand columns" over unit price, lead time and valid until. The missing one was
+      **currency** — one of the four things §3.2 says a response must contain, demoted to a footnote,
+      so a supplier who filled in the table had answered three of four questions and omitted the one
+      that is most expensive to get wrong. Now a column, and the footnote asks only about ex-works
+      versus delivered.
+- [x] "Request supplier pricing" and the pipeline's "Record customer PO" are **blue**, at the
+      company's request. Spec.md §6.3 gives blue to "every primary action" and both of these are the
+      only action on the thing they sit on; a ghost button on a white card reads as a label.
+
+**Principals.**
+
+- [x] **Only EA and KJ can appoint**, through a new `principal.appoint` permission. EM keeps the
+      pipeline — every other stage is a note about how a conversation is going — but appointing
+      commits AIES to represent a manufacturer, converts into a module 03 supplier, and is what
+      unlocks quoting from them. The button is hidden rather than shown-and-refused, with a line
+      saying why.
+- [x] **The service refuses when the permission set is absent**, rather than skipping the check.
+      `ActorMeta.permissions` is optional so sweeps need not fabricate one, and the acknowledgement
+      check reads absence as "not a person, skip". That default is wrong here: nothing appoints a
+      principal automatically, so the safe reading of a missing permission set is no. A test pins it.
+- [x] **The agreement requirement can be set aside**, for the case the company gave — "sometimes
+      these are not needed for small suppliers". Same permission, a written reason of at least ten
+      characters, recorded on the prospect *and* in its own audit row, because "who appointed this
+      principal without an agreement and what did they say" is a question an ISO 9001 auditor asks
+      by itself. Passing a reason when the documents were there all along does **not** mark an
+      override — a false entry in an audit trail is worse than none.
+- [x] **Uploaded files are visible and removable.** The agreement and price-list blocks now show an
+      on-file badge, view, download and "wrong file — detach"; a third section lists everything else
+      on the prospect, including files detached from those two roles — which is the point, since an
+      unreferenced file was previously invisible and still in the bucket.
+
+**Accounts.**
+
+- [x] **Contacts can be added, edited and removed, several per customer and per plant.** The model
+      has supported this since session 2; the only writer was `setPrimaryContact`, which creates
+      exactly one. So a customer with four plants had one name against it and the other three lived
+      in somebody's phone. Grouped by plant on the page, because the question is never "who do we
+      know here" but "who do I ring about Plant 2". Numbers and addresses are tappable — §6.6
+      expects this on a phone in a plant.
+- [x] **Exactly one primary per account**, enforced in the transaction rather than by a partial
+      unique index: demoting the incumbent in the same statement is the same guarantee with a better
+      failure mode. Removing the primary leaves the account with **none** rather than promoting
+      somebody — which of four plant engineers speaks for the company is not a question software
+      should answer alphabetically.
+- [x] **"Accounts not contacted" is now "Accounts with no activity"**, and it means something wider.
+      The old list read the `Activity` log alone, so a customer who had placed an order last week
+      appeared on a chase list because nobody had typed a call into the CRM. Now a purchase order, a
+      quotation going out and an inquiry arriving all count, and the row says *which* — "last order
+      84 days ago" and "last call 84 days ago" are different problems. Editing a record still counts
+      for nothing.
+- [x] **A customer goes dormant after 500 days with no purchase order**, and wakes when one arrives.
+      This is the only thing in the build that changes a business record's status with nobody behind
+      it, so three guards: `blacklisted` is never touched (that status is somebody's decision with a
+      reason, and replacing it with a milder one erases that on the day it counts); only accounts the
+      sweep itself parked are revived, which is what the new `autoDormantAt` column distinguishes;
+      and every change writes an audit row as `System` with `actorId: null`.
+- [x] **A quotation that has gone quiet for seven days raises a follow-up.** §6 asked for "quotes
+      expiring this week" and module 01 could not provide it. This is the better question — expiry is
+      the *end* of the silence and by then the customer has moved on. "No feedback" is read from the
+      record rather than from anybody remembering to log it: still `sent`, no negotiation round, no
+      PO. It fires on day seven and then weekly, and names the specific document rather than
+      collapsing into "you have 3 quiet quotations".
+- [x] **Accreditation certificate upload and expiry — the service was built, and unreachable.** The
+      first answer given to the company was that §5b was already done, which was true of everything
+      *except the way in*. They asked where to upload a certificate, and there was no answer: the
+      register at `/crm/accreditations` lists records that already exist, and its empty state said to
+      go to the customer's account and start one — where the accreditation card was **read-only**.
+      Two screens each pointing at the other, and no way to create the first record, upload a
+      certificate or type an expiry date anywhere in the app. `AccreditationPanel` had carried a
+      "Start accreditation" button since session 3; it was only ever rendered inside a row that
+      could not exist yet.
+- [x] Fixed at both ends. The register gained a "Start tracking a customer" panel — customers
+      already tracked are filtered out rather than offered and refused, since the model allows one
+      live accreditation each. The account card now renders the panel inline, gated on
+      `accreditation.manage`.
+- [x] Everything behind it *was* built and is untouched: certificate on the record, expiry typed by
+      the accountable person rather than parsed off a scan, status derived from the date so a record
+      still saying `accredited` with a past expiry reads as expired, and `renewal_due` with
+      acknowledgement plus a 30/45/60-day escalation to EA and KJ.
+- [x] **Worth generalising:** a service with tests and a panel with no route to it passes typecheck,
+      lint and 609 tests. Every "already built" claim in this file is a claim about code, not about
+      whether anybody can reach it. The module 00 gate's "not visually verified" list exists for
+      exactly this and did not catch it, because the panel *was* on a screen — just not on one that
+      could ever show it.
+
+**Quotations.**
+
+- [x] **Archived 14 days after the customer PO arrives.** Not on receipt, deliberately: the
+      fortnight after a PO is exactly when people still open the quotation, to check what was quoted
+      against what the PO says. Archiving then would hide the document during the only period it is
+      still in daily use.
+- [x] **Archived is not deleted and not a status.** `deletedAt` means the record should not have
+      existed; `status` is what the customer did, and an archived quotation still reports `accepted`.
+      It is a statement about which screen a finished document belongs on, so it is its own column,
+      its own permission (`quotation.view_archive`, EA and KJ), and a filter the *service* applies
+      rather than a flag the UI hides.
+- [x] The default is the working list **for everybody, including the two who can see the archive** —
+      nobody opens Quotations to look at last year's closed business. A salesperson who asks for
+      `archived: true` silently gets the working list rather than an error, because an error would
+      confirm an archive exists.
+- [x] **The record still opens by id** for anybody who could open it before. A link in an email from
+      last year should not break.
+- [x] `unarchive`, because the sweep is automatic and therefore occasionally wrong — a PO gets
+      cancelled. It says plainly that tonight's sweep will take it again unless the PO itself
+      changes, since fixing that is module 03's job and does not exist yet.
+
+**Also:** `AIESLQ261148` and `AIESLQ261149` were destroyed outright at the company's word — rows
+gone, not flagged. `scripts/purge-quotations.ts` is the tool and it is deliberately **not** the
+delete button: it exists for records created to try the app out, which never reached a customer, and
+it refuses anything with a customer PO behind it. Their numbers left the unique index, so the
+caveat the counter reset printed is gone.
+
+**Migration** `20260815040030_company_feedback_batch_two`: `CustomerAccount.autoDormantAt`,
+`PrincipalProspect.appointmentOverride{Reason,By,At}`, `Quotation.archivedAt`. Two new permissions
+seeded — `principal.appoint` and `quotation.view_archive`, both president and vice-president.
+
 ### Next concrete step
 
 **Module 03 — Customer PO, Sales Order, Procurement and Delivery.**
@@ -1084,7 +1244,7 @@ quotation), and the review gate above has been run.
 by server tests and a clean production build, not on screen — all three sit behind the TOTP login.
 The RFQ PDF was rendered from a throwaway record and its props asserted.
 
-**State at this stop.** Working tree clean, tagged `module-02-complete`. **576 tests** across 70
+**State at this stop.** Working tree clean, tagged `module-02-complete`. **609 tests** across 71
 files pass on a clean run; lint and typecheck clean. Everything is ahead of `origin/main` and
 **unpushed** — push it, or don't, but know that it is only on this machine.
 

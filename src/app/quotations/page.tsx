@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/data-table";
 import { EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import {
+  ARCHIVE_AFTER_PO_DAYS,
+  QUOTATION_ARCHIVE_PERMISSION,
+} from "@/server/core/quotation/archive-rules";
 import { humanQuotationStatus } from "@/server/core/quotation/quotation-lifecycle";
 import { trpc } from "@/lib/trpc/client";
 import { QuotationDialog } from "./QuotationDialog";
@@ -53,6 +57,10 @@ export default function QuotationsPage() {
   const router = useRouter();
   const [state, setState] = useState<DataTableState>(DEFAULT_TABLE_STATE);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+
+  const whoami = trpc.system.whoami.useQuery();
+  const maySeeArchive = (whoami.data?.permissions ?? []).includes(QUOTATION_ARCHIVE_PERMISSION);
 
   const list = trpc.quotation.list.useQuery({
     search: state.search || undefined,
@@ -60,6 +68,7 @@ export default function QuotationsPage() {
     pageSize: state.pageSize,
     sortKey: state.sortKey,
     sortDir: state.sortDir,
+    archived: showArchive,
   });
 
   const columns = useMemo<Column<QuotationRow>[]>(
@@ -151,9 +160,30 @@ export default function QuotationsPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Quotations"
-        description="Every quotation AIES has prepared, and where each one stands."
-        actions={<Button onClick={() => setDialogOpen(true)}>New quotation</Button>}
+        title={showArchive ? "Archived quotations" : "Quotations"}
+        description={
+          showArchive
+            ? `Closed out — the purchase order arrived more than ${ARCHIVE_AFTER_PO_DAYS} days ago. Still fully readable.`
+            : "Every quotation AIES is working on, and where each one stands."
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            {/* Only the two officers see this at all (archive-rules.ts). The label says which
+                direction it goes rather than what it is, so it reads the same in both states. */}
+            {maySeeArchive && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowArchive((v) => !v);
+                  setState((s) => ({ ...s, page: 1 }));
+                }}
+              >
+                {showArchive ? "Back to working list" : "See archive"}
+              </Button>
+            )}
+            {!showArchive && <Button onClick={() => setDialogOpen(true)}>New quotation</Button>}
+          </div>
+        }
       />
 
       <DataTable<QuotationRow>
@@ -168,14 +198,22 @@ export default function QuotationsPage() {
         onRowClick={(row) => router.push(`/quotations/${row.id}`)}
         emptyState={
           <EmptyState
-            title={state.search ? "No quotations match that search." : "No quotations yet."}
+            title={
+              state.search
+                ? "No quotations match that search."
+                : showArchive
+                  ? "Nothing archived yet."
+                  : "No quotations yet."
+            }
             description={
               state.search
                 ? "Number, title and account name are all searched."
-                : "Quotations are usually created for you when an inquiry reaches quoting — or start one here."
+                : showArchive
+                  ? `A quotation lands here ${ARCHIVE_AFTER_PO_DAYS} days after its customer PO is recorded.`
+                  : "Quotations are usually created for you when an inquiry reaches quoting — or start one here."
             }
             action={
-              state.search ? null : (
+              state.search || showArchive ? null : (
                 <Button onClick={() => setDialogOpen(true)}>New quotation</Button>
               )
             }

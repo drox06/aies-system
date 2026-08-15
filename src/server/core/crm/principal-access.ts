@@ -1,4 +1,4 @@
-import { registerFileAccessChecker } from "@/server/core/storage/access";
+import { registerFileAccessChecker, registerFileManageChecker } from "@/server/core/storage/access";
 import { PRINCIPAL_ENTITY_TYPE } from "@/server/core/crm/principal-lifecycle";
 
 /**
@@ -18,4 +18,19 @@ registerFileAccessChecker(PRINCIPAL_ENTITY_TYPE, (user) =>
   Promise.resolve(
     user.permissions.has("principal_prospect.manage") || user.permissions.has("finance.view_cost"),
   ),
+);
+
+/**
+ * Who may take a file back off a prospect.
+ *
+ * Whoever manages principals, which is narrower than who may read them: `finance.view_cost` is on
+ * the read rule so the president and vice-president can open a price list, and being able to read a
+ * document is not a reason to be able to remove it from somebody else's record.
+ *
+ * The company asked for this because of the obvious failure: the wrong PDF gets attached as the
+ * distributor agreement, and until now the only remedy was to overwrite it with the right one and
+ * leave the wrong one in the bucket, unreferenced and invisible.
+ */
+registerFileManageChecker(PRINCIPAL_ENTITY_TYPE, (user) =>
+  user.permissions.has("principal_prospect.manage"),
 );

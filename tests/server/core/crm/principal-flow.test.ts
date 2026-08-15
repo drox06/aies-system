@@ -22,7 +22,23 @@ import {
 const DAY_MS = 86_400_000;
 const suffix = randomUUID().slice(0, 8);
 const EM = `em-${suffix}`;
-const actor = { actorId: EM, actorLabel: "EM Test" };
+
+/**
+ * Carries `principal.appoint` because this file is about §5c's *mechanics* — the stage machine, the
+ * event payload, the supplier link — not about who is allowed to appoint. That question got its own
+ * rule at the company's request (EA and KJ only) and its own file,
+ * tests/server/core/crm/principal-appointment.test.ts, which asserts the refusals.
+ *
+ * Splitting them is deliberate. Folding the authority check into these tests would mean every
+ * assertion about the appointment *event* would also fail the day the permission changed, and the
+ * failure would say nothing about which of the two things broke — which is exactly what happened
+ * when the permission landed: six red tests here, none of them about permissions.
+ */
+const actor = {
+  actorId: EM,
+  actorLabel: "EM Test",
+  permissions: new Set(["principal_prospect.manage", "principal.appoint"]) as ReadonlySet<string>,
+};
 
 const prospectIds: string[] = [];
 

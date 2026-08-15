@@ -11,6 +11,7 @@ import {
   type QuoteType,
 } from "@/server/core/quotation/quotation-number";
 import { checkQuotationTransition } from "@/server/core/quotation/quotation-lifecycle";
+import { QUOTATION_ARCHIVE_PERMISSION } from "@/server/core/quotation/archive-rules";
 
 /**
  * Quotation writes and reads (specs/02-quotation.md).
@@ -247,6 +248,18 @@ export interface ListQuotationsParams {
   pageSize?: number;
   sortKey?: string | null;
   sortDir?: "asc" | "desc";
+  /**
+   * Show the archived ones instead of the live ones (see archive-rules.ts).
+   *
+   * Three states, not two: `false`/absent is the working list, `true` is the archive on its own,
+   * and there is deliberately no "both". A combined list would put a document somebody is quoting
+   * this morning next to one closed out two years ago and give the user no way to tell them apart
+   * — which is the problem archiving exists to solve.
+   *
+   * Ignored without `quotation.view_archive`, and ignored silently: a caller who asks for what
+   * they cannot see gets the working list, not an error that confirms an archive exists.
+   */
+  archived?: boolean;
 }
 
 /** Columns a client may sort by. An allow-list, because the key arrives from the query string. */
@@ -260,8 +273,14 @@ export async function listQuotationsService(
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25));
   const search = params.search?.trim();
 
+  const showArchive =
+    params.archived === true && user.permissions.has(QUOTATION_ARCHIVE_PERMISSION);
+
   const where = {
     deletedAt: null,
+    // The default is the working list for everybody, including the two people who can see the
+    // archive. Nobody opens Quotations to look at last year's closed business.
+    archivedAt: showArchive ? { not: null } : null,
     ...quotationScopeWhere(user),
     ...(params.status ? { status: params.status } : {}),
     ...(params.accountId ? { accountId: params.accountId } : {}),

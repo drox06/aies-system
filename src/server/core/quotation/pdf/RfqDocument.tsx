@@ -37,7 +37,17 @@ export interface RfqPdfProps {
   logoSrc: string;
 }
 
-const COLS = { no: 24, desc: 210, qty: 60, price: 90, lead: 70, valid: 61 };
+/**
+ * Widths, summing to the 515pt of usable page between the A4 margins.
+ *
+ * The four right-hand columns are the ones the covering sentence promises, and until this change
+ * there were only three of them: the document said "complete the four right-hand columns" and
+ * offered unit price, lead time and valid until. The missing one was **currency**, which §3.2 lists
+ * among the four things a response must contain and which the page had demoted to a footnote — so a
+ * supplier who filled the table in and sent it back had answered three of the four questions, and
+ * the most expensive one to get wrong was the one left out.
+ */
+const COLS = { no: 20, desc: 175, qty: 55, price: 80, currency: 55, lead: 65, valid: 65 };
 
 export function RfqDocument(props: RfqPdfProps) {
   return (
@@ -92,6 +102,7 @@ export function RfqDocument(props: RfqPdfProps) {
           {/* Empty columns rather than a covering note: the document asks the questions itself, so a
               response that comes back on this page is already complete. */}
           <Text style={[s.th, s.right, { width: COLS.price }]}>Unit price</Text>
+          <Text style={[s.th, s.right, { width: COLS.currency }]}>Currency</Text>
           <Text style={[s.th, s.right, { width: COLS.lead }]}>Lead time</Text>
           <Text style={[s.th, s.right, { width: COLS.valid }]}>Valid until</Text>
         </View>
@@ -111,13 +122,15 @@ export function RfqDocument(props: RfqPdfProps) {
               {line.quantity} {line.unit}
             </Text>
             <Text style={[s.right, { width: COLS.price }]}> </Text>
+            <Text style={[s.right, { width: COLS.currency }]}> </Text>
             <Text style={[s.right, { width: COLS.lead }]}> </Text>
             <Text style={[s.right, { width: COLS.valid }]}> </Text>
           </View>
         ))}
 
         <Text style={[s.small, s.muted, { marginTop: 14 }]}>
-          Please state the currency your prices are in, and whether they are ex-works or delivered.
+          {/* Currency has its own column now, so this line asks only for what the table cannot. */}
+          Please state whether your prices are ex-works or delivered.
         </Text>
 
         <View style={{ marginTop: 20 }}>

@@ -44,12 +44,16 @@ import {
 import {
   applyRfqToQuotationService,
   compareRfqsForQuotationService,
-  createSupplierRfqService,
+  createSupplierRfqsService,
   listRfqsForQuotationService,
   listRfqSuppliersService,
   markRfqSentService,
   recordRfqResponseService,
 } from "@/server/core/quotation/rfq-service";
+import {
+  QUOTATION_ARCHIVE_PERMISSION,
+  unarchiveQuotationService,
+} from "@/server/core/quotation/archive-service";
 import {
   decideQuotationApprovalService,
   getQuotationApprovalStateService,
@@ -103,10 +107,23 @@ export const quotationRouter = router({
           pageSize: z.number().int().positive().max(100).optional(),
           sortKey: z.string().nullish(),
           sortDir: z.enum(["asc", "desc"]).optional(),
+          /** Ignored without `quotation.view_archive` — see ListQuotationsParams. */
+          archived: z.boolean().optional(),
         })
         .optional(),
     )
     .query(({ ctx, input }) => listQuotationsService(ctx.user, input ?? {})),
+
+  /**
+   * Brings an archived quotation back onto the working list.
+   *
+   * Gated on seeing the archive rather than on editing a quotation: this does not change the
+   * document, only which list it appears on, and the people who can see the archive are the people
+   * whose decision that is.
+   */
+  unarchive: p(QUOTATION_ARCHIVE_PERMISSION)
+    .input(z.object({ quotationId: z.string(), reason: z.string().min(3) }))
+    .mutation(({ ctx, input }) => unarchiveQuotationService(actorMeta(ctx), input)),
 
   get: p("quotation.view")
     .input(z.object({ quotationId: z.string() }))
@@ -274,17 +291,24 @@ export const quotationRouter = router({
     .input(z.object({ quotationId: z.string() }))
     .query(({ input }) => compareRfqsForQuotationService(input.quotationId)),
 
+  /**
+   * Raises the request against one principal or several.
+   *
+   * Plural, because a job whose lines come from three manufacturers needs three requests and the
+   * singular form made that three passes through the same form. Each supplier still gets its own
+   * numbered document — see createSupplierRfqsService.
+   */
   createRfq: p("supplier_rfq.manage")
     .input(
       z.object({
         quotationId: z.string(),
-        supplierId: z.string(),
+        supplierIds: z.array(z.string()).min(1),
         sourceLineNos: z.array(z.number().int().positive()).optional(),
         dueBy: z.coerce.date().nullish(),
         notes: z.string().nullish(),
       }),
     )
-    .mutation(({ ctx, input }) => createSupplierRfqService(actorMeta(ctx), input)),
+    .mutation(({ ctx, input }) => createSupplierRfqsService(actorMeta(ctx), input)),
 
   /** §3.2's "mark as sent", which starts the response clock. */
   markRfqSent: p("supplier_rfq.manage")

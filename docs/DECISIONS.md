@@ -1097,3 +1097,162 @@ different hat.
 foreign-currency line can only be costed through the RFQ flow today. Adding a rate column to the
 line editor is small and belongs with §4's FX work.
 
+
+
+## 33. Archiving is a fourth thing, alongside deleted, cancelled and expired
+
+**Module:** 02. **Asked for by:** the company — "apply auto archiving of quotations that have
+already received POs, archive them after 14 days of PO receipt", with the archive visible only to
+EA and KJ.
+
+The obvious implementations are all wrong, and each is wrong in a way that would only surface later.
+
+**Not `deletedAt`.** Soft delete already exists and would have taken about four lines. But
+`deletedAt` means *this record should not have existed* — it is what the delete button sets, with a
+typed reason, and what every list in the build filters on. A won deal is the opposite of that. Two
+meanings on one column would make "show me the deleted quotations" unanswerable within a year.
+
+**Not a `status`.** `status` records what the **customer** did: sent, accepted, rejected, expired.
+An archived quotation is still `accepted` — that is the whole point of it — and adding `archived` to
+the state machine would force every transition rule to decide what it means to accept an archived
+quotation, which is a question nobody asked.
+
+So `archivedAt` is its own column, because archiving is a statement about *which screen a finished
+document belongs on* and nothing else.
+
+### Two consequences that fall out of that framing
+
+**It gates the list, not the record.** `quotation.view_archive` decides who can ask for the archived
+half of the list. It does **not** guard `quotation.get`: an archived quotation still opens by id for
+anybody who could open it before. A link in an email from last year should not break, and hiding a
+document from the person who wrote it is a different decision from keeping it off their list.
+
+**The filter is in the service, not the page.** `listQuotationsService` applies `archivedAt: null` by
+default and only honours `archived: true` when the caller holds the permission. A UI-side filter
+would leave the rows on the wire, which is the difference between not showing something and not
+sending it.
+
+A caller without the permission who asks for the archive gets the working list, silently. An error
+would confirm that an archive exists to somebody not meant to know.
+
+### Why fourteen days rather than on receipt
+
+Archiving the moment the PO lands would hide the document during the only stretch it is still in
+daily use — the fortnight after an order is exactly when people open the quotation to check what was
+quoted against what the customer actually ordered, to answer a scope question, to chase a
+discrepancy. Two weeks is past that and well short of memory.
+
+**The sweep reads the PO, not the status.** `accepted` is reachable without a purchase order — a
+revision chain, a manual transition — and finished work means the order arrived, not that a column
+says so.
+
+## 34. The sixty-day clock now counts business activity, not logged calls
+
+**Module:** 01. **Asked for by:** the company — "contact history should count the 60 days not based
+on calls or contacts but on POs received on this particular customer".
+
+specs/01-crm-inquiry.md §1 states the question the whole CRM is designed around: *"who haven't I
+talked to in 60 days?"* Session 3 implemented that literally — the list read the `Activity` log and
+nothing else, on the reasoning that editing a customer's address is not talking to them.
+
+That reasoning is still right and the conclusion was too narrow. **A logged call is a record of
+somebody remembering to log a call.** In a five-person firm that is uneven at best, so the list
+produced false alarms in the one direction that matters: a customer who had placed an order last
+week appeared on a chase list because nobody had typed anything into the CRM. A list that is wrong
+in the harmless-looking direction is exactly the list people learn to skim past.
+
+A purchase order, a quotation going out, an inquiry arriving are events the **system observes**
+whether or not anybody writes them down. So the list counts those too, and reports which one it
+found — "last order 84 days ago" and "last call 84 days ago" are different problems needing
+different phone calls. Editing a record still counts for nothing.
+
+The heading changed with the meaning: **"Accounts with no activity"**, not "not contacted".
+
+### The 500-day dormancy sweep, and why it is unusually cautious
+
+The same instruction added a second rule: *"log the customer dormant if AIES did not receive a PO
+from this customer in 500 days."* This is the only place in the build where a **nightly job changes a
+business record's status with no person behind it**, which is worth naming because it is a line the
+rest of the system deliberately does not cross — every other sweep sends a notification and leaves
+the record alone.
+
+Three guards, each protecting a decision a person made:
+
+1. **`blacklisted` is never touched.** That status exists because somebody decided this customer is a
+   problem. Overwriting it with the milder `dormant` would erase that on the day it counts.
+2. **Only accounts the sweep itself parked are revived**, which is what the new `autoDormantAt`
+   column is for. A customer somebody deliberately parked stays parked when an order arrives, and a
+   person gets to look at it. Without that column the two cases are indistinguishable and the sweep
+   would have to either never undo itself or undo somebody else's decision.
+3. **Every change writes an audit row** as `System` with `actorId: null`, saying how many days it
+   had been. Attributing it to whoever triggered the cron would be a lie on the record.
+
+An account that has never ordered anything counts from its creation date. A prospect that has sat
+sixteen months without buying is precisely what `dormant` describes.
+
+## 35. File *removal* got its own registry, because reading and removing are different questions
+
+**Module:** 00, on module 01's behalf. **Asked for by:** the company — "the uploaded files should
+have visible indicators that a file is uploaded, and make the uploaded files removeable in cases of
+wrong files are chosen for upload".
+
+Uploading has worked since session 4. Nothing could **list** what had been uploaded, so every
+attachment in the app was a single id stored on its parent row (`certificateFileId`,
+`priceListFileId`). That is right for a certificate — there is exactly one — and useless for what a
+site visit actually brings back, which is eleven photographs. specs/01 §5 has printed "Bring back:
+photos" under every inspection request since session 2 with no upload control on the page.
+
+The interesting decision is the second registry. `registerFileAccessChecker` answers "may this user
+download this file", and the obvious move was to reuse it for removal. That would have been wrong:
+**every checker written so far is permission-based**, so folding removal in would have handed
+deletion to everybody who can look. The president can read every accreditation certificate in the
+company; that is not a reason for them to be able to delete one out from under the Admin Manager who
+is accountable for it.
+
+So `registerFileManageChecker` is separate, and its default is narrower than the read default's:
+**the uploader only**. Somebody who attached the wrong scan a minute ago should be able to take it
+back without an administrator, and nobody else should be able to remove evidence from a record they
+happen to be able to read.
+
+Removal is **soft**, and refuses when a parent record still points at the file. The second half
+matters more than it looks: clearing `priceListFileId` is the parent module's job, and a file removed
+out from under it leaves a dangling id whose only symptom is a broken link on a page nobody opens
+until it matters.
+
+### The tRPC procedures carry no permission gate at all
+
+`files.forEntity` and `files.remove` are `protectedProcedure`, not `p("…")`. "Who may see the files
+on this record" has a different answer for an accreditation certificate, a supplier's quotation and a
+site photograph — and each module already answers it by registering a checker. A permission on the
+procedure would either be broad enough to override those answers or narrow enough to lock out the
+people they exist to admit.
+
+## 36. The appointment refuses a missing permission set, where acknowledgement skips it
+
+**Module:** 01. **Asked for by:** the company — "make it so, that only EA or KJ can approve/appoint
+principal suppliers", and separately an override of the document requirement for small suppliers.
+
+`ActorMeta.permissions` is optional. That was a deliberate call in session 3 so the many internal
+callers — event subscribers, nightly sweeps, scripts — need not fabricate a permission set, and the
+one check that reads it (may this person acknowledge this inquiry?) treats absence as *not a person,
+skip it*. docs/PROGRESS.md already flags the trap: a new router that forgets to populate `actorMeta`
+would silently lose the check.
+
+The appointment gate reads the same optional field and reaches the **opposite** conclusion: absent
+means **no**.
+
+The difference is what the two operations are. Acknowledgement happens automatically all over the
+place — a subscriber marks an inquiry acknowledged as a side effect of something else, and refusing
+it because a sweep has no permission set would break ordinary flows. **Nothing appoints a principal
+automatically.** There is exactly one caller, it is a router with a live session behind it, and
+anything else reaching that line is a bug. So the safe reading of a missing permission set is a
+refusal, and a test pins it with a bare `{ actorId, actorLabel }` actor.
+
+The override follows the same reasoning one level down: it needs the same permission, a written
+reason of at least ten characters, and it writes **its own audit row** separate from the stage
+change — because "who appointed this principal without an agreement, and what did they say about
+it" is a question an ISO 9001 auditor asks by itself and should be findable by itself.
+
+One case is easy to get wrong and is tested: passing an override reason when the documents were
+there all along must **not** mark the record as overridden. A false entry in an audit trail is worse
+than a missing one.

@@ -6,9 +6,14 @@ import {
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 import { sweepPrincipalExpiries } from "@/server/core/crm/principal-service";
 import { sweepQuotationExpiries } from "@/server/core/quotation/expiry-service";
+import { sweepQuotationsToArchive } from "@/server/core/quotation/archive-service";
 import { sweepOverdueRfqs } from "@/server/core/quotation/rfq-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
-import { sweepFollowUps } from "@/server/core/crm/pipeline-service";
+import {
+  sweepDormantAccounts,
+  sweepFollowUps,
+  sweepSilentQuotations,
+} from "@/server/core/crm/pipeline-service";
 
 /**
  * Once daily. specs/00-foundation.md §9.1 asks for `/api/cron/nightly`; this is the first thing
@@ -99,6 +104,33 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] overdue RFQ sweep failed:", error);
     results.overdueRfqs = { error: String(error) };
+  }
+
+  // The company's seven-day rule: a quotation that went out and has heard nothing back.
+  try {
+    results.silentQuotations = await sweepSilentQuotations();
+  } catch (error) {
+    console.error("[cron/nightly] silent quotation sweep failed:", error);
+    results.silentQuotations = { error: String(error) };
+  }
+
+  // The company's 500-day rule. Changes account status, so it runs last: everything above only
+  // sends notifications, and a sweep that writes should not be able to take a read-only one down
+  // with it.
+  try {
+    results.dormantAccounts = await sweepDormantAccounts();
+  } catch (error) {
+    console.error("[cron/nightly] dormancy sweep failed:", error);
+    results.dormantAccounts = { error: String(error) };
+  }
+
+  // specs/02-quotation.md, at the company's request: a quotation whose purchase order arrived
+  // fourteen days ago is finished sales work and comes off the working list.
+  try {
+    results.archivedQuotations = await sweepQuotationsToArchive();
+  } catch (error) {
+    console.error("[cron/nightly] quotation archive sweep failed:", error);
+    results.archivedQuotations = { error: String(error) };
   }
 
   return NextResponse.json(results);

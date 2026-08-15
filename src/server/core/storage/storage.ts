@@ -92,10 +92,16 @@ export async function uploadFile(input: UploadFileInput): Promise<FileObject> {
 }
 
 export async function getFileDownloadUrl(
-  file: Pick<FileObject, "storageKey" | "webDerivativeKey">,
+  file: Pick<FileObject, "storageKey" | "webDerivativeKey" | "filename">,
   variant: "original" | "web" = "original",
   ttlSeconds = 60,
+  /** Serve as an attachment under the original filename rather than inline in the browser. */
+  asAttachment = false,
 ): Promise<string> {
   const key = variant === "web" && file.webDerivativeKey ? file.webDerivativeKey : file.storageKey;
-  return supabaseStorageDriver.createSignedUrl(key, ttlSeconds);
+  return supabaseStorageDriver.createSignedUrl(
+    key,
+    ttlSeconds,
+    asAttachment ? file.filename : undefined,
+  );
 }

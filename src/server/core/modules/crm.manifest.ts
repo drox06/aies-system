@@ -102,6 +102,15 @@ export const crmManifest = defineManifest({
       group: "CRM",
       defaultRoles: ["marketing_manager", "president", "vice_president"],
     },
+    {
+      key: "principal.appoint",
+      label: "Appoint a principal supplier",
+      group: "CRM",
+      // The company's own instruction, and it matches what the act is: EM runs the pipeline, but
+      // appointing commits AIES to represent a manufacturer and is what unlocks quoting from them.
+      // See PRINCIPAL_APPOINT_PERMISSION in principal-lifecycle.ts.
+      defaultRoles: ["president", "vice_president"],
+    },
   ],
 
   // specs/01-crm-inquiry.md §8.

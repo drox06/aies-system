@@ -140,6 +140,17 @@ model Quotation {
 
   customFields Json @default("{}")
 
+  // Off the working list, at the company's request: a quotation whose purchase order arrived is
+  // finished sales work, and 14 days later it stops competing for attention with live ones.
+  //
+  // **Not a delete and not a status.** `deletedAt` means the record should not have existed;
+  // `status` is what the *customer* did. Archiving is neither — it is a statement about which
+  // screen a finished document belongs on, which is why it is its own column and why an archived
+  // quotation still reports as `accepted`. Only the president and vice-president can see the
+  // archive (`quotation.view_archive`), so this also has to be a filter the list applies rather
+  // than a flag the UI hides.
+  archivedAt DateTime?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?

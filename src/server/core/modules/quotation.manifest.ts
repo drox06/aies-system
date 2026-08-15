@@ -79,6 +79,16 @@ export const quotationManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "quotation.view_archive",
+      label: "See archived quotations",
+      group: "Quotation",
+      // Asked for by name, EA and KJ again. The archive is every won deal the company has ever
+      // done, with its margin — management history rather than working material. See
+      // QUOTATION_ARCHIVE_PERMISSION in archive-rules.ts for why it gates the list and not the
+      // record.
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
       key: "quotation.override_margin_floor",
       label: "Send a quotation with a line below the margin floor",
       group: "Quotation",

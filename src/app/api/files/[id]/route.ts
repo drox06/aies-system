@@ -34,8 +34,13 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const variant = new URL(req.url).searchParams.get("variant") === "web" ? "web" : "original";
-  const signedUrl = await getFileDownloadUrl(file, variant, 60);
+  const params = new URL(req.url).searchParams;
+  const variant = params.get("variant") === "web" ? "web" : "original";
+  // Inline by default so a photograph can be looked at without saving it, and an attachment on
+  // request so it can be saved without a right-click — the two are different actions and the page
+  // offers both.
+  const asAttachment = params.get("download") === "1";
+  const signedUrl = await getFileDownloadUrl(file, variant, 60, asAttachment);
 
   return NextResponse.redirect(signedUrl);
 }

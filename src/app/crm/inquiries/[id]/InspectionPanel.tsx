@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card } from "@/components/ui/layout";
@@ -108,6 +109,30 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               Bring back: {item.requiredOutputs.join(", ").replace(/_/g, " ")}
             </p>
           )}
+
+          {/* What the visit actually brought back. §5 lists "photos, tag list, measurements" as the
+              required outputs and the panel has been asking for them since session 2 with nowhere
+              to put them — a request that names its deliverables and cannot receive them is a form,
+              not a record. Photographs show as thumbnails and open full-size in place: a site photo
+              you have to download before you can see it is one nobody looks at. */}
+          <div className="mt-2 border-t border-border pt-2">
+            <Attachments
+              entityType="InspectionRequest"
+              entityId={item.id}
+              label="Photos and findings from the visit"
+              hint={
+                item.requiredOutputs.includes("photos")
+                  ? "Photographs open full size here. Everything else downloads."
+                  : undefined
+              }
+              emptyText="Nothing has come back from this visit yet."
+              accept="image/*,video/*,.pdf,.xlsx,.csv,.docx"
+              // §7.2's higher ceiling, for the case it names by hand: site video.
+              category="operations"
+              canUpload={item.status !== "cancelled"}
+              compact={item.status === "completed"}
+            />
+          </div>
           {(item.windowStart || item.windowEnd) && (
             <p className="mt-1 text-xs text-text-muted">
               Window: <DateCell value={item.windowStart} /> – <DateCell value={item.windowEnd} />

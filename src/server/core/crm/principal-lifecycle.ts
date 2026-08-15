@@ -24,6 +24,21 @@
  */
 export const PRINCIPAL_ENTITY_TYPE = "PrincipalProspect";
 
+/**
+ * The permission the appointment itself sits behind, at the company's request: EA and KJ only.
+ *
+ * Separate from `principal_prospect.manage`, which stays with EM and covers everything else about a
+ * prospect. The split follows what the two things actually are — moving a prospect from `contacted`
+ * to `in_discussion` is a note about a conversation, while appointing commits AIES to represent a
+ * manufacturer, converts into a module 03 supplier, and is what lets anybody raise an RFQ against
+ * them. §5c already treats the appointment as the moment that matters; this makes the authority
+ * match.
+ *
+ * Here rather than in the manifest so the panel can read it too and hide a button it knows will be
+ * refused — same reason every other rule in this file is pure.
+ */
+export const PRINCIPAL_APPOINT_PERMISSION = "principal.appoint";
+
 export const PRINCIPAL_STAGES = [
   "identified",
   "contacted",

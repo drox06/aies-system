@@ -249,6 +249,57 @@ export async function createSupplierRfqService(actor: ActorMeta, input: CreateRf
   return rfq;
 }
 
+/**
+ * The same request, put to several principals at once.
+ *
+ * The company's reason is the ordinary one and the spec did not anticipate it: *"some jobs require
+ * multiple supplies from multiple suppliers"*. A skid with a flowmeter, a control valve and a
+ * gauge is three manufacturers, and §3.6's comparison matrix only earns its keep when more than one
+ * of them has been asked — but the form asked for one principal at a time, so getting three offers
+ * meant filling the same form three times and re-ticking the same lines.
+ *
+ * One RFQ per supplier, not one shared between them. Each gets its own number, its own response
+ * clock and its own document, because that is what actually goes out: a supplier must never see
+ * that they are being compared, or who against.
+ *
+ * **Not transactional across suppliers, deliberately.** If the second of three fails — a principal
+ * that stopped being appointed a minute ago — the first is a real, numbered, sendable request, and
+ * rolling it back to keep the batch tidy would throw away a document and burn its number for
+ * nothing. The result says exactly which ones exist.
+ */
+export async function createSupplierRfqsService(
+  actor: ActorMeta,
+  input: Omit<CreateRfqInput, "supplierId"> & { supplierIds: string[] },
+) {
+  if (input.supplierIds.length === 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one principal to ask." });
+  }
+
+  const created: { id: string; number: string; supplierId: string }[] = [];
+  const failed: { supplierId: string; reason: string }[] = [];
+
+  for (const supplierId of [...new Set(input.supplierIds)]) {
+    try {
+      const rfq = await createSupplierRfqService(actor, { ...input, supplierId });
+      created.push({ id: rfq.id, number: rfq.number, supplierId });
+    } catch (error) {
+      failed.push({
+        supplierId,
+        reason: error instanceof Error ? error.message : "Could not be raised.",
+      });
+    }
+  }
+
+  if (created.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: failed[0]?.reason ?? "None of those requests could be raised.",
+    });
+  }
+
+  return { created, failed };
+}
+
 // ---- the send, asserted by a person ---------------------------------------------------------------
 
 /**

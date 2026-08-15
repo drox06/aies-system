@@ -30,10 +30,13 @@ export const supabaseStorageDriver: StorageDriver = {
     if (error) throw error;
   },
 
-  async createSignedUrl(key, expiresInSeconds) {
+  async createSignedUrl(key, expiresInSeconds, downloadAs) {
     const { data, error } = await client()
       .storage.from(STORAGE_BUCKET)
-      .createSignedUrl(key, expiresInSeconds);
+      // Supabase turns `download` into a Content-Disposition: attachment header on the signed URL.
+      // Passing the original filename rather than `true` means the saved file is called what the
+      // person uploaded, not the sanitised uuid-prefixed storage key.
+      .createSignedUrl(key, expiresInSeconds, downloadAs ? { download: downloadAs } : undefined);
     if (error || !data) throw error ?? new Error("No signed URL returned.");
     return data.signedUrl;
   },

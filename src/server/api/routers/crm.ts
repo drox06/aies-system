@@ -11,6 +11,11 @@ import {
   type ActorMeta,
 } from "@/server/core/crm/account-service";
 import {
+  deleteContactService,
+  listContactsService,
+  upsertContactService,
+} from "@/server/core/crm/contact-service";
+import {
   ACCREDITATION_STATUSES,
   getAccreditationForAccount,
   listAccreditationsService,
@@ -168,6 +173,39 @@ export const crmRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setPrimaryContactService(actorMeta(ctx), input)),
+
+  // ---- contacts, several per customer ----------------------------------------------------------
+  // `setPrimaryContact` above stays: it is the one-field shortcut the account dialog uses when a
+  // customer is first created. These are the full list, for the customer with four plants.
+
+  listContacts: p("crm.view")
+    .input(z.object({ accountId: z.string() }))
+    .query(({ input }) => listContactsService(input.accountId)),
+
+  upsertContact: p("crm.edit")
+    .input(
+      z.object({
+        contactId: z.string().nullish(),
+        accountId: z.string(),
+        siteId: z.string().nullish(),
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        position: z.string().nullish(),
+        department: z.string().nullish(),
+        email: z.string().email().nullish().or(z.literal("")),
+        mobile: z.string().nullish(),
+        phone: z.string().nullish(),
+        isPrimary: z.boolean().optional(),
+        isDecisionMaker: z.boolean().optional(),
+        notes: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => upsertContactService(actorMeta(ctx), input)),
+
+  /** `crm.edit`, not `crm.delete`: removing a name from a list is not deleting a customer record. */
+  deleteContact: p("crm.edit")
+    .input(z.object({ contactId: z.string(), reason: z.string().nullish() }))
+    .mutation(({ ctx, input }) => deleteContactService(actorMeta(ctx), input)),
 
   // ---- accreditation (specs/01-crm-inquiry.md §5b) --------------------------------------------
   // §9 puts this with admin_manager (PD), visible to president and vice_president.
@@ -517,13 +555,21 @@ export const crmRouter = router({
     )
     .mutation(({ ctx, input }) => updatePrincipalService(actorMeta(ctx), input)),
 
-  /** The §5c pipeline's only door. Appointing emits `principal.appointed` for module 03. */
+  /**
+   * The §5c pipeline's only door. Appointing emits `principal.appointed` for module 03.
+   *
+   * Still gated on `principal_prospect.manage`, because that is what it takes to move a prospect
+   * along at all. The narrower `principal.appoint` check lives in the service rather than here,
+   * since it applies to exactly one of the eight destinations — a second procedure would have split
+   * one state machine across two doors.
+   */
   transitionPrincipal: p("principal_prospect.manage")
     .input(
       z.object({
         prospectId: z.string(),
         to: z.enum(PRINCIPAL_STAGES),
         reason: z.string().nullish(),
+        overrideDocuments: z.string().max(500).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => transitionPrincipalService(actorMeta(ctx), input)),

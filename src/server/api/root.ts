@@ -7,6 +7,7 @@ import { commentsRouter } from "@/server/api/routers/comments";
 import { crmRouter } from "@/server/api/routers/crm";
 import { quotationRouter } from "@/server/api/routers/quotation";
 import { customFieldsRouter } from "@/server/api/routers/custom-fields";
+import { filesRouter } from "@/server/api/routers/files";
 import { notifyRouter } from "@/server/api/routers/notify";
 import { orderRouter } from "@/server/api/routers/order";
 import { numberingRouter } from "@/server/api/routers/numbering";
@@ -20,6 +21,7 @@ export const appRouter = router({
   audit: auditRouter,
   numbering: numberingRouter,
   customFields: customFieldsRouter,
+  files: filesRouter,
   notify: notifyRouter,
   approvals: approvalsRouter,
   comments: commentsRouter,

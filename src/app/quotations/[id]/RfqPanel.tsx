@@ -47,7 +47,7 @@ export function RfqPanel({
 }) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
-  const [supplierId, setSupplierId] = useState("");
+  const [supplierIds, setSupplierIds] = useState<string[]>([]);
   const [dueBy, setDueBy] = useState("");
   const [notes, setNotes] = useState("");
   const [chosen, setChosen] = useState<number[]>([]);
@@ -94,37 +94,65 @@ export function RfqPanel({
       </p>
 
       {mayManage && editable && (
-        <Button variant="ghost" size="sm" className="mt-2" onClick={() => setOpen((o) => !o)}>
+        // Primary, not ghost, at the company's request — and it is right on the merits. Spec.md
+        // §6.3 makes blue the weight for "every primary action", and on a quotation with no
+        // supplier pricing yet this is *the* action: nothing can be costed until somebody asks.
+        // It drops back to ghost once requests exist, so it stops competing with them.
+        <Button
+          variant={rows.length === 0 ? "primary" : "ghost"}
+          size="sm"
+          className="mt-2"
+          onClick={() => setOpen((o) => !o)}
+        >
           {open ? "Cancel" : "Request supplier pricing"}
         </Button>
       )}
 
       {open && (
         <div className="mt-3 space-y-3 rounded border border-border p-3">
-          <div>
-            <Label htmlFor="rfq-supplier">Principal *</Label>
-            <Select
-              id="rfq-supplier"
-              value={supplierId}
-              onChange={(e) => setSupplierId(e.target.value)}
-            >
-              <option value="">Choose…</option>
+          <fieldset>
+            {/* Checkboxes rather than a dropdown, because asking three manufacturers about one job
+                is the normal case, not the exception — a skid is a flowmeter from one, a valve from
+                another and a gauge from a third. Each ticked principal gets its own numbered
+                request; none of them sees the others. */}
+            <legend className="text-xs font-medium">Principals to ask *</legend>
+            <p className="mb-1 text-xs text-text-muted">
+              Tick as many as the job needs. Each gets its own request, and none of them is told
+              about the others.
+            </p>
+            <div className="space-y-1">
               {(suppliers.data ?? []).map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
-                  {supplier.productLines.length > 0 ? ` — ${supplier.productLines.join(", ")}` : ""}
-                </option>
+                <label key={supplier.id} className="flex items-start gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={supplierIds.includes(supplier.id)}
+                    onChange={() =>
+                      setSupplierIds((current) =>
+                        current.includes(supplier.id)
+                          ? current.filter((id) => id !== supplier.id)
+                          : [...current, supplier.id],
+                      )
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">{supplier.name}</span>
+                    {supplier.productLines.length > 0 && (
+                      <span className="text-text-muted"> — {supplier.productLines.join(", ")}</span>
+                    )}
+                  </span>
+                </label>
               ))}
-            </Select>
+            </div>
             {(suppliers.data ?? []).length === 0 && (
               <p className="mt-1 text-xs text-text-muted">
-                {/* Not an empty dropdown with no explanation: the reason is a business rule, and
+                {/* Not an empty list with no explanation: the reason is a business rule, and
                     the fix is somewhere else entirely. */}
                 No appointed principals yet. A principal can be asked for pricing once its
                 distributor agreement is signed (§5c).
               </p>
             )}
-          </div>
+          </fieldset>
 
           <fieldset>
             <legend className="text-xs font-medium">Lines to ask about</legend>
@@ -173,19 +201,30 @@ export function RfqPanel({
 
           <Button
             size="sm"
-            disabled={create.isPending || !supplierId}
+            disabled={create.isPending || supplierIds.length === 0}
             onClick={async () => {
               try {
-                const rfq = await create.mutateAsync({
+                const result = await create.mutateAsync({
                   quotationId,
-                  supplierId,
+                  supplierIds,
                   sourceLineNos: chosen.length > 0 ? chosen : undefined,
                   dueBy: dueBy ? new Date(dueBy) : null,
                   notes: notes || null,
                 });
-                toastSuccess(`${rfq.number} drafted. Copy the text and send it.`);
+                toastSuccess(
+                  result.created.length === 1
+                    ? `${result.created[0]!.number} drafted. Copy the text and send it.`
+                    : `${result.created.length} requests drafted: ${result.created
+                        .map((r) => r.number)
+                        .join(", ")}.`,
+                );
+                // Partial success is reported rather than hidden: the drafted ones are real
+                // documents and the failed ones need a different fix.
+                for (const failure of result.failed) {
+                  toastError(new Error(failure.reason));
+                }
                 setOpen(false);
-                setSupplierId("");
+                setSupplierIds([]);
                 setChosen([]);
                 setDueBy("");
                 setNotes("");
@@ -195,7 +234,11 @@ export function RfqPanel({
               }
             }}
           >
-            {create.isPending ? "Drafting…" : "Draft the request"}
+            {create.isPending
+              ? "Drafting…"
+              : supplierIds.length > 1
+                ? `Draft ${supplierIds.length} requests`
+                : "Draft the request"}
           </Button>
         </div>
       )}
@@ -393,6 +436,7 @@ export function RfqPanel({
             {/* §3.6 asks for cost, lead time and validity side by side. The cheapest is flagged and
                 deliberately not chosen — the cheaper offer is often the slower one. */}
             Cheapest is marked, not selected. Lead time is usually the other half of the decision.
+            {editable && " Cost each line from whichever supplier suits it."}
           </p>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-xs">
@@ -405,7 +449,10 @@ export function RfqPanel({
                     </td>
                     <td className="py-1.5">
                       {row.offers.map((offer) => (
-                        <div key={offer.supplierQuoteLineId} className="flex flex-wrap gap-2">
+                        <div
+                          key={offer.supplierQuoteLineId}
+                          className="flex flex-wrap items-center gap-2"
+                        >
                           <span className="tabular">
                             {offer.currency} {offer.unitCost}
                           </span>
@@ -414,7 +461,39 @@ export function RfqPanel({
                             <span className="text-text-muted">{offer.leadTimeDays}d</span>
                           )}
                           {offer.isCheapest && <StatusBadge tone="approved">cheapest</StatusBadge>}
-                          {offer.isApplied && <StatusBadge tone="active">costed</StatusBadge>}
+                          {offer.isApplied ? (
+                            <StatusBadge tone="active">costed</StatusBadge>
+                          ) : (
+                            editable && (
+                              // One line, one supplier. The whole-RFQ Apply above is still the
+                              // right action when a single manufacturer supplies the job; this is
+                              // for the job that is three manufacturers, where applying an RFQ
+                              // wholesale would overwrite a line another supplier already won.
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-1.5"
+                                disabled={apply.isPending}
+                                onClick={async () => {
+                                  try {
+                                    await apply.mutateAsync({
+                                      rfqId: offer.rfqId,
+                                      lineNos: [offer.rfqLineNo],
+                                    });
+                                    toastSuccess(
+                                      `Line ${row.sourceLineNo} costed from ${offer.supplierName}.`,
+                                    );
+                                    refresh();
+                                    onApplied();
+                                  } catch (error) {
+                                    toastError(error);
+                                  }
+                                }}
+                              >
+                                Use this
+                              </Button>
+                            )
+                          )}
                         </div>
                       ))}
                     </td>

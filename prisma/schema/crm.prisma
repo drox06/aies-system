@@ -45,6 +45,15 @@ model CustomerAccount {
   // active | dormant | blacklisted
   status  String @default("active")
 
+  // Set only when the *nightly sweep* moved this account to dormant, never when a person did.
+  //
+  // The distinction is what makes the sweep safe to reverse. A customer the company deliberately
+  // parked should stay parked when an order finally arrives; one the system parked because no PO
+  // had come in for 500 days should wake up the moment one does. Without this column those two are
+  // indistinguishable and the sweep would have to either never undo itself or undo somebody else's
+  // decision. See DORMANT_WITHOUT_PO_DAYS in pipeline-rules.ts.
+  autoDormantAt DateTime?
+
   // §2: "for group companies". A water district holding company and its districts.
   parentAccountId String?
 
@@ -507,6 +516,15 @@ model PrincipalProspect {
   technicalContactId String?
   notes              String?
   nextFollowUpAt     DateTime?
+
+  // Appointed without the signed agreement on file, which the company asked for: "sometimes these
+  // are not needed for small suppliers". Only the president and vice-president can do it and only
+  // with a written reason, so this is the record of who set the requirement aside and why — the
+  // same shape as Inquiry.requirementsOverride*, and for the same reason: the audit log is the
+  // evidence, these three columns are what the next person to open the record actually sees.
+  appointmentOverrideReason String?
+  appointmentOverrideBy     String?
+  appointmentOverrideAt     DateTime?
 
   // Set when the prospect converts (§5c: "On `stage = appointed`, the prospect converts into a
   // `Supplier` (module 03) with `isPrincipal = true`"). A plain id with no relation, because that

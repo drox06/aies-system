@@ -23,7 +23,43 @@ export async function canAccessFile(user: AuthedUser, file: FileObject): Promise
   return file.uploaderId === user.id;
 }
 
+// ---- removing one -------------------------------------------------------------------------------
+
+const managers = new Map<string, FileAccessChecker>();
+
+/**
+ * How "may this user *remove* this file" is decided for an entity type.
+ *
+ * A second registry rather than a flag on the first, because reading and removing are different
+ * questions with different answers. The president can read every accreditation certificate in the
+ * company; that is not a reason for them to be able to delete one out from under the Admin Manager
+ * who is accountable for it — and more to the point, the read checkers already written are all
+ * permission-based, so folding removal into them would silently hand deletion to everyone who can
+ * look.
+ */
+export function registerFileManageChecker(entityType: string, checker: FileAccessChecker): void {
+  if (managers.has(entityType)) {
+    throw new Error(`A file manage checker is already registered for entity type "${entityType}".`);
+  }
+  managers.set(entityType, checker);
+}
+
+/**
+ * Whether this user may remove this file.
+ *
+ * The default is **the uploader only**, and it is deliberately narrower than the read default's
+ * reasoning: somebody who attached the wrong scan a minute ago should be able to take it back
+ * without an administrator, and nobody else should be able to remove evidence from a record they
+ * happen to be able to read.
+ */
+export async function canManageFile(user: AuthedUser, file: FileObject): Promise<boolean> {
+  const checker = managers.get(file.entityType);
+  if (checker) return checker(user, file);
+  return file.uploaderId === user.id;
+}
+
 /** Test-only: clears the registry between test files. */
 export function __resetFileAccessCheckersForTests(): void {
   checkers.clear();
+  managers.clear();
 }

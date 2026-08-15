@@ -5,7 +5,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { humanStatus } from "@/server/core/crm/inquiry-lifecycle";
-import { STALE_ACCOUNT_DAYS } from "@/server/core/crm/pipeline-rules";
+import { QUOTE_SILENCE_FOLLOW_UP_DAYS, STALE_ACCOUNT_DAYS } from "@/server/core/crm/pipeline-rules";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -122,17 +122,54 @@ export default function MyDayPage() {
             renderMeta={(row) => <span className="text-text-muted">{row.ageDays}d old</span>}
           />
 
+          {/* The company's seven-day rule. Placed above the sixty-day list because it is the more
+              urgent of the two: a quotation that has gone quiet for a week is still recoverable by
+              a phone call, and a customer nobody has dealt with in two months is not an emergency. */}
           <Card className="p-4">
             <h2 className="text-sm font-semibold">
-              Accounts not contacted in {STALE_ACCOUNT_DAYS} days
+              Quotations with no answer after {QUOTE_SILENCE_FOLLOW_UP_DAYS} days
             </h2>
             <p className="mt-0.5 text-xs text-text-muted">
-              Counted from logged calls, meetings, site visits and emails — not from edits to the
-              record.
+              Sent, and nothing since — no feedback, no negotiation, no purchase order.
+            </p>
+            {data.silentQuotations.length === 0 ? (
+              <p className="mt-2 text-sm text-text-muted">
+                Nothing you have sent is waiting on a customer.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-border">
+                {data.silentQuotations.map((quotation) => (
+                  <li key={quotation.id} className="flex items-center justify-between gap-3 py-2">
+                    <Link
+                      href={`/quotations/${quotation.id}`}
+                      className="min-w-0 flex-1 truncate text-sm hover:underline"
+                    >
+                      <span className="tabular text-text-muted">{quotation.number}</span>{" "}
+                      <span className="font-medium">{quotation.title}</span>
+                      <span className="text-text-muted"> · {quotation.accountName}</span>
+                    </Link>
+                    <span className="shrink-0 text-xs text-warning">
+                      {quotation.daysSilent}d silent
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="p-4">
+            <h2 className="text-sm font-semibold">
+              Accounts with no activity in {STALE_ACCOUNT_DAYS} days
+            </h2>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {/* Renamed from "not contacted" at the company's instruction, and it now means
+                  something wider — see ACCOUNT_ACTIVITY_KINDS. */}
+              Counted from purchase orders, quotations sent, inquiries received and logged calls —
+              not from edits to the record.
             </p>
             {data.staleAccounts.length === 0 ? (
               <p className="mt-2 text-sm text-text-muted">
-                Every account you own has been contacted recently.
+                Every account you own has had something happen recently.
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-border">
@@ -148,10 +185,13 @@ export default function MyDayPage() {
                     <span className="shrink-0 text-xs text-text-muted">
                       {account.lastContactAt ? (
                         <>
-                          last <DateCell value={account.lastContactAt} />
+                          {/* Which kind, not just when: "last order 84 days ago" and "last call 84
+                              days ago" are different problems. */}
+                          {account.lastActivityKind ?? "last"}{" "}
+                          <DateCell value={account.lastContactAt} />
                         </>
                       ) : (
-                        "never logged"
+                        "nothing ever"
                       )}
                     </span>
                   </li>

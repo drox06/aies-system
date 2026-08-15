@@ -28,6 +28,7 @@ export function FileDropzone({
   onUploaded,
   accept,
   multiple = true,
+  category,
   className,
 }: {
   entityType: string;
@@ -36,6 +37,11 @@ export function FileDropzone({
   onUploaded?: (files: UploadedFile[]) => void;
   accept?: string;
   multiple?: boolean;
+  /**
+   * specs/00-foundation.md §7.2's two upload limits: 50 MB by default, 200 MB for operations.
+   * "operations" is the site-video case the spec names — a field visit is exactly what it meant.
+   */
+  category?: "default" | "operations";
   className?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +60,7 @@ export function FileDropzone({
         body.append("file", file);
         body.append("entityType", entityType);
         body.append("entityId", entityId);
+        if (category) body.append("category", category);
 
         const res = await fetch("/api/files", { method: "POST", body });
         if (!res.ok) {

@@ -3,13 +3,17 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useState } from "react";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
+import { DateCell } from "@/components/ui/cells";
 import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   EXCLUSIVITY_TERMS,
   humanStage,
+  PRINCIPAL_APPOINT_PERMISSION,
+  PRINCIPAL_ENTITY_TYPE,
   principalStagesFrom,
 } from "@/server/core/crm/principal-lifecycle";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -46,6 +50,11 @@ export function PrincipalPanel({
   const [trainingStatus, setTrainingStatus] = useState("");
   const [nextFollowUpAt, setNextFollowUpAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+
+  const whoami = trpc.system.whoami.useQuery();
+  const mayAppoint = (whoami.data?.permissions ?? []).includes(PRINCIPAL_APPOINT_PERMISSION);
 
   useEffect(() => {
     const data = prospect.data;
@@ -111,27 +120,119 @@ export function PrincipalPanel({
 
               {stages.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {stages.map((stage) => (
-                    <Button
-                      key={stage}
-                      size="sm"
-                      variant={stage === "declined" || stage === "dormant" ? "ghost" : "primary"}
-                      disabled={transition.isPending}
-                      onClick={async () => {
-                        try {
-                          await transition.mutateAsync({ prospectId, to: stage });
-                          toastSuccess(`Moved to ${humanStage(stage)}.`);
-                        } catch (error) {
-                          // Carries the pipeline's own message — including "attach the signed
-                          // distributor agreement before appointing".
-                          toastError(error);
-                        }
-                      }}
-                    >
-                      {stage === "appointed" ? "Appoint" : humanStage(stage)}
-                    </Button>
-                  ))}
+                  {stages
+                    // The appointment is EA's and KJ's. Hidden rather than shown-and-refused for
+                    // everyone else: a button that always errors teaches people to distrust the
+                    // buttons that work.
+                    .filter((stage) => stage !== "appointed" || mayAppoint)
+                    .map((stage) => (
+                      <Button
+                        key={stage}
+                        size="sm"
+                        variant={stage === "declined" || stage === "dormant" ? "ghost" : "primary"}
+                        disabled={transition.isPending}
+                        onClick={async () => {
+                          try {
+                            await transition.mutateAsync({ prospectId, to: stage });
+                            toastSuccess(`Moved to ${humanStage(stage)}.`);
+                          } catch (error) {
+                            // Carries the pipeline's own message — including "attach the signed
+                            // distributor agreement before appointing".
+                            toastError(error);
+                          }
+                        }}
+                      >
+                        {stage === "appointed" ? "Appoint" : humanStage(stage)}
+                      </Button>
+                    ))}
+
+                  {stages.includes("appointed") && !mayAppoint && (
+                    <p className="w-full text-xs text-text-muted">
+                      This prospect is ready to appoint. Only the president or the vice-president
+                      can do that — everything up to the agreement draft is yours.
+                    </p>
+                  )}
                 </div>
+              )}
+
+              {/* §5c's document rule, and the company's exception to it. Offered only to the two
+                  people who can appoint at all, and only when the documents really are missing. */}
+              {mayAppoint &&
+                stages.includes("appointed") &&
+                (!data.distributorAgreementFileId || !data.agreementExpiresAt) && (
+                  <div className="mt-2 rounded-md border border-warning/40 bg-warning/5 p-3">
+                    {!overrideOpen ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs">
+                          No signed agreement is on file, so appointing is blocked. Small suppliers
+                          sometimes have none.
+                        </p>
+                        <Button variant="ghost" size="sm" onClick={() => setOverrideOpen(true)}>
+                          Appoint without one…
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label htmlFor="pp-override">Why is no agreement needed here?</Label>
+                        <Textarea
+                          id="pp-override"
+                          rows={2}
+                          value={overrideReason}
+                          onChange={(e) => setOverrideReason(e.target.value)}
+                          placeholder="Small local fabricator, single-order relationship, no distributor terms offered."
+                        />
+                        <p className="text-xs text-text-muted">
+                          Recorded on the prospect and in the audit log against your name. An ISO
+                          9001 auditor asks this question in exactly these words.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setOverrideOpen(false);
+                              setOverrideReason("");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={transition.isPending || overrideReason.trim().length < 10}
+                            onClick={async () => {
+                              try {
+                                await transition.mutateAsync({
+                                  prospectId,
+                                  to: "appointed",
+                                  overrideDocuments: overrideReason.trim(),
+                                });
+                                toastSuccess(`${data.companyName} appointed, override recorded.`);
+                                setOverrideOpen(false);
+                                setOverrideReason("");
+                              } catch (error) {
+                                toastError(error);
+                              }
+                            }}
+                          >
+                            Appoint anyway
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              {data.appointmentOverrideReason && (
+                <p className="mt-2 rounded-md border border-border bg-surface-2 p-2 text-xs">
+                  <span className="font-medium">Appointed without the usual documents:</span>{" "}
+                  {data.appointmentOverrideReason}
+                  {data.appointmentOverrideAt && (
+                    <>
+                      {" "}
+                      (<DateCell value={data.appointmentOverrideAt} />)
+                    </>
+                  )}
+                </p>
               )}
 
               <section className="mt-4 rounded-md border border-border p-3">
@@ -174,21 +275,70 @@ export function PrincipalPanel({
                 </div>
                 <div className="mt-2">
                   <Label>Signed agreement</Label>
-                  <FileDropzone
-                    entityType="PrincipalProspect"
-                    entityId={prospectId}
-                    onUploaded={async (files) => {
-                      const file = files[0];
-                      if (!file) return;
-                      await update.mutateAsync({
-                        prospectId,
-                        distributorAgreementFileId: file.id,
-                      });
-                      toastSuccess("Agreement attached.");
-                    }}
-                  />
-                  {data.distributorAgreementFileId && (
-                    <p className="mt-1 text-xs text-text-muted">An agreement is on file.</p>
+                  {/* The named document, distinct from anything else attached to the prospect:
+                      `distributorAgreementFileId` is what the appointment gate reads, so which file
+                      holds that role has to be visible rather than inferred from a filename. */}
+                  {data.distributorAgreementFileId ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-2 p-2">
+                      <StatusBadge tone="approved">On file</StatusBadge>
+                      <a
+                        href={`/api/files/${data.distributorAgreementFileId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        View
+                      </a>
+                      <a
+                        href={`/api/files/${data.distributorAgreementFileId}?download=1`}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        Download
+                      </a>
+                      {data.agreementSignedAt && (
+                        <span className="text-xs text-text-muted">
+                          signed <DateCell value={data.agreementSignedAt} />
+                        </span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-danger"
+                        disabled={update.isPending}
+                        onClick={async () => {
+                          try {
+                            await update.mutateAsync({
+                              prospectId,
+                              distributorAgreementFileId: null,
+                            });
+                            toastSuccess(
+                              "Detached. Appointing is blocked again until one is attached.",
+                            );
+                          } catch (error) {
+                            toastError(error);
+                          }
+                        }}
+                      >
+                        Wrong file — detach
+                      </Button>
+                    </div>
+                  ) : (
+                    <FileDropzone
+                      className="mt-1 p-4"
+                      entityType={PRINCIPAL_ENTITY_TYPE}
+                      entityId={prospectId}
+                      multiple={false}
+                      accept=".pdf,image/*,.docx"
+                      onUploaded={async (files) => {
+                        const file = files[0];
+                        if (!file) return;
+                        await update.mutateAsync({
+                          prospectId,
+                          distributorAgreementFileId: file.id,
+                        });
+                        toastSuccess(`Agreement attached: ${file.filename}.`);
+                      }}
+                    />
                   )}
                 </div>
               </section>
@@ -220,17 +370,75 @@ export function PrincipalPanel({
                 </div>
                 <div className="mt-2">
                   <Label>Price list file</Label>
-                  <FileDropzone
-                    entityType="PrincipalProspect"
-                    entityId={prospectId}
-                    onUploaded={async (files) => {
-                      const file = files[0];
-                      if (!file) return;
-                      await update.mutateAsync({ prospectId, priceListFileId: file.id });
-                      toastSuccess("Price list attached.");
-                    }}
-                  />
+                  {data.priceListFileId ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-2 p-2">
+                      <StatusBadge
+                        tone={data.health.priceListUnsafeToQuote ? "failed" : "approved"}
+                      >
+                        {data.health.priceListUnsafeToQuote ? "On file — lapsed" : "On file"}
+                      </StatusBadge>
+                      <a
+                        href={`/api/files/${data.priceListFileId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        View
+                      </a>
+                      <a
+                        href={`/api/files/${data.priceListFileId}?download=1`}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        Download
+                      </a>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-danger"
+                        disabled={update.isPending}
+                        onClick={async () => {
+                          try {
+                            await update.mutateAsync({ prospectId, priceListFileId: null });
+                            toastSuccess("Detached.");
+                          } catch (error) {
+                            toastError(error);
+                          }
+                        }}
+                      >
+                        Wrong file — detach
+                      </Button>
+                    </div>
+                  ) : (
+                    <FileDropzone
+                      className="mt-1 p-4"
+                      entityType={PRINCIPAL_ENTITY_TYPE}
+                      entityId={prospectId}
+                      multiple={false}
+                      accept=".pdf,.xlsx,.csv,image/*"
+                      onUploaded={async (files) => {
+                        const file = files[0];
+                        if (!file) return;
+                        await update.mutateAsync({ prospectId, priceListFileId: file.id });
+                        toastSuccess(`Price list attached: ${file.filename}.`);
+                      }}
+                    />
+                  )}
                 </div>
+              </section>
+
+              {/* Everything else that has been uploaded against this prospect, including files
+                  detached from the two roles above — which is the point. A "wrong file" that is
+                  merely unreferenced is invisible and still in the bucket; here it can be seen and
+                  actually removed. */}
+              <section className="mt-3 rounded-md border border-border p-3">
+                <Attachments
+                  entityType={PRINCIPAL_ENTITY_TYPE}
+                  entityId={prospectId}
+                  label="All files on this prospect"
+                  hint="Catalogues, correspondence, and anything detached from the two roles above."
+                  emptyText="Nothing uploaded yet."
+                  compact
+                />
               </section>
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">

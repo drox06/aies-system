@@ -7,6 +7,9 @@ import { INQUIRY_ENTITY_TYPE, transitionInquiryService } from "@/server/core/crm
 import { emit } from "@/server/core/events/emit";
 import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
+// Imported for its registration side effect, the same shape accreditation-service.ts uses: the
+// checkers must be in the registry before anybody asks for a photograph.
+import "./inspection-access";
 
 /**
  * Site inspection requests (specs/01-crm-inquiry.md §5).

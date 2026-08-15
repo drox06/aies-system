@@ -1,11 +1,18 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { writeAuditLog } from "@/server/core/audit/audit";
+import { ACCOUNT_ENTITY_TYPE } from "@/server/core/crm/account-service";
 import { lastContactByAccount } from "@/server/core/crm/activity-service";
 import { assessInquirySla, TERMINAL_STATUSES } from "@/server/core/crm/inquiry-lifecycle";
 import { inquiryScopeWhere } from "@/server/core/crm/inquiry-service";
 import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
-import { STALE_ACCOUNT_DAYS } from "@/server/core/crm/pipeline-rules";
+import {
+  ACCOUNT_ACTIVITY_KINDS,
+  DORMANT_WITHOUT_PO_DAYS,
+  QUOTE_SILENCE_FOLLOW_UP_DAYS,
+  STALE_ACCOUNT_DAYS,
+} from "@/server/core/crm/pipeline-rules";
 
 /**
  * The pipeline views (specs/01-crm-inquiry.md §6).
@@ -29,9 +36,9 @@ registerNotificationType({
   defaultChannels: { inApp: true, email: false, digest: false },
 });
 
-// Defined in the pure file so the UI can read it too; re-exported so existing callers of this
+// Defined in the pure file so the UI can read them too; re-exported so existing callers of this
 // service need no second import.
-export { STALE_ACCOUNT_DAYS };
+export { STALE_ACCOUNT_DAYS, DORMANT_WITHOUT_PO_DAYS, QUOTE_SILENCE_FOLLOW_UP_DAYS };
 
 const DAY_MS = 86_400_000;
 
@@ -127,7 +134,22 @@ export interface MyDayResult {
   overdueFollowUps: PipelineCard[];
   awaitingMyAction: PipelineCard[];
   needsNextStep: PipelineCard[];
-  staleAccounts: { id: string; code: string; name: string; lastContactAt: Date | null }[];
+  staleAccounts: {
+    id: string;
+    code: string;
+    name: string;
+    lastContactAt: Date | null;
+    lastActivityKind: string | null;
+  }[];
+  /** Quotations sent to my customers that have gone quiet — the company's seven-day rule. */
+  silentQuotations: {
+    id: string;
+    number: string;
+    title: string;
+    accountName: string;
+    sentAt: Date;
+    daysSilent: number;
+  }[];
 }
 
 interface PipelineCard {
@@ -206,23 +228,140 @@ export async function getMyDayService(user: { id: string }): Promise<MyDayResult
     slaBreached: assessInquirySla(row, now).breached,
   });
 
+  const [staleAccounts, silentQuotations] = await Promise.all([
+    findStaleAccounts(user.id, now),
+    findSilentQuotations(user.id, now),
+  ]);
+
   return {
     overdueFollowUps: overdue.map(toCard),
     awaitingMyAction: awaiting.map(toCard),
     needsNextStep: missingNextStep.map(toCard),
-    staleAccounts: await findStaleAccounts(user.id, now),
+    staleAccounts,
+    silentQuotations,
   };
 }
 
 /**
- * §6's "accounts not contacted in N days", and §1's headline question.
+ * Quotations that went out and have heard nothing back.
  *
- * "Not contacted" reads the `Activity` log, not `updatedAt`: editing a customer's address is not
- * talking to them, and a CRM that counts it as contact is the kind that tells you everything is
- * fine right up until a customer goes elsewhere.
+ * §6 asked for "quotes expiring this week" and module 01 could not provide it, because module 02
+ * did not exist. This is the company's version of that section and it is the better question:
+ * expiry is the *end* of the silence, and by then the customer has moved on. Seven days is while
+ * they still remember the conversation.
  *
- * An account with no logged activity at all counts as stale from its creation date — otherwise the
- * accounts nobody has ever called would be the only ones the list never mentions.
+ * "Nothing back" is read from the record rather than from anybody remembering to log it — still
+ * `sent` (not moved to `under_negotiation`, `accepted` or `rejected`), no negotiation round
+ * recorded, no purchase order against it. Any of those three is feedback, whether or not somebody
+ * wrote a note about it.
+ *
+ * Scoped to the caller's own accounts, like everything else on My Day.
+ */
+export async function findSilentQuotations(ownerId: string, now: Date = new Date()) {
+  const cutoff = new Date(now.getTime() - QUOTE_SILENCE_FOLLOW_UP_DAYS * DAY_MS);
+
+  const quotations = await db.quotation.findMany({
+    where: {
+      deletedAt: null,
+      status: "sent",
+      sentAt: { not: null, lte: cutoff },
+      account: { ownerId, deletedAt: null },
+      negotiationRounds: { none: {} },
+      customerPOs: { none: { deletedAt: null } },
+    },
+    orderBy: { sentAt: "asc" },
+    select: {
+      id: true,
+      number: true,
+      revision: true,
+      title: true,
+      sentAt: true,
+      account: { select: { name: true } },
+    },
+  });
+
+  return quotations.map((q) => ({
+    id: q.id,
+    number: q.revision > 0 ? `${q.number}REV${String(q.revision).padStart(2, "0")}` : q.number,
+    title: q.title,
+    accountName: q.account.name,
+    sentAt: q.sentAt!,
+    daysSilent: Math.floor((now.getTime() - q.sentAt!.getTime()) / DAY_MS),
+  }));
+}
+
+/**
+ * The last time anything real happened with each of these customers.
+ *
+ * Four sources, unioned and reduced to the most recent per account — see ACCOUNT_ACTIVITY_KINDS in
+ * pipeline-rules.ts for why it is four rather than the one §6 originally implied. The kind is
+ * carried back with the date because "last heard from: 84 days ago" and "last *order*: 84 days ago"
+ * are different sentences, and the screen should be able to say which one it means.
+ *
+ * Four queries rather than one clever union: they hit four different indexes, each is trivially
+ * readable, and the largest of them scans a five-person company's order history.
+ */
+export interface AccountActivity {
+  at: Date;
+  kind: (typeof ACCOUNT_ACTIVITY_KINDS)[number];
+}
+
+export async function lastBusinessActivityByAccount(
+  accountIds: string[],
+): Promise<Map<string, AccountActivity>> {
+  if (accountIds.length === 0) return new Map();
+
+  const [pos, quotations, inquiries, contacts] = await Promise.all([
+    db.customerPO.groupBy({
+      by: ["accountId"],
+      where: { accountId: { in: accountIds }, deletedAt: null },
+      _max: { receivedAt: true },
+    }),
+    db.quotation.groupBy({
+      by: ["accountId"],
+      where: { accountId: { in: accountIds }, deletedAt: null, sentAt: { not: null } },
+      _max: { sentAt: true },
+    }),
+    db.inquiry.groupBy({
+      by: ["accountId"],
+      where: { accountId: { in: accountIds }, deletedAt: null },
+      _max: { receivedAt: true },
+    }),
+    lastContactByAccount(accountIds),
+  ]);
+
+  const latest = new Map<string, AccountActivity>();
+  const consider = (
+    accountId: string | null,
+    at: Date | null | undefined,
+    kind: AccountActivity["kind"],
+  ) => {
+    if (!accountId || !at) return;
+    const current = latest.get(accountId);
+    if (!current || at > current.at) latest.set(accountId, { at, kind });
+  };
+
+  for (const row of pos) consider(row.accountId, row._max.receivedAt, "purchase order received");
+  for (const row of quotations) consider(row.accountId, row._max.sentAt, "quotation sent");
+  for (const row of inquiries) consider(row.accountId, row._max.receivedAt, "inquiry received");
+  for (const [accountId, at] of contacts) {
+    consider(accountId, at, "call, meeting or site visit");
+  }
+
+  return latest;
+}
+
+/**
+ * §6's list, renamed at the company's request from "not contacted" to **"no activity"**.
+ *
+ * The rename is not cosmetic. "Not contacted" read the `Activity` log alone, so an account that had
+ * placed an order last week could appear on a salesperson's chase list because nobody had typed a
+ * call into the CRM — which is precisely the kind of false alarm that teaches people to skim past a
+ * list. Now a purchase order, a quotation going out and an inquiry arriving all count, and only an
+ * account where *none* of those has happened in sixty days appears.
+ *
+ * An account with no activity at all counts from its creation date — otherwise the customers nobody
+ * has ever done anything with would be the only ones the list never mentions.
  */
 export async function findStaleAccounts(ownerId: string, now: Date = new Date()) {
   const cutoff = new Date(now.getTime() - STALE_ACCOUNT_DAYS * DAY_MS);
@@ -233,15 +372,19 @@ export async function findStaleAccounts(ownerId: string, now: Date = new Date())
   });
   if (accounts.length === 0) return [];
 
-  const lastContact = await lastContactByAccount(accounts.map((a) => a.id));
+  const activity = await lastBusinessActivityByAccount(accounts.map((a) => a.id));
 
   return accounts
-    .map((account) => ({
-      id: account.id,
-      code: account.code,
-      name: account.name,
-      lastContactAt: lastContact.get(account.id) ?? null,
-    }))
+    .map((account) => {
+      const last = activity.get(account.id) ?? null;
+      return {
+        id: account.id,
+        code: account.code,
+        name: account.name,
+        lastContactAt: last?.at ?? null,
+        lastActivityKind: last?.kind ?? null,
+      };
+    })
     .filter((row) => row.lastContactAt === null || row.lastContactAt < cutoff)
     .sort((a, b) => (a.lastContactAt?.getTime() ?? 0) - (b.lastContactAt?.getTime() ?? 0));
 }
@@ -320,4 +463,212 @@ export async function sweepFollowUps(now: Date = new Date()): Promise<FollowUpSw
   }
 
   return { notified, scanned: byOwner.size };
+}
+
+// ---- the seven-day quotation silence sweep -------------------------------------------------------
+
+export const QUOTE_SILENT_NOTIFICATION_TYPE = "crm.quotation_silent";
+
+registerNotificationType({
+  key: QUOTE_SILENT_NOTIFICATION_TYPE,
+  label: "A sent quotation has had no response",
+  defaultChannels: { inApp: true, email: false, digest: false },
+});
+
+export interface QuoteSilenceSweepResult {
+  notified: { quotationId: string; number: string; daysSilent: number; ownerId: string }[];
+  scanned: number;
+}
+
+/**
+ * Tells the account owner when a quotation has sat unanswered for a week.
+ *
+ * Fires on day seven and then weekly, the same cadence as the overdue-RFQ sweep and for the same
+ * reason: a customer who has not answered in a week will not answer faster for being chased every
+ * morning, and a notification that arrives daily is one people turn off.
+ *
+ * One notification per quotation rather than per owner, unlike `sweepFollowUps`. The difference is
+ * that this one names something specific to do — ring this customer about this document — and
+ * collapsing three of those into "you have 3 quiet quotations" would throw away the only part that
+ * makes it actionable.
+ */
+export async function sweepSilentQuotations(
+  now: Date = new Date(),
+): Promise<QuoteSilenceSweepResult> {
+  const cutoff = new Date(now.getTime() - QUOTE_SILENCE_FOLLOW_UP_DAYS * DAY_MS);
+
+  const candidates = await db.quotation.findMany({
+    where: {
+      deletedAt: null,
+      status: "sent",
+      sentAt: { not: null, lte: cutoff },
+      negotiationRounds: { none: {} },
+      customerPOs: { none: { deletedAt: null } },
+    },
+    select: {
+      id: true,
+      number: true,
+      revision: true,
+      title: true,
+      sentAt: true,
+      preparedById: true,
+      account: { select: { name: true, ownerId: true } },
+    },
+  });
+
+  const dayIndex = (d: Date) => Math.floor(d.getTime() / DAY_MS);
+  const notified: QuoteSilenceSweepResult["notified"] = [];
+
+  for (const quotation of candidates) {
+    if (!quotation.sentAt) continue;
+    const daysSilent = dayIndex(now) - dayIndex(quotation.sentAt);
+    if (daysSilent < QUOTE_SILENCE_FOLLOW_UP_DAYS) continue;
+    if ((daysSilent - QUOTE_SILENCE_FOLLOW_UP_DAYS) % 7 !== 0) continue;
+
+    const display =
+      quotation.revision > 0
+        ? `${quotation.number}REV${String(quotation.revision).padStart(2, "0")}`
+        : quotation.number;
+
+    // The account owner is who chases a customer. The preparer is told too when they are somebody
+    // else, because they are the one who knows what was quoted — `notify` de-duplicates when they
+    // are the same person.
+    for (const recipientId of new Set([quotation.account.ownerId, quotation.preparedById])) {
+      try {
+        await notify({
+          recipientId,
+          type: QUOTE_SILENT_NOTIFICATION_TYPE,
+          title: `${display} has had no response in ${daysSilent} days`,
+          body:
+            `${quotation.account.name} — ${quotation.title}. No feedback, no negotiation and no ` +
+            `purchase order. Worth a call while they still remember the conversation.`,
+          entityType: "Quotation",
+          entityId: quotation.id,
+        });
+      } catch (error) {
+        console.error("[crm] failed to notify about a silent quotation", quotation.id, error);
+      }
+    }
+
+    notified.push({
+      quotationId: quotation.id,
+      number: display,
+      daysSilent,
+      ownerId: quotation.account.ownerId,
+    });
+  }
+
+  return { notified, scanned: candidates.length };
+}
+
+// ---- the 500-day dormancy sweep ------------------------------------------------------------------
+
+export interface DormancySweepResult {
+  madeDormant: { accountId: string; code: string; daysSinceOrder: number | null }[];
+  revived: { accountId: string; code: string }[];
+  scanned: number;
+}
+
+/**
+ * Marks a customer dormant when no purchase order has arrived in 500 days, and wakes it when one
+ * does.
+ *
+ * The company's rule, in their words: *"log the customer dormant if AIES did not receive a PO from
+ * this customer in 500 days."* It is a statement about what `status` means that the build had left
+ * to human judgement — before this, every account created stayed `active` forever unless somebody
+ * remembered to change it, which nobody ever does.
+ *
+ * Three guards, each protecting a decision a person made:
+ *
+ * 1. **`blacklisted` is never touched.** That status exists because somebody decided this customer
+ *    is a problem; replacing it with the milder `dormant` would erase that on the day it counts.
+ * 2. **Only accounts this sweep itself parked are revived.** `autoDormantAt` is what distinguishes
+ *    them — a customer somebody deliberately parked stays parked when an order arrives, and a
+ *    person can look at it.
+ * 3. **Every change is audited** against the account, as a `System` actor, so the record says why
+ *    its status changed and does not read as though a colleague did it.
+ */
+export async function sweepDormantAccounts(now: Date = new Date()): Promise<DormancySweepResult> {
+  const cutoff = new Date(now.getTime() - DORMANT_WITHOUT_PO_DAYS * DAY_MS);
+
+  const accounts = await db.customerAccount.findMany({
+    where: { deletedAt: null, status: { in: ["active", "dormant"] } },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      status: true,
+      createdAt: true,
+      autoDormantAt: true,
+    },
+  });
+  if (accounts.length === 0) {
+    return { madeDormant: [], revived: [], scanned: 0 };
+  }
+
+  const lastOrders = await db.customerPO.groupBy({
+    by: ["accountId"],
+    where: { accountId: { in: accounts.map((a) => a.id) }, deletedAt: null },
+    _max: { receivedAt: true },
+  });
+  const lastOrderByAccount = new Map(
+    lastOrders.map((row) => [row.accountId, row._max.receivedAt] as const),
+  );
+
+  const madeDormant: DormancySweepResult["madeDormant"] = [];
+  const revived: DormancySweepResult["revived"] = [];
+
+  for (const account of accounts) {
+    const lastOrder = lastOrderByAccount.get(account.id) ?? null;
+    // No order ever: the clock runs from when the customer was created. A prospect that has sat
+    // sixteen months without buying anything is what `dormant` describes.
+    const since = lastOrder ?? account.createdAt;
+    const stale = since < cutoff;
+    const daysSince = Math.floor((now.getTime() - since.getTime()) / DAY_MS);
+
+    if (account.status === "active" && stale) {
+      await db.$transaction(async (tx) => {
+        await tx.customerAccount.update({
+          where: { id: account.id },
+          data: { status: "dormant", autoDormantAt: now },
+        });
+        await writeAuditLog(tx, {
+          // No person did this. `actorId: null` is what the audit log uses for system actions —
+          // attributing it to whoever happened to trigger the cron would be a lie on the record.
+          actorId: null,
+          actorLabel: "System (dormancy sweep)",
+          action: "status_changed",
+          entityType: ACCOUNT_ENTITY_TYPE,
+          entityId: account.id,
+          summary:
+            `${account.code} marked dormant: no purchase order in ${daysSince} days` +
+            (lastOrder ? "" : " — and none ever received"),
+          diff: { status: { from: "active", to: "dormant" } },
+        });
+      });
+      madeDormant.push({ accountId: account.id, code: account.code, daysSinceOrder: daysSince });
+      continue;
+    }
+
+    if (account.status === "dormant" && account.autoDormantAt && !stale) {
+      await db.$transaction(async (tx) => {
+        await tx.customerAccount.update({
+          where: { id: account.id },
+          data: { status: "active", autoDormantAt: null },
+        });
+        await writeAuditLog(tx, {
+          actorId: null,
+          actorLabel: "System (dormancy sweep)",
+          action: "status_changed",
+          entityType: ACCOUNT_ENTITY_TYPE,
+          entityId: account.id,
+          summary: `${account.code} is active again: a purchase order arrived.`,
+          diff: { status: { from: "dormant", to: "active" } },
+        });
+      });
+      revived.push({ accountId: account.id, code: account.code });
+    }
+  }
+
+  return { madeDormant, revived, scanned: accounts.length };
 }

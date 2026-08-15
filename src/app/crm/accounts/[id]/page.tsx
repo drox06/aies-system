@@ -10,7 +10,9 @@ import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { assessAccreditation } from "@/server/core/crm/accreditation-rules";
 import { humanStatus } from "@/server/core/crm/inquiry-lifecycle";
 import { trpc } from "@/lib/trpc/client";
+import { AccreditationPanel } from "../../accreditations/AccreditationPanel";
 import { AccountDialog } from "../AccountDialog";
+import { ContactsPanel } from "./ContactsPanel";
 import { LogActivityForm } from "./LogActivityForm";
 
 /**
@@ -35,6 +37,11 @@ const STATUS_TONE: Record<string, StatusTone> = {
 export default function AccountPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [editing, setEditing] = useState(false);
+  const [editingAccreditation, setEditingAccreditation] = useState(false);
+
+  const whoami = trpc.system.whoami.useQuery();
+  // §9 puts accreditation with the Admin Manager, and the president and vice-president.
+  const mayManageAccreditation = (whoami.data?.permissions ?? []).includes("accreditation.manage");
 
   const account = trpc.crm.getAccount.useQuery({ accountId: id });
   const inquiries = trpc.crm.listInquiries.useQuery({ accountId: id, pageSize: 100 });
@@ -116,9 +123,28 @@ export default function AccountPage({ params }: { params: Promise<{ id: string }
           </Card>
 
           {/* §5b wants accreditation visible on the account: "the salesperson should see that
-              before writing the quote, not after." */}
+              before writing the quote, not after."
+
+              It is also **editable** here for whoever manages accreditations, which it was not
+              before. The register at /crm/accreditations lists records that already exist, and its
+              own empty state said to come here and start one — but this card was read-only, so
+              there was no way in the app to start the first accreditation, upload a certificate or
+              type an expiry date at all. A dead end between two screens that each pointed at the
+              other. */}
           <Card className="p-4">
-            <h2 className="text-sm font-semibold">Accreditation</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold">Accreditation</h2>
+              {mayManageAccreditation && accreditation.data && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditingAccreditation((v) => !v)}
+                >
+                  {editingAccreditation ? "Done" : "Update certificate or expiry"}
+                </Button>
+              )}
+            </div>
+
             {accreditation.data && accreditationHealth ? (
               <p className="mt-1 text-sm">
                 <StatusBadge
@@ -146,7 +172,20 @@ export default function AccountPage({ params }: { params: Promise<{ id: string }
                 )}
               </p>
             ) : (
-              <p className="mt-1 text-sm text-text-muted">No accreditation record.</p>
+              !mayManageAccreditation && (
+                <p className="mt-1 text-sm text-text-muted">No accreditation record.</p>
+              )
+            )}
+
+            {/* The panel handles both states: it offers "Start accreditation" when there is no
+                record, and the certificate upload, expiry date and renewal controls once there is.
+                Shown unconditionally when there is nothing yet, because a record that does not
+                exist has nothing to summarise and the only useful thing on the card is the button
+                that creates it. */}
+            {mayManageAccreditation && (!accreditation.data || editingAccreditation) && (
+              <div className={accreditation.data ? "mt-3 border-t border-border pt-3" : "mt-2"}>
+                <AccreditationPanel accountId={id} onChanged={() => void accreditation.refetch()} />
+              </div>
             )}
           </Card>
 
@@ -204,31 +243,7 @@ export default function AccountPage({ params }: { params: Promise<{ id: string }
             )}
           </Card>
 
-          <Card className="p-4">
-            <h2 className="text-sm font-semibold">Contacts</h2>
-            {data.contacts.length === 0 ? (
-              <p className="mt-1 text-sm text-text-muted">No contacts recorded.</p>
-            ) : (
-              <ul className="mt-2 divide-y divide-border">
-                {data.contacts.map((contact) => (
-                  <li key={contact.id} className="flex flex-wrap gap-x-3 py-2 text-sm">
-                    <span className="font-medium">
-                      {contact.firstName} {contact.lastName}
-                    </span>
-                    {contact.isPrimary && <StatusBadge tone="info">Primary</StatusBadge>}
-                    {contact.isDecisionMaker && (
-                      <StatusBadge tone="approved">Decision maker</StatusBadge>
-                    )}
-                    <span className="text-text-muted">
-                      {[contact.position, contact.mobile, contact.email]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          <ContactsPanel accountId={id} sites={data.sites} />
 
           <Card className="p-4">
             <h2 className="text-sm font-semibold">Contact history</h2>

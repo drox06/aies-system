@@ -8,6 +8,7 @@ import {
   checkPrincipalTransition,
   EXCLUSIVITY_TERMS,
   humanStage,
+  PRINCIPAL_APPOINT_PERMISSION,
   PRINCIPAL_ENTITY_TYPE,
   PRINCIPAL_EXPIRY_WARNING_DAYS,
 } from "@/server/core/crm/principal-lifecycle";
@@ -245,7 +246,17 @@ export interface TransitionPrincipalResult {
  */
 export async function transitionPrincipalService(
   actor: ActorMeta,
-  input: { prospectId: string; to: string; reason?: string | null },
+  input: {
+    prospectId: string;
+    to: string;
+    reason?: string | null;
+    /**
+     * Appoints without the agreement on file, at the company's explicit request: "sometimes these
+     * are not needed for small suppliers". Requires `principal.appoint` and a typed reason — the
+     * point is not to remove the rule but to record who set it aside and why.
+     */
+    overrideDocuments?: string | null;
+  },
 ): Promise<TransitionPrincipalResult> {
   return db.$transaction(async (tx) => {
     const prospect = await tx.principalProspect.findFirst({
@@ -260,25 +271,75 @@ export async function transitionPrincipalService(
       throw new TRPCError({ code: "BAD_REQUEST", message: check.reason! });
     }
 
+    const overrideReason = input.overrideDocuments?.trim() ?? "";
+
     if (input.to === "appointed") {
+      /**
+       * The appointment is the president's or the vice-president's, and nobody else's.
+       *
+       * The company asked for this directly. It is also the only stage that means anything outside
+       * the pipeline: appointing commits AIES to sell a manufacturer's equipment, converts into a
+       * module 03 supplier, and unlocks the RFQ flow. Every other stage is a note about how a
+       * conversation is going, which is why they stay with whoever manages principals.
+       *
+       * **Refused when the permission set is absent**, not skipped. `ActorMeta.permissions` is
+       * optional so sweeps and subscribers need not fabricate one, and the acknowledgement check
+       * treats absence as "not a person, skip it". That default is wrong here: nothing in this
+       * system appoints a principal automatically, so an unauthenticated path reaching this line is
+       * a bug, and the safe reading of a missing permission set is no.
+       */
+      if (!actor.permissions?.has(PRINCIPAL_APPOINT_PERMISSION)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            `Only the president or the vice-president can appoint a principal. Everything up to ` +
+            `${humanStage("agreement_draft")} is yours to move; the appointment itself is theirs.`,
+        });
+      }
+
       const missing: string[] = [];
       if (!prospect.distributorAgreementFileId) missing.push("the signed distributor agreement");
       if (!prospect.agreementExpiresAt) missing.push("the agreement's expiry date");
-      if (missing.length > 0) {
+
+      if (missing.length > 0 && overrideReason.length < 10) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
             `Attach ${missing.join(" and ")} before appointing ${prospect.companyName}. ` +
-            `An appointment with no agreement behind it is a claim nobody can check.`,
+            `An appointment with no agreement behind it is a claim nobody can check — or, if this ` +
+            `supplier is too small to have one, say so in writing and appoint anyway.`,
         });
       }
+    } else if (overrideReason.length > 0) {
+      // An override on a move that has nothing to override is either a mistake or a misunderstanding
+      // of what the field does, and silently ignoring it would teach the wrong lesson.
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          "The document requirement only applies to appointing, so there is nothing to set aside here.",
+      });
     }
+
+    const overrodeDocuments =
+      input.to === "appointed" &&
+      overrideReason.length > 0 &&
+      (!prospect.distributorAgreementFileId || !prospect.agreementExpiresAt);
 
     const updated = await tx.principalProspect.update({
       where: { id: prospect.id },
       data: {
         stage: input.to,
         notes: input.reason ? `${prospect.notes ?? ""}\n${input.reason}`.trim() : prospect.notes,
+        ...(overrodeDocuments
+          ? {
+              // On the record as well as in the audit log, for the same reason §4's requirements
+              // override is: the audit log is the evidence, this is what the next person to open
+              // the prospect reads without having to go looking.
+              appointmentOverrideReason: overrideReason,
+              appointmentOverrideBy: actor.actorId,
+              appointmentOverrideAt: new Date(),
+            }
+          : {}),
       },
     });
 
@@ -296,6 +357,23 @@ export async function transitionPrincipalService(
       userAgent: actor.userAgent,
       requestId: actor.requestId,
     });
+
+    if (overrodeDocuments) {
+      // Its own audit row rather than a clause on the one above: "who appointed this principal
+      // without an agreement, and what did they say about it" is a question an ISO 9001 auditor
+      // asks on its own, and it should be findable on its own.
+      await writeAuditLog(tx, {
+        actorId: actor.actorId,
+        actorLabel: actor.actorLabel,
+        action: "appointment_documents_overridden",
+        entityType: PRINCIPAL_ENTITY_TYPE,
+        entityId: updated.id,
+        summary: `Appointed ${updated.companyName} without the usual documents: ${overrideReason}`,
+        ip: actor.ip,
+        userAgent: actor.userAgent,
+        requestId: actor.requestId,
+      });
+    }
 
     const meta = { actorId: actor.actorId, requestId: actor.requestId };
     await emit(
