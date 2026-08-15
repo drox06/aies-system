@@ -67,6 +67,48 @@ describe("relayOutboxToJobs", () => {
     expect(jobs).toHaveLength(1);
   }, 30_000);
 
+  it("skips a row that vanishes mid-pass, and still relays the rest of the batch", async () => {
+    /**
+     * The failure this prevents was seen live, in the dev server log: a single P2025 threw out of
+     * `relayOutboxToJobs` and failed the whole `POST /api/cron/drain` with a 500 — so every other
+     * pending event in that batch went unrelayed until the next tick.
+     *
+     * Two ways a row disappears. In development it is the test suite deleting its own outbox rows
+     * while the 5-second dev drainer is midway through them. In production it is a second drain
+     * overlapping the first, which Vercel Cron can do on a slow pass.
+     *
+     * Simulated here by deleting one row after it has been read but before it is relayed, which is
+     * exactly the window that matters. `doomed` is deliberately emitted *first* so it sorts ahead
+     * of `survivor` in the batch — a version that gave up on the first bad row would leave the
+     * second unrelayed, and this would fail.
+     */
+    const doomedRequestId = `test-doomed-${randomUUID()}`;
+    const survivorRequestId = `test-survivor-${randomUUID()}`;
+
+    const doomed = await db.$transaction(async (tx) => {
+      await emit(tx, "user.created", { userId: "gone" }, { requestId: doomedRequestId });
+      return tx.eventOutbox.findFirstOrThrow({ where: { requestId: doomedRequestId } });
+    });
+    const survivor = await db.$transaction(async (tx) => {
+      await emit(tx, "user.created", { userId: "kept" }, { requestId: survivorRequestId });
+      return tx.eventOutbox.findFirstOrThrow({ where: { requestId: survivorRequestId } });
+    });
+    createdOutboxIds.push(survivor.id);
+
+    // The concurrent deletion, in the window between the relay's read and its update.
+    await db.eventOutbox.delete({ where: { id: doomed.id } });
+
+    await expect(relayOutboxToJobs()).resolves.toBeGreaterThanOrEqual(1);
+
+    const job = await db.job.findFirstOrThrow({
+      where: { idempotencyKey: `outbox:${survivor.id}` },
+    });
+    createdJobIds.push(job.id);
+
+    const relayedSurvivor = await db.eventOutbox.findUniqueOrThrow({ where: { id: survivor.id } });
+    expect(relayedSurvivor.relayedAt).not.toBeNull();
+  }, 30_000);
+
   it("end to end: emit -> relay -> drain runs the events handler and the job succeeds", async () => {
     const requestId = `test-${randomUUID()}`;
     const outboxRow = await db.$transaction(async (tx) => {

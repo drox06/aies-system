@@ -1351,7 +1351,11 @@ Notes for whoever picks this up:
     concluding that work was lost. Treat `.husky/` as reviewable code: it is one line today, and a
     hook is arbitrary code running with your permissions and access to `.env`.
   - **Run nothing else against the dev database while the suite runs** — no dev server, and no
-    second `vitest` invocation. Both have produced a red run that looked like a regression:
+    second `vitest` invocation. It is now *safe* rather than merely discouraged: `relayOutboxToJobs`
+    skips a row that vanishes mid-pass instead of throwing (2026-08-15), so the dev drainer no
+    longer 500s when a test deletes an outbox row underneath it. The rule stands anyway, because
+    test data still lands in whatever screen you have open. Both have produced a red run that
+    looked like a regression:
     `queue.test.ts` once failed asserting `dead` on a job the dev drainer had already claimed, and
     `relay.test.ts` once failed because `relayOutboxToJobs` relays *every* unrelayed outbox row, so
     it picked up a row belonging to a concurrently running test file which then deleted it
