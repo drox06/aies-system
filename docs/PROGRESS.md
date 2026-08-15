@@ -1480,6 +1480,14 @@ separate on purpose: the foreign key from `SupplierQuoteRequest` could only be a
 `scripts/backfill-suppliers-from-principals.ts` had given every live RFQ a supplier row to point at.
 Adding both at once would have failed against real data.
 
+**State at this stop.** **678 tests** across 78 files pass on a clean run with the dev server
+stopped; typecheck, lint and `build:check` clean; committed and pushed. One thing worth knowing about
+that run: the two failures it started with were in `principal-flow.test.ts`, which had been passing
+`"sup_1"` and `"sup_2"` as supplier ids since module 01 — fine while `supplierId` was a plain string,
+rejected now that it is a foreign key. The fixture was fixed to create real supplier rows, **not** the
+constraint relaxed: the whole promise of §5c is that an appointed principal has a supplier record,
+and a link to a fictional one keeps the letter of the rule while breaking the point of it.
+
 **Still to build in module 03:** the supplier PO (§4) with the clause 8.4 gate on it, goods receipt
 (§5), delivery (§6), and the §1 fan-out into finance and operations. `po_received → won` is still
 system-set with nothing setting it — a received PO is not a delivered job, and that becomes decidable
