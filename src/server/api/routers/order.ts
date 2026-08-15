@@ -3,6 +3,7 @@ import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
   listCustomerPosForInquiry,
+  listCustomerPosForQuotation,
   recordCustomerPoService,
 } from "@/server/core/order/customer-po-service";
 
@@ -36,7 +37,8 @@ export const orderRouter = router({
   recordCustomerPo: p("customer_po.record")
     .input(
       z.object({
-        inquiryId: z.string(),
+        // One of the two. A quotation raised outside the inquiry pipeline still receives POs.
+        inquiryId: z.string().nullish(),
         quotationId: z.string().nullish(),
         poNumber: z.string().min(1),
         poDate: z.coerce.date(),
@@ -46,6 +48,13 @@ export const orderRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => recordCustomerPoService(actorMeta(ctx), input)),
+
+  forQuotation: p("customer_po.view")
+    .input(z.object({ quotationId: z.string() }))
+    .query(async ({ input }) => {
+      const rows = await listCustomerPosForQuotation(input.quotationId);
+      return rows.map((row) => ({ ...row, amount: row.amount.toString() }));
+    }),
 
   forInquiry: p("customer_po.view")
     .input(z.object({ inquiryId: z.string() }))

@@ -67,6 +67,10 @@ export interface CustomerQuotationPdfProps {
   totals: {
     subtotal: string;
     discount: string | null;
+    /** e.g. "7.5%", so the reduction is legible as a rate and not only as an amount. */
+    discountPct: string | null;
+    /** The subtotal after the discount, stated explicitly rather than left to be inferred. */
+    netAfterDiscount: string | null;
     vatLabel: string;
     vat: string | null;
     grandTotal: string;
@@ -172,11 +176,25 @@ export function QuotationDocument(props: CustomerQuotationPdfProps) {
             <Text style={s.muted}>Subtotal</Text>
             <Text>{props.totals.subtotal}</Text>
           </View>
+          {/* §8's negotiated price, shown as three steps rather than one number.
+              The line amounts above are the full price, so a customer can see what was quoted,
+              what came off, and what is left — reducing the line amounts *and* printing a discount
+              row would show the same reduction twice. */}
           {props.totals.discount && (
-            <View style={s.totalsRow}>
-              <Text style={s.muted}>Discount</Text>
-              <Text>− {props.totals.discount}</Text>
-            </View>
+            <>
+              <View style={s.totalsRow}>
+                <Text style={s.muted}>
+                  Less discount{props.totals.discountPct ? ` (${props.totals.discountPct})` : ""}
+                </Text>
+                <Text>− {props.totals.discount}</Text>
+              </View>
+              {props.totals.netAfterDiscount && (
+                <View style={s.totalsRow}>
+                  <Text style={s.muted}>Subtotal after discount</Text>
+                  <Text>{props.totals.netAfterDiscount}</Text>
+                </View>
+              )}
+            </>
           )}
           {props.totals.vat && (
             <View style={s.totalsRow}>

@@ -434,3 +434,80 @@ export async function acceptQuotationOnCustomerPo(quotationId: string): Promise<
     );
   });
 }
+
+/**
+ * Removes a quotation from the screens, without removing it from the record.
+ *
+ * **Soft, always.** `deletedAt` is set and every read already filters on it; the row, its lines, its
+ * audit trail and its number all stay. Spec.md §5 says numbers are "never reused" — a hard delete
+ * would free `AIESLQ260012` to be handed out again, and two different documents would have carried
+ * the same number.
+ *
+ * **A reason is required**, because the question asked six months later is never "was this deleted"
+ * but "why". The reason goes in the audit summary, which is the one place that survives.
+ *
+ * **Refused when a customer PO points at it.** That PO is a real document from a real customer
+ * referencing this quotation by number; deleting the thing it answers would leave module 03 holding
+ * an order against nothing. Cancel it instead — that is what `cancelled` is for.
+ */
+export async function deleteQuotationService(
+  actor: ActorMeta,
+  input: { quotationId: string; reason: string },
+) {
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say why. The question asked later is never whether it was deleted but why.",
+    });
+  }
+
+  const quotation = await db.quotation.findFirst({
+    where: { id: input.quotationId, deletedAt: null },
+    select: { id: true, number: true, revision: true, status: true },
+  });
+  if (!quotation) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That quotation no longer exists." });
+  }
+
+  const poCount = await db.customerPO.count({
+    where: { quotationId: quotation.id, deletedAt: null },
+  });
+  if (poCount > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${quotation.number} has a customer purchase order recorded against it. Deleting it would ` +
+        `leave that order answering nothing — cancel the quotation instead.`,
+    });
+  }
+
+  return db.$transaction(async (tx) => {
+    const updated = await tx.quotation.update({
+      where: { id: quotation.id },
+      data: { deletedAt: new Date(), deletedBy: actor.actorId },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "delete",
+      entityType: QUOTATION_ENTITY_TYPE,
+      entityId: quotation.id,
+      summary:
+        `Deleted ${quotationDisplayNumber(quotation.number, quotation.revision)} ` +
+        `(was ${quotation.status.replace(/_/g, " ")}) — ${reason}`,
+      diff: { deletedAt: { from: null, to: updated.deletedAt?.toISOString() ?? null } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    // Taken out of Ctrl+K too, or it stays findable and opens a page that refuses to load.
+    await tx.searchIndex.deleteMany({
+      where: { entityType: QUOTATION_ENTITY_TYPE, entityId: quotation.id },
+    });
+
+    return { id: updated.id, number: quotation.number };
+  });
+}

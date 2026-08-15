@@ -23,6 +23,7 @@ import { QUOTE_TYPES } from "@/server/core/quotation/quotation-number";
 import { REVISION_REASONS } from "@/server/core/quotation/quotation-lifecycle";
 import {
   createQuotationService,
+  deleteQuotationService,
   getQuotationService,
   listQuotationsService,
   type ActorMeta,
@@ -250,6 +251,14 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => confirmQuotationSentService(actorMeta(ctx), input)),
+
+  /**
+   * Soft delete, for the two officers. Separate from `quotation.cancel`: cancelling records that a
+   * live quotation is no longer pursued, deleting takes it off the screens.
+   */
+  delete: p("quotation.delete")
+    .input(z.object({ quotationId: z.string(), reason: z.string().min(3) }))
+    .mutation(({ ctx, input }) => deleteQuotationService(actorMeta(ctx), input)),
 
   // ---- §3 supplier RFQ ------------------------------------------------------------------------
 

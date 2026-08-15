@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import { emit } from "@/server/core/events/emit";
 import { registerFileAccessChecker } from "@/server/core/storage/access";
+import { QUOTATION_ENTITY_TYPE } from "@/server/core/quotation/quotation-service";
 import {
   registerCustomerPoCheck,
   transitionInquiryService,
@@ -54,9 +55,17 @@ registerFileAccessChecker(CUSTOMER_PO_ENTITY_TYPE, (user) =>
 registerCustomerPoCheck((inquiryId) => hasCustomerPo(inquiryId));
 
 export interface RecordCustomerPoInput {
-  /** The inquiry whose card is moving. */
-  inquiryId: string;
-  /** The quotation the PO answers. Optional in the model; the pipeline flow always has one. */
+  /**
+   * The inquiry whose card is moving, when there is one.
+   *
+   * **Optional**, because a quotation does not always have an inquiry behind it. §9's duplicate
+   * produces one with none, and a quotation raised directly from the Quotations screen has none
+   * either — and both can still receive a customer PO. Requiring an inquiry here made those
+   * quotations unable to record one at all: the pipeline is an inquiry board, so they had no card to
+   * drag, and the PO form lived only on the card.
+   */
+  inquiryId?: string | null;
+  /** The quotation the PO answers. One of this or `inquiryId` is required. */
   quotationId?: string | null;
   poNumber: string;
   poDate: Date;
@@ -75,22 +84,58 @@ export interface RecordCustomerPoInput {
  * customer's document arrived whatever the board says, and losing it would be the worse outcome.
  */
 export async function recordCustomerPoService(actor: ActorMeta, input: RecordCustomerPoInput) {
-  const inquiry = await db.inquiry.findFirst({
-    where: { id: input.inquiryId, deletedAt: null },
-    select: { id: true, number: true, status: true, accountId: true, ownerId: true },
-  });
-  if (!inquiry) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "That inquiry no longer exists." });
+  if (!input.inquiryId && !input.quotationId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A purchase order has to be against an inquiry or a quotation.",
+    });
   }
-  if (!inquiry.accountId) {
+
+  // The quotation is the better anchor when there is one: `CustomerPO.quotationId` is what §2 calls
+  // for, and the inquiry is only how the pipeline finds it.
+  const quotation = input.quotationId
+    ? await db.quotation.findFirst({
+        where: { id: input.quotationId, deletedAt: null },
+        select: { id: true, number: true, status: true, accountId: true, inquiryId: true },
+      })
+    : null;
+  if (input.quotationId && !quotation) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That quotation no longer exists." });
+  }
+  if (quotation && !["sent", "under_negotiation", "accepted"].includes(quotation.status)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        `${inquiry.number} is not linked to a customer account, so there is nobody for the PO to ` +
-        `be from. Link the account first.`,
+        `${quotation.number} is ${quotation.status.replace(/_/g, " ")}. A customer's purchase ` +
+        `order answers a quotation they have been sent.`,
     });
   }
-  if (inquiry.status !== "quoted") {
+
+  const inquiryId = input.inquiryId ?? quotation?.inquiryId ?? null;
+  const inquiry = inquiryId
+    ? await db.inquiry.findFirst({
+        where: { id: inquiryId, deletedAt: null },
+        select: { id: true, number: true, status: true, accountId: true, ownerId: true },
+      })
+    : null;
+  if (inquiryId && !inquiry) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That inquiry no longer exists." });
+  }
+
+  const accountId = inquiry?.accountId ?? quotation?.accountId ?? null;
+  if (!accountId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${inquiry?.number ?? quotation?.number ?? "That record"} is not linked to a customer ` +
+        `account, so there is nobody for the PO to be from. Link the account first.`,
+    });
+  }
+
+  // Only checked when the pipeline is actually involved. A quotation with no inquiry has no card,
+  // and refusing its PO because a card is in the wrong column would be refusing on behalf of a
+  // thing that does not exist.
+  if (inquiry && inquiry.status !== "quoted") {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
@@ -122,10 +167,13 @@ export async function recordCustomerPoService(actor: ActorMeta, input: RecordCus
       message: "That upload is no longer there. Attach the scanned PO again.",
     });
   }
-  if (file.entityType !== CUSTOMER_PO_ENTITY_TYPE || file.entityId !== inquiry.id) {
+  // Uploaded against whichever record the person was looking at — the inquiry from the board, the
+  // quotation from its own page. Both are checked, so an id from somewhere else still fails.
+  const allowedOwners = [inquiry?.id, quotation?.id].filter(Boolean) as string[];
+  if (file.entityType !== CUSTOMER_PO_ENTITY_TYPE || !allowedOwners.includes(file.entityId)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "That file was not uploaded as this inquiry's purchase order.",
+      message: "That file was not uploaded as this record's purchase order.",
     });
   }
 
@@ -140,9 +188,9 @@ export async function recordCustomerPoService(actor: ActorMeta, input: RecordCus
   const po = await db.$transaction(async (tx) => {
     const created = await tx.customerPO.create({
       data: {
-        accountId: inquiry.accountId!,
-        quotationId: input.quotationId ?? null,
-        inquiryId: inquiry.id,
+        accountId,
+        quotationId: quotation?.id ?? null,
+        inquiryId: inquiry?.id ?? null,
         poNumber,
         poDate: input.poDate,
         amount,
@@ -157,10 +205,10 @@ export async function recordCustomerPoService(actor: ActorMeta, input: RecordCus
       actorId: actor.actorId,
       actorLabel: actor.actorLabel,
       action: "customer_po_received",
-      // Filed against the inquiry, so it lands in the activity feed on the card people are looking
-      // at. The PO's own id is in the diff for anything that needs to find the row.
-      entityType: "Inquiry",
-      entityId: inquiry.id,
+      // Filed against whichever record the person is looking at, so it lands in that record's
+      // activity feed. The PO's own id is in the diff for anything that needs to find the row.
+      entityType: inquiry ? "Inquiry" : QUOTATION_ENTITY_TYPE,
+      entityId: inquiry?.id ?? quotation!.id,
       summary: `Recorded customer PO ${poNumber} (${created.currency} ${amount}) — ${file.filename}`,
       diff: { customerPoId: { from: null, to: created.id } },
       ip: actor.ip,
@@ -190,14 +238,24 @@ export async function recordCustomerPoService(actor: ActorMeta, input: RecordCus
 
   // Outside the transaction, and deliberately: see the doc comment. The PO is the fact worth
   // keeping; the board position is a consequence of it.
-  await transitionInquiryService(actor, {
-    inquiryId: inquiry.id,
-    to: "po_received",
-    // Not `bySystem`. A person recorded this, their name is on the audit row, and the gate below
-    // is satisfied by the row that person just created.
-  });
+  //
+  // Only when there is a card to move. A quotation with no inquiry has no pipeline position, and
+  // that is not a reason to refuse its PO.
+  if (inquiry) {
+    await transitionInquiryService(actor, {
+      inquiryId: inquiry.id,
+      to: "po_received",
+      // Not `bySystem`. A person recorded this, their name is on the audit row, and the gate is
+      // satisfied by the row that person just created.
+    });
+  }
 
-  return { customerPoId: po.id, poNumber: po.poNumber, status: "po_received" as const };
+  return {
+    customerPoId: po.id,
+    poNumber: po.poNumber,
+    inquiryMoved: inquiry !== null,
+    status: inquiry ? ("po_received" as const) : ("recorded" as const),
+  };
 }
 
 /** The POs on an inquiry, newest first — for the record page and the transition gate. */
@@ -219,4 +277,12 @@ export async function hasCustomerPo(inquiryId: string): Promise<boolean> {
     where: { inquiryId, deletedAt: null, status: { not: "cancelled" } },
   });
   return count > 0;
+}
+
+/** The POs recorded against a quotation — for its own record page. */
+export function listCustomerPosForQuotation(quotationId: string) {
+  return db.customerPO.findMany({
+    where: { quotationId, deletedAt: null },
+    orderBy: { receivedAt: "desc" },
+  });
 }

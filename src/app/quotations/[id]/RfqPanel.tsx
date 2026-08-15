@@ -32,12 +32,14 @@ const RFQ_TONE: Record<string, StatusTone> = {
 
 export function RfqPanel({
   quotationId,
+  quotationCurrency,
   editable,
   canSeeCost,
   lines,
   onApplied,
 }: {
   quotationId: string;
+  quotationCurrency: string;
   editable: boolean;
   canSeeCost: boolean;
   lines: { lineNo: number; description: string }[];
@@ -308,6 +310,16 @@ export function RfqPanel({
                         </option>
                       ))}
                     </Select>
+                    {currency !== quotationCurrency && (
+                      <p className="mt-1 text-xs text-text-muted">
+                        {/* Said here rather than sprung at the end. Recording what the supplier
+                            quoted is always allowed — it is a fact about the outside world. The
+                            exchange rate is only needed to turn it into *our* cost, which is what
+                            Apply does. */}
+                        Recorded as {currency}. This quotation is in {quotationCurrency}, so an
+                        exchange rate is needed before these costs can be applied to it.
+                      </p>
+                    )}
                   </div>
                   {rfq.lines.map((line) => (
                     <div key={line.id} className="grid gap-2 sm:grid-cols-[1fr_7rem_6rem]">

@@ -70,6 +70,15 @@ export const quotationManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "quotation.delete",
+      label: "Delete a quotation",
+      group: "Quotation",
+      // The two officers only, and separate from `quotation.cancel` because they are different
+      // acts: cancelling records that a live quotation is no longer being pursued, which is history
+      // worth keeping; deleting takes it off the screens entirely. Asked for by name — EA and KJ.
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
       key: "quotation.override_margin_floor",
       label: "Send a quotation with a line below the margin floor",
       group: "Quotation",

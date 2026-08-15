@@ -972,6 +972,53 @@ Asked whether the RFQ apply was sound. It was not, and the cause ran deeper than
 foreign-currency line can only be costed through the RFQ flow today. A rate column on the line editor
 is small and belongs with §4's FX work.
 
+### After the review gate — five things from using the app
+
+- [x] **EA and KJ can delete a quotation.** A new `quotation.delete` permission, separate from
+      `quotation.cancel` because they are different acts: cancelling records that a live quotation is
+      no longer being pursued, deleting takes it off the screens. **Soft, always** — Spec.md §5 says
+      numbers are never reused, and a hard delete would free `AIESLQ260012` to be handed out twice.
+      A typed reason is required, because the question asked later is never whether something was
+      deleted but why. Refused when a customer PO answers it: that PO references this quotation by
+      number, and deleting it would leave module 03 holding an order against nothing.
+- [x] **Panel order on the quotation record** is now Details → Lines → Supplier pricing → Terms, as
+      asked. It reads better too: the lines are what the page is about, and supplier pricing is
+      something you do *to* them.
+- [x] **A negotiated discount no longer rewrites the line amounts.** Yesterday's §4 work distributed
+      the header discount into `lineTotal`, so the document showed reduced line amounts *and* a
+      discount row — the same reduction twice, and the printed amounts no longer summed to the
+      printed subtotal. The distribution now goes into a separate `discountShare`, which is what
+      margin and §4's floor warning read. The document states **full subtotal → less discount (with
+      the percentage) → subtotal after discount**, which is what the company asked for and what a
+      customer can check with a calculator. A test asserts the printed line amounts sum to the
+      printed subtotal.
+- [x] **Recording an RFQ response in another currency saves, and that is the intended flow** — the
+      company asked. Writing down what a supplier quoted is a fact about the outside world and is
+      always allowed; the exchange rate is only needed to turn it into *AIES's* cost, which is what
+      **Apply** does and where the refusal lives. The surprise was that the refusal arrived at the
+      end, so the panel now says it at the moment the currency is chosen.
+- [x] **A customer PO can be recorded against a quotation with no inquiry.** The company hit this
+      with a sent quotation that never appeared in the pipeline's Sent column. The cause was not the
+      column: **the pipeline is an *inquiry* board**, and that quotation had no inquiry — it was
+      raised straight from the Quotations screen, which §9's duplicate also produces. With no card
+      there was nothing to drag, and the PO form lived only on the card. `CustomerPO.inquiryId` was
+      optional in the model from the start; the service was the thing insisting on it. Now a PO can
+      be recorded from the quotation's own record, and it still moves the card when there is one.
+- [x] **The series restarted so the next real quotation is `AIESLQ260002`.** Three test quotations
+      (`AIESLQ261148 rev0`, `AIESLQ261149 rev0` and `rev1`) went out through
+      `deleteQuotationService` rather than a raw `UPDATE` — same soft delete, same audit rows, same
+      refusals — via `clear-test-quotations.ts`. `reset-numbering-counters.ts` then took
+      `quotation_local` scope 26 from 1465 → 1, which needed one change: **the counter floor now
+      ignores deleted quotations**, because a number nobody can see is not in use. The honest caveat
+      is printed rather than buried — a deleted row keeps its number in the unique index, so the
+      counter would collide with `AIESLQ261148`/`261149` if it ever climbed back to them. That is
+      1,146 quotations away, and the alternative is holding every future number hostage to a test
+      record.
+- [x] `inspect-business-data.ts` was reporting 4 quotations where the app showed 1: it counted
+      soft-deleted rows. Every query in it now filters `deletedAt: null`, so the inventory means what
+      the screens mean. Verified final state — 1 account (ACC-0001 A4One), 1 inquiry
+      (INQ-2608-0001), 1 live quotation (AIESLQ260001), 1 principal, 1 customer PO, 4 stored files.
+
 ### Module 02's review gate — passed, with one defect found and fixed
 
 specs/02-quotation.md read end to end against what exists, in the shape module 00's gate used.
@@ -1037,17 +1084,19 @@ quotation), and the review gate above has been run.
 by server tests and a clean production build, not on screen — all three sit behind the TOTP login.
 The RFQ PDF was rendered from a throwaway record and its props asserted.
 
-**State at the previous stop (commit `c8525bf`).** Working tree clean. 501 tests across 62 files pass;
-lint, typecheck and `build:check` clean. Six commits are ahead of `origin/main` and **unpushed** —
-push them, or don't, but know that they are only on this machine.
+**State at this stop.** Working tree clean, tagged `module-02-complete`. **576 tests** across 70
+files pass on a clean run; lint and typecheck clean. Everything is ahead of `origin/main` and
+**unpushed** — push it, or don't, but know that it is only on this machine.
 
-Module 02 session 3 is finished: §6's approval and its queue, §7's auto-expire, the working-hours
-fallback window, and — added at the company's request rather than from the spec's running order —
-the pipeline's Sent and Received PO columns and four document corrections.
+Module 02 is finished, sessions 3 and 4 both: §6's approval and its queue, §7's auto-expire, the
+working-hours fallback window, §3's supplier RFQ, §8's negotiation and what-if, §9's reuse and
+templates — and, added at the company's request rather than from the spec's running order, the
+pipeline's Sent and Received PO columns, four document corrections, and the five items above.
 
 *The database now holds only real work:* `ACC-0001` A4One → `INQ-2608-0001` → `AIESLQ260001` → PO
-123456798, with every counter at 1. The sample data is gone and the series were renumbered, so the
-next records are `0002`. Do not run `npm run demo:crm` again unless demo data is wanted back.
+123456798, with every counter at 1 — so the next quotation is `AIESLQ260002`. The sample data is
+gone and the series were renumbered. Do not run `npm run demo:crm` again unless demo data is wanted
+back.
 
 *Still wanting a human eye:* the PDFs were verified by measurement and by asserting the assembled
 props, **not** by looking at them — no PDF renderer exists in this environment. The approval queue

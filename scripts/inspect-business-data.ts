@@ -15,21 +15,28 @@ async function main() {
   const label = (id: string | null | undefined) => (id ? (nameById.get(id) ?? id) : "—");
 
   const accounts = await db.customerAccount.findMany({
+    where: { deletedAt: null },
     select: { id: true, code: true, name: true, ownerId: true, createdAt: true },
     orderBy: { code: "asc" },
   });
   const inquiries = await db.inquiry.findMany({
+    where: { deletedAt: null },
     select: { id: true, number: true, subject: true, status: true, ownerId: true },
     orderBy: { number: "asc" },
   });
   const quotations = await db.quotation.findMany({
+    where: { deletedAt: null },
     select: { id: true, number: true, revision: true, status: true, preparedById: true },
     orderBy: { number: "asc" },
   });
   const principals = await db.principalProspect.findMany({
+    where: { deletedAt: null },
     select: { id: true, companyName: true, stage: true, ownerId: true },
   });
-  const pos = await db.customerPO.findMany({ select: { id: true, poNumber: true } });
+  const pos = await db.customerPO.findMany({
+    where: { deletedAt: null },
+    select: { id: true, poNumber: true },
+  });
   const accreditations = await db.accreditationRecord.count();
   const files = await db.fileObject.count({ where: { deletedAt: null } });
 

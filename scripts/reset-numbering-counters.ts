@@ -33,7 +33,13 @@ async function highestInUse(documentType: string): Promise<number> {
     case "quotation_indent": {
       const prefix = documentType === "quotation_local" ? "AIESLQ" : "AIESIQ";
       const rows = await db.quotation.findMany({
-        where: { number: { startsWith: prefix } },
+        // Deleted quotations do not hold the counter up: a number nobody can see is not in use.
+        //
+        // The honest caveat, printed by `main` rather than buried here — the row keeps its number in
+        // the unique index, so a counter reset below a deleted number will eventually climb back
+        // into it. That is thousands of quotations away, and the alternative (holding every future
+        // number hostage to a test record somebody deleted) is worse.
+        where: { number: { startsWith: prefix }, deletedAt: null },
         select: { number: true },
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
@@ -64,6 +70,19 @@ async function main() {
     const note = row.to > 0 ? `  (held at ${row.to} — that number is still in use)` : "";
     console.log(
       `${row.documentType.padEnd(20)} ${row.scopeKey.padEnd(8)} ${row.from} → ${row.to}${note}`,
+    );
+  }
+
+  const deleted = await db.quotation.findMany({
+    where: { deletedAt: { not: null } },
+    select: { number: true },
+    orderBy: { number: "asc" },
+  });
+  if (deleted.length > 0) {
+    console.log(
+      `\nStill occupied in the unique index by deleted quotations: ` +
+        `${[...new Set(deleted.map((d) => d.number))].join(", ")}. ` +
+        `The counter would collide with these if it ever climbed back to them.`,
     );
   }
 

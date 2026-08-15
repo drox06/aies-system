@@ -149,6 +149,14 @@ export async function buildCustomerPdfProps(
     totals: {
       subtotal: formatMoneyCode(quotation.subtotal.toString(), currency),
       discount: Number(discount) > 0 ? formatMoneyCode(discount, currency) : null,
+      discountPct:
+        Number(discount) > 0 && Number(quotation.subtotal) > 0
+          ? `${((Number(discount) / Number(quotation.subtotal)) * 100).toFixed(1)}%`
+          : null,
+      netAfterDiscount:
+        Number(discount) > 0
+          ? formatMoneyCode((Number(quotation.subtotal) - Number(discount)).toFixed(2), currency)
+          : null,
       vatLabel,
       vat: Number(vat) > 0 ? formatMoneyCode(vat, currency) : null,
       grandTotal: formatMoneyCode(quotation.total.toString(), currency),

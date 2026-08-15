@@ -156,8 +156,25 @@ export interface CostingLineResult {
   unitCost: Centavos;
   unitPrice: Centavos;
   lineCost: Centavos;
-  /** After the line discount, before any header discount. */
+  /**
+   * After the line discount, **before** any header discount — the amount the customer sees against
+   * this line on the document.
+   *
+   * The header discount is deliberately not folded in here. A document that showed already-reduced
+   * line amounts *and* a discount row underneath would be showing the same reduction twice, and the
+   * line amounts would not sum to the subtotal printed above them. §8's negotiation makes this
+   * common rather than rare, so the document states the full price, then the discount, then the net.
+   */
   lineTotal: Centavos;
+  /**
+   * This line's share of the header discount, distributed by its share of the subtotal.
+   *
+   * Carried separately so margin can account for it without the customer-facing amount moving —
+   * §4 wants the discount "distributed proportionally across lines and recomputes margin", and it is
+   * the *margin* half that the floor warning depends on.
+   */
+  discountShare: Centavos;
+  /** Net of this line's share of the header discount. */
   lineMargin: Centavos;
   /** Null when the line has no price at all — a margin percentage of zero would be a lie. */
   marginPct: number | null;
@@ -251,6 +268,7 @@ export function computeCosting(input: CostingInput): CostingResult {
       unitPrice,
       lineCost,
       lineTotal,
+      discountShare: 0,
       lineMargin,
       marginPct: lineTotal === 0 ? null : (lineMargin / lineTotal) * 100,
       isOptional: line.isOptional === true,
@@ -275,10 +293,15 @@ export function computeCosting(input: CostingInput): CostingResult {
   /**
    * §4: "Header-level discount distributes proportionally across lines and recomputes margin."
    *
-   * Without this, every line reports the margin it had *before* the discount — so a quotation
-   * discounted twenty per cent still shows healthy line margins, and §4's floor warning stays
-   * silent on lines that are now underwater. The header total was always right; it was the per-line
-   * view, which is what the margin panel colours and the costing sheet flags, that was not.
+   * **Into `discountShare`, not into `lineTotal`.** Two different readers want two different things
+   * from this, and an earlier version served only one of them:
+   *
+   *   - *Margin* has to account for the discount, or a quotation discounted twenty per cent still
+   *     reports healthy line margins and §4's floor warning stays silent on lines that are by then
+   *     underwater.
+   *   - *The customer's document* must keep showing the full line amount, because it also prints a
+   *     discount row underneath. Reducing the amounts as well would show one reduction twice, and
+   *     the printed line amounts would no longer sum to the subtotal printed above them.
    *
    * Distributed by share of `lineTotal`, with the rounding remainder given to the largest line so
    * the parts sum to the discount exactly. Optional lines are excluded, because they are not in the
@@ -292,7 +315,7 @@ export function computeCosting(input: CostingInput): CostingResult {
     for (const index of countedIndexes) {
       const line = lines[index]!;
       const share = roundHalfUp((line.lineTotal / subtotal) * discountAmount);
-      line.lineTotal -= share;
+      line.discountShare = share;
       allocated += share;
       if (line.lineTotal > lines[largest]!.lineTotal) largest = index;
     }
@@ -301,13 +324,14 @@ export function computeCosting(input: CostingInput): CostingResult {
     // be visible as a rounding artefact on a small one.
     const remainder = discountAmount - allocated;
     if (remainder !== 0 && countedIndexes.length > 0) {
-      lines[largest]!.lineTotal -= remainder;
+      lines[largest]!.discountShare += remainder;
     }
 
     for (const index of countedIndexes) {
       const line = lines[index]!;
-      line.lineMargin = line.lineTotal - line.lineCost;
-      line.marginPct = line.lineTotal === 0 ? null : (line.lineMargin / line.lineTotal) * 100;
+      const net = line.lineTotal - line.discountShare;
+      line.lineMargin = net - line.lineCost;
+      line.marginPct = net === 0 ? null : (line.lineMargin / net) * 100;
     }
   }
 

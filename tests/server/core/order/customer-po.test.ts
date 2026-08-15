@@ -160,7 +160,9 @@ describe("a card cannot leave Sent without the customer's PO", () => {
         amount: "1000.00",
         fileId: strayFile.id,
       }),
-    ).rejects.toThrow(/not uploaded as this inquiry's purchase order/);
+      // "record" rather than "inquiry": a PO can now be recorded against a quotation that has no
+      // inquiry behind it, so the message names whichever record the upload should have belonged to.
+    ).rejects.toThrow(/not uploaded as this record's purchase order/);
 
     expect(await hasCustomerPo(inquiry.id)).toBe(false);
   }, 60_000);

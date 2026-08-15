@@ -2,10 +2,13 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
+import { Label, Textarea } from "@/components/ui/input";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { humanQuotationStatus, isEditable } from "@/server/core/quotation/quotation-lifecycle";
 import type { VatMode } from "@/server/core/quotation/costing";
@@ -18,6 +21,7 @@ import { MarginPanel } from "./MarginPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
 import { NegotiationPanel } from "./NegotiationPanel";
+import { QuotationPoPanel } from "./QuotationPoPanel";
 import { ReusePanel } from "./ReusePanel";
 import { RfqPanel } from "./RfqPanel";
 
@@ -36,6 +40,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
 
 export default function QuotationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const utils = trpc.useUtils();
   const quotation = trpc.quotation.get.useQuery({ quotationId: id });
   const [dirty, setDirty] = useState(false);
@@ -142,6 +147,11 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             <span className="tabular text-sm font-semibold">
               {formatMoney(data.total, data.currency)}
             </span>
+            <DeleteQuotation
+              quotationId={data.id}
+              displayNumber={data.displayNumber}
+              onDeleted={() => router.push("/quotations")}
+            />
           </div>
         }
       />
@@ -171,6 +181,13 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               marginAmount={data.marginAmount}
               marginPct={data.marginPct}
               stale={dirty}
+            />
+            <QuotationPoPanel
+              quotationId={data.id}
+              quotationNumber={data.displayNumber}
+              status={data.status}
+              currency={data.currency}
+              onRecorded={refresh}
             />
             <NegotiationPanel
               quotationId={data.id}
@@ -221,8 +238,24 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             )}
           </Card>
 
+          <div onChangeCapture={() => setDirty(true)}>
+            <LineEditor
+              quotationId={data.id}
+              version={data.version}
+              currency={data.currency}
+              canSeeCost={canSeeCost}
+              editable={editable}
+              initialLines={initialLines}
+              initialDiscount={data.discountAmount}
+              initialVatMode={data.vatMode as VatMode}
+              initialFxBuffer={data.fxBufferPct}
+              onSaved={refresh}
+            />
+          </div>
+
           <RfqPanel
             quotationId={data.id}
+            quotationCurrency={data.currency}
             editable={editable}
             canSeeCost={canSeeCost}
             lines={data.lines.map((line, index) => ({
@@ -243,24 +276,90 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             termsAndConditions={data.termsAndConditions ?? []}
             onSaved={refresh}
           />
-
-          <div onChangeCapture={() => setDirty(true)}>
-            <LineEditor
-              quotationId={data.id}
-              version={data.version}
-              currency={data.currency}
-              canSeeCost={canSeeCost}
-              editable={editable}
-              initialLines={initialLines}
-              initialDiscount={data.discountAmount}
-              initialVatMode={data.vatMode as VatMode}
-              initialFxBuffer={data.fxBufferPct}
-              onSaved={refresh}
-            />
-          </div>
         </div>
       </RecordLayout>
     </div>
+  );
+}
+
+/**
+ * Deleting a quotation, for the two officers who hold `quotation.delete`.
+ *
+ * The button is hidden for everybody else by asking the server rather than by guessing from a role
+ * in the browser — `quotation.delete` is a permission, and permissions are grantable.
+ *
+ * A reason is required and typed, not picked. The question asked six months later is never whether
+ * something was deleted but why, and a picklist of three options would answer it badly.
+ */
+function DeleteQuotation({
+  quotationId,
+  displayNumber,
+  onDeleted,
+}: {
+  quotationId: string;
+  displayNumber: string;
+  onDeleted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  // `whoami` already carries the resolved permission set — asking the server rather than inferring
+  // from a role name, because permissions are grantable and roles are not the rule.
+  const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  const remove = trpc.quotation.delete.useMutation();
+
+  if (!me.data?.permissions.includes("quotation.delete")) return null;
+
+  return (
+    <>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Delete
+      </Button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-900/40 p-4">
+          <div className="w-full max-w-sm rounded-md border border-border bg-surface p-4 shadow-xl">
+            <h2 className="text-sm font-semibold">Delete {displayNumber}?</h2>
+            <p className="mt-1 text-xs text-text-muted">
+              {/* Said plainly, because "delete" usually means something more final than this. */}
+              It comes off the screens and out of search. The record, its lines and its audit trail
+              stay, and the number is never handed out again.
+            </p>
+            <div className="mt-3">
+              <Label htmlFor="del-reason">Why?</Label>
+              <Textarea
+                id="del-reason"
+                rows={2}
+                className="text-xs"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Raised against the wrong customer."
+              />
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={remove.isPending || reason.trim().length < 3}
+                onClick={async () => {
+                  try {
+                    await remove.mutateAsync({ quotationId, reason });
+                    toastSuccess(`${displayNumber} deleted.`);
+                    setOpen(false);
+                    onDeleted();
+                  } catch (error) {
+                    toastError(error);
+                  }
+                }}
+              >
+                Delete it
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

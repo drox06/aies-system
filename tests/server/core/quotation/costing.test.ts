@@ -280,7 +280,7 @@ describe("discountForTargetTotal — §8's what-if", () => {
 });
 
 describe("§4: a header discount distributes across the lines", () => {
-  it("takes each line's share and leaves the total intact", () => {
+  it("takes each line's share without touching the amount the customer sees", () => {
     // Two lines, 1,000 and 3,000, with a 400 header discount: 100 off the first, 300 off the second.
     const result = computeCosting({
       lines: [
@@ -291,14 +291,37 @@ describe("§4: a header discount distributes across the lines", () => {
       vatMode: "zero_rated",
     });
 
-    expect(fromCentavos(result.lines[0]!.lineTotal)).toBe("900.00");
-    expect(fromCentavos(result.lines[1]!.lineTotal)).toBe("2700.00");
-    // The header figures are unchanged by the distribution — it is a view onto the same money.
+    // The **printed** line amounts stay at full price. A document that reduced these *and* printed
+    // a discount row would show one reduction twice, and the amounts would not sum to the subtotal
+    // above them.
+    expect(fromCentavos(result.lines[0]!.lineTotal)).toBe("1000.00");
+    expect(fromCentavos(result.lines[1]!.lineTotal)).toBe("3000.00");
+    // The share is carried separately, and it is what margin is computed from.
+    expect(fromCentavos(result.lines[0]!.discountShare)).toBe("100.00");
+    expect(fromCentavos(result.lines[1]!.discountShare)).toBe("300.00");
+    expect(fromCentavos(result.lines[0]!.lineMargin)).toBe("400.00"); // 1,000 − 100 − 500
+    expect(fromCentavos(result.lines[1]!.lineMargin)).toBe("1200.00"); // 3,000 − 300 − 1,500
+
+    // The header figures are unchanged: subtotal at full price, then the discount, then the net.
     expect(fromCentavos(result.subtotal)).toBe("4000.00");
     expect(fromCentavos(result.discountAmount)).toBe("400.00");
     expect(fromCentavos(result.total)).toBe("3600.00");
-    // 3,600 net against 2,000 cost.
     expect(fromCentavos(result.marginAmount)).toBe("1600.00");
+  });
+
+  it("keeps the printed line amounts summing to the printed subtotal", () => {
+    // The property the customer actually checks with a calculator.
+    const result = computeCosting({
+      lines: [
+        { quantity: "2", unitCost: "100", unitPrice: "250" },
+        { quantity: "3", unitCost: "40", unitPrice: "90" },
+      ],
+      headerDiscount: "77",
+      vatMode: "zero_rated",
+    });
+
+    const printed = result.lines.reduce((sum, line) => sum + line.lineTotal, 0);
+    expect(fromCentavos(printed)).toBe(fromCentavos(result.subtotal));
   });
 
   it("makes the floor warning tell the truth about a discounted quotation", () => {
@@ -331,8 +354,11 @@ describe("§4: a header discount distributes across the lines", () => {
       vatMode: "zero_rated",
     });
 
-    expect(fromCentavos(result.lines[0]!.lineTotal)).toBe("900.00");
+    // Neither amount moves; only the counted line carries a share.
+    expect(fromCentavos(result.lines[0]!.lineTotal)).toBe("1000.00");
+    expect(fromCentavos(result.lines[0]!.discountShare)).toBe("100.00");
     expect(fromCentavos(result.lines[1]!.lineTotal)).toBe("500.00");
+    expect(fromCentavos(result.lines[1]!.discountShare)).toBe("0.00");
   });
 
   it("gives the rounding remainder to the largest line, so the parts sum exactly", () => {
@@ -347,8 +373,8 @@ describe("§4: a header discount distributes across the lines", () => {
       vatMode: "zero_rated",
     });
 
-    const summed = result.lines.reduce((sum, line) => sum + line.lineTotal, 0);
-    expect(fromCentavos(summed)).toBe("290.00");
+    const shares = result.lines.reduce((sum, line) => sum + line.discountShare, 0);
+    expect(fromCentavos(shares)).toBe("10.00");
     expect(fromCentavos(result.subtotal - result.discountAmount)).toBe("290.00");
   });
 });
