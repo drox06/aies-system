@@ -1424,6 +1424,12 @@ Notes for whoever picks this up:
     It stashes first and restores after, so if a commit is interrupted, check `git stash list` before
     concluding that work was lost. Treat `.husky/` as reviewable code: it is one line today, and a
     hook is arbitrary code running with your permissions and access to `.env`.
+  - **A test that fails once inside a transaction and passes on a re-run is a pool-timing failure,
+    not a regression** — check before assuming either way. Prisma's interactive-transaction defaults
+    (2s to acquire a connection, 5s for the callback) are written for a database on localhost; this
+    one is a Supabase pooler in another country. `src/lib/db.ts` now sets 15s and 30s. A transaction
+    that genuinely takes that long is still a bug and still fails; what this stops is an ordinary
+    four-statement transaction losing to a busy pool.
   - **Run nothing else against the dev database while the suite runs** — no dev server, and no
     second `vitest` invocation. If the app has to stay up, start it with **`DISABLE_DEV_DRAIN=1`**:
     the dev drainer polls `/api/cron/drain` every five seconds, and during one 28-minute suite run it
