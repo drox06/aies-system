@@ -55,6 +55,7 @@ model CustomerPO {
   quotation  Quotation?      @relation(fields: [quotationId], references: [id])
   inquiry    Inquiry?        @relation(fields: [inquiryId], references: [id])
   salesOrder SalesOrder?
+  tickets    Ticket[]
 
   @@index([accountId, receivedAt])
   @@index([quotationId])
@@ -157,7 +158,7 @@ model SupplierPO {
   /// PO-{YY}-{#####}, seeded in prisma/seed.ts since module 00.
   number String @unique
 
-  supplierId String
+  supplierId   String
   /// Nullable per §2. Most POs answer a sales order; a stock replenishment answers none, and
   /// module 04's `material.purchase_required` will raise POs that belong to a job rather than a sale.
   salesOrderId String?
@@ -191,18 +192,18 @@ model SupplierPO {
   /// ours, and without this the call starts by asking them to look it up.
   supplierRef  String?
 
-  approvedById String?
-  approvedAt   DateTime?
-  sentAt       DateTime?
+  approvedById   String?
+  approvedAt     DateTime?
+  sentAt         DateTime?
   /// §5: "Track supplier acknowledgement by hand. No automated supplier email in v1."
   acknowledgedAt DateTime?
 
   /// §4's gate, and the fact that somebody overrode it. Stored on the PO because the question asked
   /// at an audit is about *this order* — "why was this placed before the customer paid" — and an
   /// audit-log-only record makes that a search rather than a glance.
-  downpaymentOverrideById     String?
-  downpaymentOverrideAt       DateTime?
-  downpaymentOverrideReason   String?
+  downpaymentOverrideById          String?
+  downpaymentOverrideAt            DateTime?
+  downpaymentOverrideReason        String?
   /// The same, for buying from a supplier that clause 8.4 has not approved.
   unapprovedSupplierOverrideBy     String?
   unapprovedSupplierOverrideReason String?
@@ -244,9 +245,9 @@ model SupplierPOLine {
   manufacturer String?
   modelNumber  String?
 
-  quantity Decimal @default(1) @db.Decimal(14, 3)
-  unit     String  @default("pc")
-  unitCost Decimal @default(0) @db.Decimal(14, 2)
+  quantity  Decimal @default(1) @db.Decimal(14, 3)
+  unit      String  @default("pc")
+  unitCost  Decimal @default(0) @db.Decimal(14, 2)
   /// quantity × unitCost, before the header charges. The allocated landed cost is derived at read
   /// time rather than stored, so changing the freight on the header cannot leave stale line values
   /// behind — see `allocateLandedCost` in supplier-po-rules.ts.
@@ -258,7 +259,7 @@ model SupplierPOLine {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  supplierPO SupplierPO @relation(fields: [supplierPOId], references: [id], onDelete: Cascade)
+  supplierPO SupplierPO         @relation(fields: [supplierPOId], references: [id], onDelete: Cascade)
   receipts   GoodsReceiptLine[]
 
   @@unique([supplierPOId, lineNo])
@@ -341,15 +342,15 @@ model GoodsReceipt {
 /// qtyOrdered/Received/Delivered consistent", and counting rejected goods as received would make a
 /// customer's order look fulfilled by a box that is going back to the supplier.
 model GoodsReceiptLine {
-  id             String @id @default(cuid())
-  goodsReceiptId String
+  id               String @id @default(cuid())
+  goodsReceiptId   String
   /// Which line of the supplier PO this fulfils. Not nullable: goods that answer no order line are
   /// goods nobody bought, and recording them here would hide a real problem.
   supplierPOLineId String
 
-  qtyReceived Decimal @default(0) @db.Decimal(14, 3)
-  qtyAccepted Decimal @default(0) @db.Decimal(14, 3)
-  qtyRejected Decimal @default(0) @db.Decimal(14, 3)
+  qtyReceived     Decimal @default(0) @db.Decimal(14, 3)
+  qtyAccepted     Decimal @default(0) @db.Decimal(14, 3)
+  qtyRejected     Decimal @default(0) @db.Decimal(14, 3)
   /// Required when anything is rejected. §6 sends rejections to module 08 as an NCR; module 08 does
   /// not exist, so the reason is recorded here and the NCR is raised from it when it does — rather
   /// than inventing an NCR model now for module 08 to reconcile.
@@ -357,8 +358,8 @@ model GoodsReceiptLine {
 
   /// §6: "Serial numbers captured per unit where applicable — these become the installed-equipment
   /// register in module 04 and drive after-sales support."
-  serialNumbers String[] @default([])
-  batchNo       String?
+  serialNumbers         String[] @default([])
+  batchNo               String?
   /// §6 files calibration and test certificates as controlled documents in module 07 "linked to the
   /// serial number, so they can be re-issued to the customer years later". Module 07 does not exist;
   /// the upload is a plain `FileObject` id today and becomes a controlled-document reference then.
@@ -435,12 +436,13 @@ model SalesOrder {
   deletedAt DateTime?
   deletedBy String?
 
-  account    CustomerAccount  @relation(fields: [accountId], references: [id])
-  site       Site?            @relation(fields: [siteId], references: [id])
-  quotation  Quotation        @relation(fields: [quotationId], references: [id])
+  account     CustomerAccount  @relation(fields: [accountId], references: [id])
+  site        Site?            @relation(fields: [siteId], references: [id])
+  quotation   Quotation        @relation(fields: [quotationId], references: [id])
   customerPO  CustomerPO       @relation(fields: [customerPOId], references: [id])
   lines       SalesOrderLine[]
   supplierPOs SupplierPO[]
+  tickets     Ticket[]
 
   @@index([accountId, status])
   @@index([ownerId, status])

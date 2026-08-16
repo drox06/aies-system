@@ -10,6 +10,7 @@ import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
 import { formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc/client";
 import { OrderFromSuppliers } from "./OrderFromSuppliers";
+import { ProposeTickets } from "./ProposeTickets";
 
 /**
  * One sales order (specs/03-order-procurement.md §1).
@@ -225,6 +226,10 @@ export default function SalesOrderPage({ params }: { params: Promise<{ id: strin
             }))}
             onOrdered={refresh}
           />
+
+          {/* §4's proposal, on the order it reads — and never generating from the event that
+              created that order, which is the one thing §4 rules out. */}
+          <ProposeTickets salesOrderId={data.id} onGenerated={refresh} />
 
           {!supplierPos.error && (supplierPos.data ?? []).length > 0 && (
             <Card className="p-4">

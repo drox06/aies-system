@@ -38,7 +38,7 @@ model DocumentSequence {
   ///
   /// Nullable only for rows written before the column existed; the migration backfills every one
   /// from the live `NumberingFormat`.
-  format       String?
+  format String?
 
   @@unique([documentType, scopeKey])
   @@index([documentType])

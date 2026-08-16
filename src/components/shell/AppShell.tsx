@@ -19,6 +19,7 @@ import {
   ClipboardList,
   Package,
   Truck,
+  Wrench,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/Logo";
@@ -271,6 +272,8 @@ const ICONS: Record<string, LucideIcon> = {
   truck: Truck,
   "clipboard-list": ClipboardList,
   package: Package,
+  // Module 04 (specs/04-operations-projects.md).
+  wrench: Wrench,
 };
 
 const ICON_SIZE = 20;

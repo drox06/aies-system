@@ -31,7 +31,6 @@ import { parseFormat } from "../src/server/core/numbering/format";
  * makes that impossible to forget.
  */
 const NOT_YET_ISSUED = new Set([
-  "ticket",
   "cash_advance",
   "material_request",
   "methodology",
@@ -116,6 +115,23 @@ async function highestInUse(documentType: string): Promise<number> {
         select: { number: true },
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
+    // Module 04's two. Added because the `default` above threw the moment they were seeded — which
+    // is the throw doing its job: before it existed, this script would have silently offered to
+    // reset a live ticket counter to zero.
+    case "ticket": {
+      const rows = await db.ticket.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
+    case "project": {
+      const rows = await db.project.findMany({
+        where: { deletedAt: null },
+        select: { code: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.code) || 0), 0);
     }
     default:
       // Never `return 0`. See NOT_YET_ISSUED — a forgotten case and an empty series look identical

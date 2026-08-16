@@ -1,0 +1,191 @@
+// Module 04 — Operations and Projects (specs/04-operations-projects.md §3).
+//
+// §2 is firm about vocabulary, and it is not a style preference: "A **Ticket** is the unit of
+// operational work generated from a PO… This is the company's own term — use it in the UI, the
+// code, and the numbering. **Do not rename it to 'job order'.**"
+//
+// §1 draws two things that shape these models more than anything else:
+//
+//  1. **The delivery lane is genuinely separate.** It has its own mobilization, its own
+//     demobilization and its own retry loops. "It is not a step inside a project — it is a ticket
+//     type. Model it as such." So a delivery ticket has no `projectId`, and that is a rule rather
+//     than an omission.
+//  2. **Four gates**, two before mobilization (cash advance, material request) and two after
+//     execution (QA, warranty). Session 1 carries the columns they move; the gates themselves are
+//     later sessions, and the columns are here so those sessions need no migration.
+
+/// The unit of operational work (§2, §3).
+///
+/// Generated from a sales order — but never *silently*. §4: "Operations **confirms or edits** the
+/// proposed set before generation. Do not auto-generate silently — one PO can legitimately be one
+/// ticket or eight, and only a human knows which." So nothing in this build creates a Ticket from an
+/// event; `sales_order.created` produces a proposal for somebody to review.
+model Ticket {
+  id     String @id @default(cuid())
+  /// AIESTKT-{YY}{####}, seeded since module 00.
+  number String @unique
+
+  /// Where it came from. All nullable: §4 allows a standalone ticket with no PO at all — "warranty
+  /// callback, emergency, goodwill visit" — and those are real work that still needs scheduling.
+  salesOrderId String?
+  customerPOId String?
+  accountId    String
+  siteId       String?
+
+  /// new_project | installation | after_sales | delivery (§3). The type is the route: §1's four
+  /// lanes hang off it, and a delivery ticket runs an entirely different one.
+  type     String
+  /// For after_sales: warranty | corrective | preventive | calibration | troubleshooting | training.
+  subType  String?
+  /// low | normal | high | emergency
+  priority String  @default("normal")
+
+  title               String
+  scopeOfWork         String
+  specialInstructions String?
+
+  /// generated | cash_advance_pending | material_pending | ready_to_mobilize | mobilized |
+  /// in_progress | qa | tc | for_closeout | completed | cancelled | on_hold (§3).
+  ///
+  /// The full vocabulary from the start, though session 1 only reaches `generated`. The same choice
+  /// `CustomerPO.status` made: a column with its whole vocabulary lets the sessions that add the
+  /// gates add behaviour without a migration.
+  status String @default("generated")
+
+  /// Null for delivery tickets, always (§2). Several tickets can roll up to one project.
+  projectId String?
+
+  raisedById String
+  raisedAt   DateTime @default(now())
+
+  assignedLeadId  String?
+  /// Plain ids, not a join: read whole, never queried across. Same choice as `productLines`.
+  assignedUserIds String[] @default([])
+
+  requiredByDate DateTime?
+  holdReason     String?
+
+  /// §1's first gate. A boolean rather than a status because the *question* is asked of every
+  /// ticket type — "CASH ADVANCE REQUIRED? (Y/N)" — and the answer being "no" is a decision worth
+  /// recording, not an absence.
+  cashAdvanceRequired   Boolean @default(false)
+  /// §1's second gate: required | not_applicable | requested | issued | partial.
+  materialRequestStatus String  @default("not_applicable")
+
+  /// §4: a standalone ticket is "`billable = false` by default and a required justification".
+  /// Nobody is invoiced for a goodwill visit, and the reason it happened is the whole record of it.
+  billable      Boolean @default(true)
+  justification String?
+
+  customFields Json @default("{}")
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account    CustomerAccount        @relation(fields: [accountId], references: [id])
+  site       Site?                  @relation(fields: [siteId], references: [id])
+  salesOrder SalesOrder?            @relation(fields: [salesOrderId], references: [id])
+  customerPO CustomerPO?            @relation(fields: [customerPOId], references: [id])
+  project    Project?               @relation(fields: [projectId], references: [id])
+  lines      TicketSalesOrderLine[]
+
+  @@index([accountId, status])
+  @@index([salesOrderId])
+  @@index([status, requiredByDate])
+  @@index([assignedLeadId, status])
+}
+
+/// Which sales order lines a ticket covers (§4).
+///
+/// **Not in §3's model sketch, and required by §4**: "Each ticket links back to the specific sales
+/// order lines it covers, so fulfilment counters and billing milestones stay accurate." Without it,
+/// a sales order that generated three tickets cannot say which one owes which line — and module 05
+/// cannot bill a milestone, because a milestone is defined by the lines it covers.
+///
+/// A join table rather than an id array on `Ticket`, because this is the one relation in the module
+/// that other modules will query *across* — "which ticket covers this line" is module 05's question,
+/// and an array cannot answer it with an index.
+model TicketSalesOrderLine {
+  id               String @id @default(cuid())
+  ticketId         String
+  /// Plain id: `SalesOrderLine` is module 03's, and the modules stay uncoupled at the schema level
+  /// the same way `PrincipalProspect.supplierId` did until module 03 landed. It becomes a foreign
+  /// key when something needs the database to enforce it.
+  salesOrderLineId String
+
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  /// One ticket covers a line once. Two tickets may legitimately cover the same line — a supply and
+  /// a separate commissioning visit — so the uniqueness is per pair, not per line.
+  @@unique([ticketId, salesOrderLineId])
+  @@index([salesOrderLineId])
+}
+
+/// The container for field execution (§2, §3).
+///
+/// §2: "A **Project** exists only for `new_project`, `installation`, and `after_sales` tickets that
+/// involve field execution… A single PO can generate several tickets, and several tickets can roll
+/// up to one project." So a project is created *with* the first execution ticket of an order rather
+/// than per ticket — three visits to the same site for the same order are one project with one
+/// schedule, one team and one close-out pack.
+///
+/// A delivery ticket never has one.
+model Project {
+  id   String @id @default(cuid())
+  /// AIESPRJ-{YY}{####}.
+  code String @unique
+
+  salesOrderId String?
+  accountId    String
+  siteId       String?
+
+  name        String
+  description String?
+  scopeOfWork String
+
+  /// planning | site_inspection | methodology | mobilising | in_progress | qa | tc | for_closeout |
+  /// closed | on_hold | cancelled (§3). Session 1 reaches `planning`; §6's site inspection and
+  /// methodology gates move it from there.
+  status String @default("planning")
+
+  plannedStart DateTime?
+  plannedEnd   DateTime?
+  actualStart  DateTime?
+  actualEnd    DateTime?
+
+  projectManagerId String?
+  teamMemberIds    String[] @default([])
+
+  /// Permission-gated on the way out, exactly as the quotation's and the sales order's are
+  /// (Spec.md §4.3). §19: "Technicians… see scope, site data, and their own cash advances — **never
+  /// contract value or margin**."
+  contractValue Decimal @default(0) @db.Decimal(14, 2)
+  budgetCost    Decimal @default(0) @db.Decimal(14, 2)
+  actualCost    Decimal @default(0) @db.Decimal(14, 2)
+
+  progressPct Int     @default(0)
+  riskLevel   String  @default("low")
+  holdReason  String?
+
+  customFields Json @default("{}")
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account CustomerAccount @relation(fields: [accountId], references: [id])
+  site    Site?           @relation(fields: [siteId], references: [id])
+  tickets Ticket[]
+
+  @@index([accountId, status])
+  @@index([status, plannedStart])
+}

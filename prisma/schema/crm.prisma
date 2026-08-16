@@ -74,6 +74,8 @@ model CustomerAccount {
   quotations     Quotation[]
   customerPOs    CustomerPO[]
   salesOrders    SalesOrder[]
+  tickets        Ticket[]
+  projects       Project[]
 
   @@index([ownerId, status])
   @@index([status, name])
@@ -106,6 +108,8 @@ model Site {
   account     CustomerAccount     @relation(fields: [accountId], references: [id])
   contacts    Contact[]
   inquiries   Inquiry[]
+  tickets     Ticket[]
+  projects    Project[]
   inspections InspectionRequest[]
   quotations  Quotation[]
   salesOrders SalesOrder[]

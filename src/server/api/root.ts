@@ -9,6 +9,7 @@ import { quotationRouter } from "@/server/api/routers/quotation";
 import { customFieldsRouter } from "@/server/api/routers/custom-fields";
 import { filesRouter } from "@/server/api/routers/files";
 import { notifyRouter } from "@/server/api/routers/notify";
+import { operationsRouter } from "@/server/api/routers/operations";
 import { orderRouter } from "@/server/api/routers/order";
 import { numberingRouter } from "@/server/api/routers/numbering";
 import { searchRouter } from "@/server/api/routers/search";
@@ -29,6 +30,7 @@ export const appRouter = router({
   crm: crmRouter,
   quotation: quotationRouter,
   order: orderRouter,
+  operations: operationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

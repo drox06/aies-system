@@ -1690,8 +1690,63 @@ and with it `sales_order.goods_delivered`, `delivery.dr_signed`, and `po_receive
 **Small and still open in module 02:** the line editor shows the raw cost but has no field for the
 FX rate, so a foreign-currency line can only be costed through the RFQ flow today.
 
+## In progress — Module 04, Operations and Projects
+
+### Session 1 — the ticket, and the proposal that is deliberately not automatic
+
+specs/04-operations-projects.md is the largest module in the build: twenty sections, four gates, a
+delivery lane, an offline field application, checklists and dispatch. This session is its spine.
+
+- [x] **`Ticket`, `Project` and `TicketSalesOrderLine`.** The join is not in §3's model sketch and is
+      required by §4 — "each ticket links back to the specific sales order lines it covers, so
+      fulfilment counters and billing milestones stay accurate". A join table rather than an id
+      array, because "which ticket covers this line" is module 05's question and an array cannot
+      answer it with an index.
+- [x] **§4's proposal, which is the whole point of the session.** The system proposes; operations
+      confirms or edits; nothing is created until somebody presses the button, and the manifest
+      subscribes to **nothing** — with a test pinning that empty. docs/DECISIONS.md #49.
+- [x] **The proposal does not guess `new_project` versus `installation`.** Nothing on a sales order
+      line distinguishes them, so it always offers `installation` and its rationale says so. A
+      confident wrong answer gets rubber-stamped; an obvious placeholder gets corrected.
+- [x] **One project per generation, never per ticket**, and a delivery ticket never joins one — §1:
+      "It is not a step inside a project — it is a ticket type." docs/DECISIONS.md #50.
+- [x] **A line already covered by a live ticket cannot be covered twice**, because that bills it
+      twice. Reopening the proposal shows only what is left.
+- [x] **§4's standalone ticket** — warranty callback, emergency, goodwill visit — with no order,
+      `billable = false` and a required justification.
+- [x] **§19's scoping**: technicians see tickets they are assigned to, and never a project's contract
+      value or budget.
+- [x] Screens: `/tickets`, `/tickets/[id]`, and the review panel on the sales order. The ticket
+      record is **read-only and says so** — every action it will have is a gate that does not exist
+      yet, and buttons that error teach people to distrust the ones that work.
+- [x] Numbering: `AIESTKT-{YY}{####}` was already seeded; `AIESPRJ-{YY}{####}` is new, because §3
+      gives a project a `code` and Spec.md §5's table does not list one.
+
+**Migration** `20260816…_module_04_ticket_project`.
+
+**State at this stop.** **827 tests** across 87 files pass with the dev server stopped; typecheck,
+lint and `build:check` clean. The counters were reset last, so the next documents are
+`AIESTKT-260001`, `AIESPRJ-260001`, `AIESSO-260002`, `AIESPO-260002`.
+
+*Worth recording:* `reset-numbering-counters.ts` **threw** on `project` the first time it ran after
+this session, because the switch had never been taught about it. That is docs/DECISIONS.md #48's
+guard working exactly as intended — before it existed, the script would have silently offered to
+reset a live ticket counter to zero, which is the failure it has now caught three times.
+
+**Permissions are declared late here, unlike module 03** — seven of §19's thirty. docs/DECISIONS.md
+#51 explains why the two modules differ: the rule is to declare when the gap is short enough that
+nobody can act on the permission in between, and module 04's gates are whole sessions apart.
+
+**Still to build in module 04:** §5's cash advance gate, §6's site inspection and methodology, §7's
+material request gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's
+testing and commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery
+lane, §14's offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
+
+**What it unblocks when §13 lands:** module 03's §7 delivery receipt, and with it
+`sales_order.goods_delivered`, `delivery.dr_signed` and `po_received → won`.
+
 ## Not started
-- [ ] Modules 04–10
+- [ ] Modules 05–10
 - [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
       capture, and `sales_order.goods_delivered` / `delivery.dr_signed`. **Blocked on module 04**,
       not deferred by choice: §7 gates a DR on a delivery ticket that does not exist.
@@ -1717,6 +1772,11 @@ FX rate, so a foreign-currency line can only be costed through the RFQ flow toda
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #49-#51: module 04 session 1 (tickets are proposed and never generated by an
+  event, because a wrong ticket set is a crew at the wrong site rather than a wrong record; a project
+  belongs to a generation rather than to a ticket, and a delivery ticket never has one; and module 04
+  declares its permissions late where module 03 declared them early — the rule is to declare when the
+  gap is short enough that nobody can act on the permission in between).
 - docs/DECISIONS.md #48: the counter now records the format that produced it, so a format's *shape*
   changing refuses to issue rather than silently restarting at zero — while a genuine January
   rollover still works, which is the half a careless guard would break. `reset-numbering-counters.ts`
@@ -1782,6 +1842,10 @@ and function; nobody has judged how they *look*.
   must not create one. Their server sides have 110 tests against the real database. **Nobody has
   looked at the gate block, the per-line supplier picker, the landed-cost column, the expediting
   table, the receiving form or the inspection checklist on screen.**
+- **Module 04's three surfaces**: `/tickets`, `/tickets/[id]` and the ticket-proposal panel on the
+  sales order record. The list is in the e2e sweep; the other two are not, for the same reason as
+  module 03's records. **Nobody has looked at the proposal review — the per-ticket edit boxes, the
+  include checkboxes, or the amber warning about lines left uncovered.**
 - **The supplier PO PDF** was verified by asserting its assembled props — no PDF renderer exists in
   this environment, the same limit module 02's documents have.
 - `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the

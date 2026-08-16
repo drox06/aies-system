@@ -1,6 +1,7 @@
 import { buildModuleRegistry, type ModuleManifest } from "./module-registry";
 import { crmManifest } from "./modules/crm.manifest";
 import { foundationManifest } from "./modules/foundation.manifest";
+import { operationsManifest } from "./modules/operations.manifest";
 import { orderManifest } from "./modules/order.manifest";
 import { quotationManifest } from "./modules/quotation.manifest";
 
@@ -11,6 +12,7 @@ const manifests: readonly ModuleManifest[] = [
   crmManifest,
   quotationManifest,
   orderManifest,
+  operationsManifest,
 ];
 
 export const registry = buildModuleRegistry(manifests);

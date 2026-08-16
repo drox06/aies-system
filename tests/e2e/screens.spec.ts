@@ -42,6 +42,7 @@ const SCREENS = [
   { path: "/suppliers", heading: "Suppliers" },
   { path: "/sales-orders", heading: "Sales orders" },
   { path: "/procurement", heading: "Procurement" },
+  { path: "/tickets", heading: "Tickets" },
   { path: "/quotations/approvals", heading: "Awaiting approval" },
   { path: "/notifications", heading: "Notification" },
   { path: "/admin/users", heading: "Users" },
@@ -84,6 +85,7 @@ test("the sidebar offers the sections this user can reach", async ({ page }) => 
     "Sales orders",
     "Procurement",
     "Suppliers",
+    "Tickets",
   ]) {
     await expect(page.getByRole("link", { name: label })).toBeVisible();
   }

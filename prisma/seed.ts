@@ -311,6 +311,10 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // people write the wrong number on.
   { documentType: "goods_receipt", format: "AIESGRN-{YY}{####}", label: "Goods Receipt" },
   { documentType: "ticket", format: "AIESTKT-{YY}{####}", label: "Ticket" },
+  // specs/04-operations-projects.md §3's `Project.code`. Not in Spec.md §5's table — a project is
+  // a container the company refers to by name in conversation, and giving it a number is what lets
+  // several tickets say which one they roll up to.
+  { documentType: "project", format: "AIESPRJ-{YY}{####}", label: "Project" },
   { documentType: "cash_advance", format: "AIESCA-{YY}{####}", label: "Cash Advance" },
   { documentType: "material_request", format: "AIESMR-{YY}{####}", label: "Material Request" },
   { documentType: "methodology", format: "AIESMTH-{YY}{####}", label: "Methodology" },
