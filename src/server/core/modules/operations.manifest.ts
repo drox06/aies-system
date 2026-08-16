@@ -5,9 +5,9 @@ import { defineManifest } from "@/server/core/module-registry";
  *
  * The largest module in the build: four gates, a delivery lane, an offline-first field application,
  * digital checklists and dispatch scheduling. Three sessions are in: §4's ticket and proposal, §5's
- * cash advance gate, §6.1's site inspection and §6.2's methodology.
+ * cash advance gate, §6.1's site inspection, §6.2's methodology and §7's material request.
  *
- * §19 lists thirty permissions for the finished module; thirteen are here, because nine gate something.
+ * §19 lists thirty permissions for the finished module; sixteen are here, because nine gate something.
  * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
  * by tests/server/core/modules/permissions-are-used.test.ts. A permission declared ahead of its gate
  * sits in the admin role screen granting access to nothing; somebody assigns it and wonders why
@@ -29,6 +29,10 @@ export const operationsManifest = defineManifest({
     "CashAdvanceLiquidation",
     "SiteInspection",
     "Methodology",
+    "MaterialRequest",
+    "MaterialRequestLine",
+    "StockItem",
+    "StockMovement",
   ],
 
   permissions: [
@@ -173,6 +177,33 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "material_request.raise",
+      label: "Raise a material request",
+      group: "Operations",
+      // §19. The team leader who knows what the job needs, and the people who plan it.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "technician",
+        "admin_manager",
+      ],
+    },
+    {
+      key: "material_request.approve",
+      label: "Approve a material request",
+      group: "Operations",
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
+      key: "material_request.issue",
+      label: "Issue materials from the store and record their return",
+      group: "Operations",
+      // The store is PD's. Deliberately not the technician drawing the tools — §7's custody list is
+      // only worth having if somebody other than the borrower records the handover.
+      defaultRoles: ["president", "admin_manager", "operations_manager"],
+    },
+    {
       key: "operations.override_methodology_gate",
       label: "Mobilize before the client has approved the method statement",
       group: "Operations",
@@ -190,7 +221,7 @@ export const operationsManifest = defineManifest({
   ],
 
   /**
-   * §18 lists twenty-eight events. Seven are emitted today.
+   * §18 lists twenty-eight events. Ten are emitted today.
    *
    * The registry rejects a subscription to an event nothing emits, so declaring the rest now would
    * let a later module subscribe to something that never fires — which fails silently, and is worse
@@ -204,6 +235,9 @@ export const operationsManifest = defineManifest({
     "site_inspection.completed",
     "scope_change.identified",
     "methodology.approved",
+    "material_request.raised",
+    "material.purchase_required",
+    "material.issued",
   ],
 
   /**
@@ -274,6 +308,15 @@ export const operationsManifest = defineManifest({
       icon: "clipboard-check",
       permission: "ticket.execute",
       order: 42,
+    },
+    {
+      label: "Store",
+      href: "/store",
+      icon: "package",
+      // §7's minimum viable inventory, and the outstanding-custody list that is the reason it
+      // exists — "tools disappear otherwise; this is universal".
+      permission: "material_request.issue",
+      order: 44,
     },
     {
       label: "Method statements",

@@ -69,8 +69,18 @@ model Ticket {
   /// ticket type — "CASH ADVANCE REQUIRED? (Y/N)" — and the answer being "no" is a decision worth
   /// recording, not an absence.
   cashAdvanceRequired   Boolean @default(false)
-  /// §1's second gate: required | not_applicable | requested | issued | partial.
-  materialRequestStatus String  @default("not_applicable")
+  /// §1's second gate: undecided | required | not_applicable | requested | issued | partial.
+  ///
+  /// **Defaults to `undecided`, and that default was wrong until 2026-08-17.** It was
+  /// `not_applicable`, which made every freshly generated ticket read as though somebody had
+  /// considered the materials question and answered no. §7 forbids exactly that confusion: "`N/A` is
+  /// a legitimate, recorded answer — **not a skipped step**. The record shows someone decided."
+  ///
+  /// A default that asserts a decision nobody made is worse than a null: the gate opened, the ticket
+  /// looked ready, and the crew would have found out at the store. `undecided` is not in §3's list
+  /// because §3 assumed the question always gets asked; §7 is the section that says it must be
+  /// recorded when it is.
+  materialRequestStatus String  @default("undecided")
 
   /// §4: a standalone ticket is "`billable = false` by default and a required justification".
   /// Nobody is invoiced for a goodwill visit, and the reason it happened is the whole record of it.
@@ -86,15 +96,16 @@ model Ticket {
   deletedAt DateTime?
   deletedBy String?
 
-  account       CustomerAccount        @relation(fields: [accountId], references: [id])
-  site          Site?                  @relation(fields: [siteId], references: [id])
-  salesOrder    SalesOrder?            @relation(fields: [salesOrderId], references: [id])
-  customerPO    CustomerPO?            @relation(fields: [customerPOId], references: [id])
-  project       Project?               @relation(fields: [projectId], references: [id])
-  lines         TicketSalesOrderLine[]
-  cashAdvances  CashAdvance[]
-  inspections   SiteInspection[]
-  methodologies Methodology[]
+  account          CustomerAccount        @relation(fields: [accountId], references: [id])
+  site             Site?                  @relation(fields: [siteId], references: [id])
+  salesOrder       SalesOrder?            @relation(fields: [salesOrderId], references: [id])
+  customerPO       CustomerPO?            @relation(fields: [customerPOId], references: [id])
+  project          Project?               @relation(fields: [projectId], references: [id])
+  lines            TicketSalesOrderLine[]
+  cashAdvances     CashAdvance[]
+  inspections      SiteInspection[]
+  methodologies    Methodology[]
+  materialRequests MaterialRequest[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -185,12 +196,13 @@ model Project {
   deletedAt DateTime?
   deletedBy String?
 
-  account       CustomerAccount  @relation(fields: [accountId], references: [id])
-  site          Site?            @relation(fields: [siteId], references: [id])
-  tickets       Ticket[]
-  cashAdvances  CashAdvance[]
-  inspections   SiteInspection[]
-  methodologies Methodology[]
+  account          CustomerAccount   @relation(fields: [accountId], references: [id])
+  site             Site?             @relation(fields: [siteId], references: [id])
+  tickets          Ticket[]
+  cashAdvances     CashAdvance[]
+  inspections      SiteInspection[]
+  methodologies    Methodology[]
+  materialRequests MaterialRequest[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -516,4 +528,172 @@ model Methodology {
   @@index([projectId, status])
   @@index([ticketId])
   @@index([status, submittedToClientAt])
+}
+
+/// §7's Gate 2 — the materials that have to be in the van before anybody leaves.
+///
+/// §7 opens by insisting the diamond has three answers, not two: "The flowchart's Y / N/A / N
+/// diamond. **All three outcomes are real**: materials needed, not applicable to this ticket, or
+/// needed but not yet available." And it closes by saying why the middle one is modelled at all:
+/// "`N/A` is a legitimate, recorded answer — **not a skipped step**. The record shows someone
+/// decided." Same reasoning as §5's `cashAdvanceRequired` boolean.
+model MaterialRequest {
+  id     String @id @default(cuid())
+  /// AIESMR-{YY}{####}, seeded since module 00.
+  number String @unique
+
+  ticketId  String
+  projectId String?
+
+  requestedById String
+  requestedAt   DateTime  @default(now())
+  neededBy      DateTime?
+
+  /// draft | pending_approval | approved | partially_issued | issued | purchased | rejected |
+  /// cancelled (§7).
+  status String @default("draft")
+
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+
+  issuedById String?
+  issuedAt   DateTime?
+
+  /// §7: "Tool return is tracked on demobilization." Demobilisation is §8's, so this is set when the
+  /// request is issued (from the ticket's required-by date) and §8 will correct it to the real one.
+  returnDueAt DateTime?
+  returnedAt  DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket                @relation(fields: [ticketId], references: [id])
+  project Project?              @relation(fields: [projectId], references: [id])
+  lines   MaterialRequestLine[]
+
+  @@index([ticketId])
+  @@index([status, neededBy])
+}
+
+model MaterialRequestLine {
+  id        String @id @default(cuid())
+  requestId String
+  lineNo    Int
+
+  /// consumable | spare_part | tool | instrument | ppe | rental (§7).
+  itemType String
+
+  /// The stock item this draws against, when it is one AIES holds.
+  stockItemId String?
+  productId   String?
+  description String
+  quantity    Decimal @db.Decimal(14, 3)
+  unit        String  @default("pc")
+
+  /// stock | purchase | customer_supplied | rental (§7).
+  ///
+  /// `purchase` is the one with a consequence: §7 says those lines "emit
+  /// `material.purchase_required` → module 03 raises a purchase request. The ticket sits at
+  /// `material_pending` until resolved."
+  source String @default("stock")
+
+  qtyIssued   Decimal @default(0) @db.Decimal(14, 3)
+  qtyReturned Decimal @default(0) @db.Decimal(14, 3)
+  qtyConsumed Decimal @default(0) @db.Decimal(14, 3)
+
+  /// §7: "**Instruments drawn against a ticket are recorded.** This is what makes module 08's
+  /// out-of-tolerance impact assessment possible ('which jobs used this instrument since its last
+  /// valid calibration?')."
+  ///
+  /// Module 08 does not exist. The column is here so the link is captured from the first issue
+  /// onwards — an impact assessment can only look back over records that were kept at the time, so
+  /// starting to keep them late is the one thing that cannot be fixed later.
+  calibrationAssetId String?
+
+  /// pending | issued | returned | consumed | purchased | cancelled.
+  status String  @default("pending")
+  notes  String?
+
+  request   MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stockItem StockItem?      @relation(fields: [stockItemId], references: [id])
+
+  @@unique([requestId, lineNo])
+  @@index([stockItemId])
+  @@index([calibrationAssetId])
+}
+
+/// §7's minimum viable inventory.
+///
+/// §7 is explicit about the boundary, and it is a boundary worth holding: "It is deliberately **not**
+/// the full valuation-and-costing inventory system from Spec.md open question 3 — that remains open.
+/// **Track quantity and custody, not weighted-average cost.**"
+///
+/// So there is no unit cost on this model, no valuation, and no costing method. A quantity and a
+/// location answer the question the flowchart actually asks — is it in the store, and who has it —
+/// and adding a cost column would invite somebody to build a valuation on a stock file nobody
+/// reconciles.
+model StockItem {
+  id       String @id @default(cuid())
+  sku      String @unique
+  name     String
+  category String @default("consumable")
+  unit     String @default("pc")
+
+  qtyOnHand    Decimal @default(0) @db.Decimal(14, 3)
+  reorderLevel Decimal @default(0) @db.Decimal(14, 3)
+  location     String?
+
+  lastCountedAt DateTime?
+
+  /// When this instrument's calibration next falls due.
+  ///
+  /// §7: "**Drawing an overdue-calibration instrument is blocked.**" Module 08 owns calibration
+  /// properly — certificates, history, the out-of-tolerance assessment — and does not exist. This is
+  /// the store's own copy of the due date, which is what a storeman needs at the moment of issue,
+  /// and it is what the block reads until module 08 keeps it in step. Null for anything that is not
+  /// a measuring instrument.
+  calibrationDueAt DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  lines     MaterialRequestLine[]
+  movements StockMovement[]
+
+  @@index([category, name])
+}
+
+/// Every movement in or out, so `qtyOnHand` is explainable rather than merely current.
+///
+/// A running quantity with no history is a number nobody can argue with and nobody can trust. The
+/// movement rows are what let somebody ask "where did the other four go" and get an answer.
+model StockMovement {
+  id          String @id @default(cuid())
+  stockItemId String
+
+  /// issue | return | adjustment | receipt | consume.
+  type     String
+  /// Signed: negative takes stock out, positive puts it back.
+  quantity Decimal @db.Decimal(14, 3)
+
+  ticketId  String?
+  requestId String?
+  reference String?
+
+  byId String
+  at   DateTime @default(now())
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id])
+
+  @@index([stockItemId, at])
+  @@index([ticketId])
 }

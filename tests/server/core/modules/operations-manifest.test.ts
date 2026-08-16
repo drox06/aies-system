@@ -28,7 +28,6 @@ describe("operations manifest", () => {
     const declared = new Set(operationsManifest.permissions.map((p) => p.key));
     for (const key of [
       "cash_advance.approve",
-      "material_request.raise",
       "qa.record",
       "delivery.execute",
       // Declared in session 1 and removed the same day: they gated nothing either.
@@ -70,6 +69,9 @@ describe("operations manifest", () => {
       "site_inspection.completed",
       "scope_change.identified",
       "methodology.approved",
+      "material_request.raised",
+      "material.purchase_required",
+      "material.issued",
     ]);
   });
 

@@ -18,6 +18,22 @@ import {
   RELEASE_METHODS,
 } from "@/server/core/operations/cash-advance-rules";
 import { listInspectionAssigneesService } from "@/server/core/crm/inspection-service";
+import { ITEM_TYPES, SOURCES } from "@/server/core/operations/material-request-rules";
+import {
+  adjustStockService,
+  approveMaterialRequestService,
+  createMaterialRequestService,
+  getMaterialRequestService,
+  issueMaterialsService,
+  listMaterialRequestsService,
+  listStockService,
+  markMaterialsNotApplicableService,
+  materialGateForTicket,
+  outstandingCustodyService,
+  returnMaterialsService,
+  submitMaterialRequestService,
+  upsertStockItemService,
+} from "@/server/core/operations/material-request-service";
 import {
   approveMethodologyService,
   createMethodologyService,
@@ -516,4 +532,132 @@ export const operationsRouter = router({
   getMethodology: p("ticket.view")
     .input(z.object({ methodologyId: z.string() }))
     .query(({ ctx, input }) => getMethodologyService(ctx.user, input.methodologyId)),
+
+  // ---- §7's material request --------------------------------------------------------------------
+
+  createMaterialRequest: p("material_request.raise")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        projectId: z.string().nullish(),
+        neededBy: z.coerce.date().nullish(),
+        fromMethodologyId: z.string().nullish(),
+        lines: z
+          .array(
+            z.object({
+              itemType: z.enum(ITEM_TYPES),
+              stockItemId: z.string().nullish(),
+              description: z.string().min(1).max(300),
+              quantity: z.number().positive(),
+              unit: z.string().max(30).default("pc"),
+              source: z.enum(SOURCES),
+              notes: z.string().max(500).nullish(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createMaterialRequestService(actorMeta(ctx), input)),
+
+  /**
+   * §7's middle answer. A call rather than a field, so the audit row records who decided —
+   * "`N/A` is a legitimate, recorded answer, not a skipped step".
+   */
+  markMaterialsNotApplicable: p("material_request.raise")
+    .input(z.object({ ticketId: z.string(), note: z.string().max(500).optional() }))
+    .mutation(({ ctx, input }) => markMaterialsNotApplicableService(actorMeta(ctx), input)),
+
+  submitMaterialRequest: p("material_request.raise")
+    .input(z.object({ requestId: z.string() }))
+    .mutation(({ ctx, input }) => submitMaterialRequestService(actorMeta(ctx), input.requestId)),
+
+  approveMaterialRequest: p("material_request.approve")
+    .input(
+      z.object({
+        requestId: z.string(),
+        decision: z.enum(["approved", "rejected"]),
+        reason: z.string().max(1000).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => approveMaterialRequestService(actorMeta(ctx), input)),
+
+  /** The store hands over. An out-of-calibration instrument is refused here, not warned about. */
+  issueMaterials: p("material_request.issue")
+    .input(
+      z.object({
+        requestId: z.string(),
+        lines: z
+          .array(
+            z.object({
+              lineNo: z.number().int().positive(),
+              quantity: z.number().positive(),
+              calibrationAssetId: z.string().nullish(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .mutation(({ ctx, input }) => issueMaterialsService(actorMeta(ctx), input)),
+
+  returnMaterials: p("material_request.issue")
+    .input(
+      z.object({
+        requestId: z.string(),
+        lines: z
+          .array(
+            z.object({
+              lineNo: z.number().int().positive(),
+              returned: z.number().nonnegative().optional(),
+              consumed: z.number().nonnegative().optional(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .mutation(({ ctx, input }) => returnMaterialsService(actorMeta(ctx), input)),
+
+  materialGate: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => materialGateForTicket(input.ticketId)),
+
+  listMaterialRequests: p("ticket.view")
+    .input(z.object({ ticketId: z.string().optional(), status: z.string().optional() }).optional())
+    .query(({ input }) => listMaterialRequestsService(input ?? {})),
+
+  getMaterialRequest: p("ticket.view")
+    .input(z.object({ requestId: z.string() }))
+    .query(({ input }) => getMaterialRequestService(input.requestId)),
+
+  /** §7: "Tools disappear otherwise; this is universal." */
+  outstandingCustody: p("material_request.issue").query(() => outstandingCustodyService()),
+
+  listStock: p("ticket.view")
+    .input(z.object({ search: z.string().optional() }).optional())
+    .query(({ ctx, input }) => listStockService(ctx.user, input ?? {})),
+
+  upsertStockItem: p("material_request.issue")
+    .input(
+      z.object({
+        id: z.string().nullish(),
+        sku: z.string().min(1).max(60),
+        name: z.string().min(1).max(200),
+        category: z.string().max(60).default("consumable"),
+        unit: z.string().max(30).default("pc"),
+        qtyOnHand: z.number().nonnegative().optional(),
+        reorderLevel: z.number().nonnegative().optional(),
+        location: z.string().max(120).nullish(),
+        calibrationDueAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => upsertStockItemService(actorMeta(ctx), input)),
+
+  adjustStock: p("material_request.issue")
+    .input(
+      z.object({
+        stockItemId: z.string(),
+        countedQty: z.number().nonnegative(),
+        reference: z.string().max(200).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => adjustStockService(actorMeta(ctx), input)),
 });

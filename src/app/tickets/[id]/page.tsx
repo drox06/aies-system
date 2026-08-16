@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
 import { CashAdvancePanel } from "./CashAdvancePanel";
 import { InspectionPanel } from "./InspectionPanel";
+import { MaterialPanel } from "./MaterialPanel";
 import { MethodologyPanel } from "./MethodologyPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
@@ -174,6 +175,12 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
 
           <CashAdvancePanel ticketId={data.id} />
 
+          <MaterialPanel
+            ticketId={data.id}
+            projectId={data.project?.id ?? null}
+            methodologyId={null}
+          />
+
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>
             {/*
@@ -182,19 +189,17 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             */}
             <ul className="mt-2 space-y-1.5 text-sm text-text-muted">
               <li>
-                <span className="font-medium text-text">Material request</span> — §1&rsquo;s second
-                gate. Currently{" "}
-                <span className="capitalize">{human(data.materialRequestStatus)}</span>. It will
-                start from the tools and materials on the method statement rather than a blank list.
+                <span className="font-medium text-text">Mobilisation and execution</span> — §8,
+                which will read the three gates above rather than asking again.
               </li>
               <li>
-                <span className="font-medium text-text">Mobilisation, QA and close-out</span> —
-                after both gates clear.
+                <span className="font-medium text-text">QA, testing and close-out</span> — §9 to
+                §12.
               </li>
             </ul>
             <p className="mt-2 text-xs text-text-muted">
-              Neither is built yet. A crew that mobilises without materials is a wasted day, which
-              is exactly why the gates come before the buttons.
+              Neither is built yet. Both gates before mobilisation are, which is the half that stops
+              a wasted day.
             </p>
           </Card>
 

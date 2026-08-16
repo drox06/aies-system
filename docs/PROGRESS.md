@@ -1982,8 +1982,36 @@ job. It broke from the suite growing rather than from a change, and it looked li
 now clear pending jobs in `beforeAll`, stating the precondition instead of inheriting it.
 docs/DECISIONS.md #64.
 
-**Still to build in module 04:** §7's material
-request gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
+### Session 5 — §7's material request gate, and the store
+
+- [x] **The flowchart's Y / N/A / N diamond, with all three answers real.** `materialGate` has four
+      states, not three: "nobody has answered" is not "the answer was no", and the unanswered case
+      **blocks**. §7: "`N/A` is a legitimate, recorded answer — not a skipped step. The record shows
+      someone decided." Marking N/A is a service call that writes an audit row naming who decided.
+- [x] **A schema default was lying.** `Ticket.materialRequestStatus` defaulted to `not_applicable`
+      since session 1, so every generated ticket claimed a decision nobody had made and the gate
+      opened on it. Now defaults to `undecided`. Found by a test written from §7's own sentence.
+      docs/DECISIONS.md #65.
+- [x] **Minimum viable inventory — quantity and custody, never value.** §7 draws that boundary
+      explicitly, so there is no cost column anywhere on `StockItem` and nothing to total. Every
+      movement is recorded, so `qtyOnHand` is explainable rather than merely current.
+- [x] **An out-of-calibration instrument cannot be drawn.** §7's one hard block, and the only place
+      this build prefers a refusal to a warning: a measurement from an uncalibrated instrument is not
+      a worse number, it is a number with no standing, and it ends up on a service report the
+      customer keeps. An instrument with *no* calibration date is refused too — unknown is not fine.
+- [x] **Custody, because "tools disappear otherwise; this is universal."** Consumables are excluded
+      by construction: chasing a used tube of sealant would train people to ignore the list.
+- [x] **`source = purchase` emits `material.purchase_required`** and the ticket sits blocked until
+      the goods arrive and are issued.
+- [x] **The method statement's lists carry across**, using session 4's `materialRequestSeed` rather
+      than a second reading of the same two columns. §6.2: "Nobody should type the same list twice."
+- [x] Screens: the ticket panel offering all three answers, `/material-requests/[id]`, and `/store`
+      with the custody list first — it is the reason the inventory exists.
+
+**Migrations** `20260816212313_material_request_and_stock` and
+`20260816213721_ticket_materials_undecided`.
+
+**Still to build in module 04:** §8's mobilisation, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
 
@@ -2017,6 +2045,8 @@ offline PWA, §15's checklists, §16's time and installed base, §17's schedulin
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #65: a default must not assert a decision nobody made — `materialRequestStatus`
+  defaulted to `not_applicable`, so every ticket claimed somebody had answered §7's question.
 - docs/DECISIONS.md #64: a test that reads a shared queue establishes that state rather than
   inheriting it — the queue tests broke from the suite growing, not from any change to the queue.
 - docs/DECISIONS.md #62-#63: the company's review pass (a server rule with no way to satisfy it is

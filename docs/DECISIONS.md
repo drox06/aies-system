@@ -2294,3 +2294,46 @@ fails for a reason unrelated to anything anybody edited.
 The first two diagnoses of this were slowed by piping vitest through `tail`, which discards the
 failure detail and leaves only the summary. A green summary read that way is still trustworthy; a red
 one is useless. Capture the whole run.
+
+---
+
+## #65 — A default must not assert a decision nobody made
+
+specs/04-operations-projects.md §7, module 04 session 5.
+
+`Ticket.materialRequestStatus` was declared in session 1 with `@default("not_applicable")`. It read
+as a harmless starting value. It was not: every ticket the system generated claimed that somebody had
+considered whether the job needed materials and answered **no**.
+
+§7 forbids that exact confusion, and says why the middle answer is modelled at all: "`N/A` is a
+legitimate, recorded answer — **not a skipped step**. The record shows someone decided."
+
+A default of `not_applicable` makes the record show a decision that never happened. The gate opened,
+the ticket looked ready to mobilise, and the crew would have discovered the truth at the store — the
+precise failure §7's diamond exists to prevent, produced by the schema rather than by anybody's
+mistake.
+
+### The fix, and the value that was missing
+
+The default is now `undecided`, which is not in §3's status list because §3 assumed the question
+always gets asked. §7 is the section that insists it be recorded *when* it is, and the corollary is a
+value meaning nobody has been asked yet. `materialGate` treats `undecided` as **blocking**: a gate
+that waves through the case nobody has looked at prevents nothing at all.
+
+### The general rule
+
+**A default is an assertion.** `not_applicable`, `approved`, `passed`, `none required` — every one of
+those states a fact about the world, and a column that states it before anybody has looked is lying
+in the direction that opens gates. When there is no safe thing to assert, the default has to be the
+value that means *unanswered*, and the unanswered case has to be the one that blocks.
+
+Two earlier decisions are the same shape from the other side: §5's `cashAdvanceRequired` is a boolean
+because "no" is a decision worth recording (#53's neighbourhood), and #57's photograph rule keeps a
+warning rather than inventing a passed state. This one is where the principle was breached and the
+test caught it.
+
+### It was caught by a test written from the spec's sentence
+
+`material-request.test.ts` asserts that a brand-new ticket reads `undecided`, because §7 says the
+unanswered state must be distinguishable. That assertion failed on the first run against a service
+that was otherwise correct — the bug was a year-old schema default, not the code under test.
