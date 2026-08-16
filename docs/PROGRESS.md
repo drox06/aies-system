@@ -1576,9 +1576,10 @@ gate is built, tested and inert; it starts working the day a term carries a perc
 
 **Migration** `20260816010411_module_03_goods_receipt`.
 
-**State at this stop.** **776 tests** across 83 files pass on a clean run with the dev server
-stopped; typecheck, lint and `build:check` clean. `npm run seed` was run for the two new permissions
-and the `goods_receipt` numbering format.
+**State at this stop.** **794 tests** across 84 files pass on a clean run with the dev server
+stopped; typecheck and lint clean. Everything through the President's corrections is pushed. The
+counters were reset last, so the next documents are `AIESSO-260002`, `AIESPO-260002`,
+`AIESRFQ-260002`, `AIESGRN-260002`, `AIESLQ260003`.
 
 **§7's delivery is deliberately not built.** §7 says a DR request "comes from a delivery ticket
 (module 04 §13), **not from a screen in this module**. A DR is never issued without a ticket to
@@ -1656,6 +1657,35 @@ now emitting the per-line payloads it was promised.
 **The first screen pass has happened** and found two real defects, both routes-between-working-halves
 rather than broken services (see above). More of that kind is likely: eleven routes are built and
 only their loading is asserted.
+
+#### Module 04 session 1 — the ticket, and the proposal that is not automatic
+
+specs/04-operations-projects.md is the largest module in the build: twenty sections, four gates
+(cash advance, material request, QA, warranty), a delivery lane, an offline-first field PWA, digital
+checklists and dispatch scheduling. It is several sessions. Session 1 should be its spine and
+nothing more:
+
+1. **`Ticket` and `Project` (§3)**, plus the link from a ticket to the **specific sales order lines
+   it covers** — §4 requires it so "fulfilment counters and billing milestones stay accurate", and
+   §3's model sketch omits it. A join table rather than an id array, so the reference is real.
+2. **§4's proposal, which is the whole design point of this session.** "The system **proposes**
+   tickets by reading the sales order lines… Operations **confirms or edits** the proposed set
+   before generation. **Do not auto-generate silently — one PO can legitimately be one ticket or
+   eight, and only a human knows which.**" So the proposal is a *pure function* over the order's
+   lines, the generation is a separate confirmed act, and `sales_order.created` produces a proposal
+   to review rather than tickets. Module 03 already emits the per-line `requiresExecution` flags
+   this reads.
+3. **Numbering**: `AIESTKT-{YY}{####}` is seeded already.
+4. **Permissions**: §19's list is long; declare only what session 1 uses. Events likewise —
+   `ticket.generated` and nothing else until something emits it.
+5. **A standalone ticket** (§4's warranty callback, emergency, goodwill visit) with no PO,
+   `billable = false` and a required justification.
+
+**Not session 1:** the four gates, the delivery lane, the PWA, checklists, scheduling. §7's `Project`
+close-out and §16's installed base depend on gates that do not exist yet.
+
+**What this unblocks:** module 03's §7 delivery, which is gated on a delivery ticket existing —
+and with it `sales_order.goods_delivered`, `delivery.dr_signed`, and `po_received → won`.
 
 **Small and still open in module 02:** the line editor shows the raw cost but has no field for the
 FX rate, so a foreign-currency line can only be costed through the RFQ flow today.
