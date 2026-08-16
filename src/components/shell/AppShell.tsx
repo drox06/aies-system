@@ -16,6 +16,9 @@ import {
   Users,
   type LucideIcon,
   CircleCheck,
+  ClipboardList,
+  Package,
+  Truck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/Logo";
@@ -262,6 +265,12 @@ const ICONS: Record<string, LucideIcon> = {
   "file-text": FileText,
   // Module 02 (specs/02-quotation.md).
   "check-circle": CircleCheck,
+  // Module 03 (specs/03-order-procurement.md). `truck` shipped unmapped with the supplier nav entry
+  // in session 1 and rendered the placeholder — the fallback is deliberately quiet, which is
+  // exactly why an unmapped icon can survive a review.
+  truck: Truck,
+  "clipboard-list": ClipboardList,
+  package: Package,
 };
 
 const ICON_SIZE = 20;

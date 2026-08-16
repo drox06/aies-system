@@ -32,14 +32,14 @@ import { RfqDocument, type RfqPdfProps } from "./RfqDocument";
 
 /** Read once per process. The lockup is ~200kB and identical on every quotation. */
 let cachedLogo: string | null = null;
-function logoDataUri(): string {
+export function logoDataUri(): string {
   if (cachedLogo) return cachedLogo;
   const bytes = readFileSync(join(process.cwd(), "public", "brand", "aies-logo-pdf.png"));
   cachedLogo = `data:image/png;base64,${bytes.toString("base64")}`;
   return cachedLogo;
 }
 
-function fmtDate(value: Date | null | undefined): string {
+export function fmtDate(value: Date | null | undefined): string {
   if (!value) return "—";
   // Spec.md §6.6: DD MMM YYYY for display, Asia/Manila fixed.
   return new Intl.DateTimeFormat("en-GB", {
@@ -278,9 +278,13 @@ export async function buildRfqPdfProps(rfqId: string): Promise<RfqPdfProps> {
     include: { lines: { orderBy: { lineNo: "asc" } } },
   });
 
-  const supplier = await db.principalProspect.findUnique({
+  // `rfq.supplierId` points at `Supplier`, not `PrincipalProspect`. It read the prospect table
+  // until module 03 session 2 — a leftover from when appointed principals were the interim answer
+  // to "who do we ask" — so the lookup silently found nothing and every RFQ PDF was addressed to
+  // "Supplier". The relation cutover in session 1 repointed the column and missed this call site.
+  const supplier = await db.supplier.findUnique({
     where: { id: rfq.supplierId },
-    select: { companyName: true, contactName: true },
+    select: { name: true, contactName: true },
   });
   const requester = await db.user.findUnique({
     where: { id: rfq.requestedById },
@@ -293,7 +297,7 @@ export async function buildRfqPdfProps(rfqId: string): Promise<RfqPdfProps> {
     dueBy: rfq.dueBy ? fmtDate(rfq.dueBy) : null,
     company: getCompanyDetails(),
     supplier: {
-      name: supplier?.companyName ?? "Supplier",
+      name: supplier?.name ?? "Supplier",
       contactName: supplier?.contactName ?? null,
     },
     // Any free-text note went into the stored request body when the RFQ was raised, so it is not

@@ -132,8 +132,135 @@ model Supplier {
   /// repointed the RFQs first.
   supplierQuoteRequests SupplierQuoteRequest[]
 
+  /// The orders actually placed with this supplier (§5). This is the relation that makes
+  /// `isApproved` mean something: recording what an unapproved vendor quoted is fine, buying from
+  /// one is what clause 8.4 governs.
+  supplierPOs SupplierPO[]
+
   @@index([isPrincipal, deletedAt])
   @@index([name])
+}
+
+/// What AIES buys, from whom, against which sales order (§5).
+///
+/// §5's shape in one line: "Created from a sales order: select lines → group by supplier → generate
+/// draft POs." One supplier per PO, several POs per sales order — because a single order routinely
+/// sources the meter from Germany, the valves locally and the freight from a forwarder, and each of
+/// those is a separate commitment with its own lead time, currency and approval.
+///
+/// **The landed-cost columns are not decoration.** §5: "freight, duties, brokerage, and bank charges
+/// are captured on the PO header and allocated across lines by value or by weight… Without this,
+/// reported margin is fiction on imported goods." They live on the header because that is how they
+/// are invoiced — one freight bill for a shipment, not a freight line per item.
+model SupplierPO {
+  id     String @id @default(cuid())
+  /// PO-{YY}-{#####}, seeded in prisma/seed.ts since module 00.
+  number String @unique
+
+  supplierId String
+  /// Nullable per §2. Most POs answer a sales order; a stock replenishment answers none, and
+  /// module 04's `material.purchase_required` will raise POs that belong to a job rather than a sale.
+  salesOrderId String?
+
+  poDate   DateTime @default(now())
+  currency String   @default("PHP")
+  /// The rate used to convert this PO into PHP for margin reporting. Stored on the document rather
+  /// than looked up later: the margin was decided at this rate, and a rate that moves afterwards
+  /// must not silently rewrite what the deal was worth. Same rule as `Quotation.fxBufferPct`.
+  fxRate   Decimal  @default(1) @db.Decimal(14, 6)
+
+  subtotal     Decimal @default(0) @db.Decimal(14, 2)
+  freight      Decimal @default(0) @db.Decimal(14, 2)
+  duties       Decimal @default(0) @db.Decimal(14, 2)
+  otherCharges Decimal @default(0) @db.Decimal(14, 2)
+  total        Decimal @default(0) @db.Decimal(14, 2)
+
+  /// draft | pending_approval | approved | sent | acknowledged | partially_received | received |
+  /// cancelled (§2). `partially_received` and `received` are moved by session 3's goods receipt;
+  /// everything up to `acknowledged` is this session's.
+  status String @default("draft")
+
+  expectedShipDate    DateTime?
+  expectedArrivalDate DateTime?
+
+  incoterm     String?
+  /// air | sea | land | courier
+  shipmentMode String?
+  trackingRef  String?
+  /// The supplier's own order number, as they refer to it. Every follow-up call quotes theirs, not
+  /// ours, and without this the call starts by asking them to look it up.
+  supplierRef  String?
+
+  approvedById String?
+  approvedAt   DateTime?
+  sentAt       DateTime?
+  /// §5: "Track supplier acknowledgement by hand. No automated supplier email in v1."
+  acknowledgedAt DateTime?
+
+  /// §4's gate, and the fact that somebody overrode it. Stored on the PO because the question asked
+  /// at an audit is about *this order* — "why was this placed before the customer paid" — and an
+  /// audit-log-only record makes that a search rather than a glance.
+  downpaymentOverrideById     String?
+  downpaymentOverrideAt       DateTime?
+  downpaymentOverrideReason   String?
+  /// The same, for buying from a supplier that clause 8.4 has not approved.
+  unapprovedSupplierOverrideBy     String?
+  unapprovedSupplierOverrideReason String?
+
+  notes String?
+
+  version Int @default(0)
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedBy   String?
+
+  supplier   Supplier         @relation(fields: [supplierId], references: [id])
+  salesOrder SalesOrder?      @relation(fields: [salesOrderId], references: [id])
+  lines      SupplierPOLine[]
+
+  @@index([supplierId, status])
+  @@index([salesOrderId])
+  @@index([status, expectedArrivalDate])
+}
+
+/// A line of a supplier order (§2).
+///
+/// `salesOrderLineId` is what makes the expediting view answerable: §5 wants "all open supplier POs
+/// with expected arrival, days late, **and the customer commitment they support**". Without the link
+/// back, procurement can say a shipment is late and nobody can say whose delivery it delays.
+model SupplierPOLine {
+  id           String @id @default(cuid())
+  supplierPOId String
+  lineNo       Int
+
+  salesOrderLineId String?
+
+  productId    String?
+  description  String
+  manufacturer String?
+  modelNumber  String?
+
+  quantity Decimal @default(1) @db.Decimal(14, 3)
+  unit     String  @default("pc")
+  unitCost Decimal @default(0) @db.Decimal(14, 2)
+  /// quantity × unitCost, before the header charges. The allocated landed cost is derived at read
+  /// time rather than stored, so changing the freight on the header cannot leave stale line values
+  /// behind — see `allocateLandedCost` in supplier-po-rules.ts.
+  lineTotal Decimal @default(0) @db.Decimal(14, 2)
+
+  qtyReceived  Decimal @default(0) @db.Decimal(14, 3)
+  leadTimeDays Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supplierPO SupplierPO @relation(fields: [supplierPOId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierPOId, lineNo])
+  @@index([salesOrderLineId])
 }
 
 /// The obligation (§2), and the module's centre of gravity.
@@ -200,8 +327,9 @@ model SalesOrder {
   account    CustomerAccount  @relation(fields: [accountId], references: [id])
   site       Site?            @relation(fields: [siteId], references: [id])
   quotation  Quotation        @relation(fields: [quotationId], references: [id])
-  customerPO CustomerPO       @relation(fields: [customerPOId], references: [id])
-  lines      SalesOrderLine[]
+  customerPO  CustomerPO       @relation(fields: [customerPOId], references: [id])
+  lines       SalesOrderLine[]
+  supplierPOs SupplierPO[]
 
   @@index([accountId, status])
   @@index([ownerId, status])

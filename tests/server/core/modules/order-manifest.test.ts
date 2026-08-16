@@ -25,9 +25,26 @@ describe("order manifest", () => {
       "sales_order.edit",
       "sales_order.close",
       "sales_order.cancel",
+      "supplier_po.create",
+      "supplier_po.approve",
+      "procurement.override_downpayment_gate",
     ]) {
       expect(declared, `§10 requires ${key}`).toContain(key);
     }
+  });
+
+  it("keeps buying and approving apart, and the override narrower still", () => {
+    const roles = (key: string) =>
+      orderManifest.permissions.find((p) => p.key === key)?.defaultRoles ?? [];
+
+    // §5 puts an approval between raising the customer's order and committing AIES's money, so
+    // sales is deliberately not granted `supplier_po.create`.
+    expect(roles("supplier_po.create")).not.toContain("sales");
+    expect(roles("supplier_po.create")).toContain("admin_manager");
+    // §5: "the Vice President approves supplier POs."
+    expect(roles("supplier_po.approve")).toEqual(["president", "vice_president"]);
+    // §4's override is the officers' alone.
+    expect(roles("procurement.override_downpayment_gate")).toEqual(["president", "vice_president"]);
   });
 
   it("keeps approving a supplier narrower than maintaining the directory", () => {
@@ -55,14 +72,24 @@ describe("order manifest", () => {
     expect(orderManifest.emits).toContain("customer_po.received");
   });
 
+  it("emits §5's procurement events now that something emits them", () => {
+    // These were deliberately absent in session 1 and are declared here in the same change that
+    // emits them — the rule this manifest follows is that `emits` describes reality.
+    expect(orderManifest.emits).toContain("supplier_po.created");
+    expect(orderManifest.emits).toContain("supplier_po.sent");
+    expect(orderManifest.emits).toContain("supplier_po.approved");
+  });
+
   it("does not declare events nothing can emit yet", () => {
     // §9 lists nine events for the finished module. The registry rejects a subscription to an event
     // nothing emits, so declaring `goods.received` before anything can receive goods would let a
     // later module subscribe to something that never fires — worse than a boot error, because it
-    // fails silently. When sessions 2 and 3 land, this pin names the work.
+    // fails silently. When session 3 lands, this pin names the work.
     expect(orderManifest.emits).not.toContain("goods.received");
-    expect(orderManifest.emits).not.toContain("supplier_po.issued");
-    expect(orderManifest.emits).not.toContain("delivery.completed");
+    expect(orderManifest.emits).not.toContain("goods.rejected");
+    expect(orderManifest.emits).not.toContain("sales_order.goods_delivered");
+    // §4's downpayment event needs module 05's `PaymentTerm` to have a percentage on it.
+    expect(orderManifest.emits).not.toContain("downpayment.required");
   });
 
   it("consumes principal.appointed — §5c's conversion, finally wired", () => {
@@ -82,6 +109,21 @@ describe("order manifest", () => {
   it("shows /suppliers only to somebody who may maintain the directory", () => {
     expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/suppliers");
     expect(visibleNavFor(new Set(["supplier.manage"])).map((e) => e.href)).toContain("/suppliers");
+  });
+
+  it("gates the sales order and procurement entries on their own permissions", () => {
+    const none = visibleNavFor(new Set<string>()).map((e) => e.href);
+    expect(none).not.toContain("/sales-orders");
+    expect(none).not.toContain("/procurement");
+
+    // Everybody who touches the obligation sees sales orders; only a buyer sees procurement.
+    const viewer = visibleNavFor(new Set(["sales_order.view"])).map((e) => e.href);
+    expect(viewer).toContain("/sales-orders");
+    expect(viewer).not.toContain("/procurement");
+
+    expect(visibleNavFor(new Set(["supplier_po.create"])).map((e) => e.href)).toContain(
+      "/procurement",
+    );
   });
 });
 

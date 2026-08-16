@@ -1398,6 +1398,11 @@ is seeded from, which is what it already is in everything but storage.
 Notes for whoever picks this up:
   - **Never pass a real database URL as `--shadow-database-url`.** Prisma wipes it. docs/
     DECISIONS.md #24.
+  - **`prisma migrate dev` offering to reset the schema is not proof that anything is wrong with it.**
+    It says "all data will be lost" for any checksum disagreement, including a rolled-back row left
+    by `migrate resolve --rolled-back` and a CRLF→LF normalisation by `git add`. Run
+    `npx tsx scripts/check-migration-checksums.ts` first; `--fix` repairs those two cases and refuses
+    everything else. docs/DECISIONS.md #44.
   - Use **`npm run build:check`**, not `npm run build`, while a dev server is running.
     docs/DECISIONS.md #17.
   - **Never use `Promise.all` inside a Prisma interactive transaction** — one connection, and the
@@ -1488,18 +1493,59 @@ rejected now that it is a foreign key. The fixture was fixed to create real supp
 constraint relaxed: the whole promise of §5c is that an appointed principal has a supplier record,
 and a link to a fictional one keeps the letter of the rule while breaking the point of it.
 
-**Still to build in module 03:** the supplier PO (§4) with the clause 8.4 gate on it, goods receipt
-(§5), delivery (§6), and the §1 fan-out into finance and operations. `po_received → won` is still
-system-set with nothing setting it — a received PO is not a delivered job, and that becomes decidable
-once delivery exists.
+### Session 2 — §4's downpayment gate and §5's supplier PO
+
+- [x] **`SupplierPO` and `SupplierPOLine`**, with the landed-cost columns §5 insists on and the two
+      override records §4 asks for.
+- [x] **§5's "select lines → group by supplier → generate draft POs"** — one call, one PO per
+      distinct supplier. Costs default from the sales order line, which carries the quotation's cost,
+      which came from the supplier quote.
+- [x] **Both gates, at send, both overridable with a reason by an officer, neither silent.**
+      docs/DECISIONS.md #42. This is where session 1's clause 8.4 approval finally stops something.
+- [x] **§5's approval through the generic engine** — one step, no conditions, its own
+      `ApprovalRule` key. No `if (total > x)` and no role name in a conditional, the same shape
+      module 02 §6 uses. The rule row is created on first use as well as seeded, because relying on
+      the seed alone means an un-reseeded database throws a raw Prisma error on the approve button.
+- [x] **§5's landed cost**, allocated by value in integer centavos with the remainder to the largest
+      line, so it sums exactly to the charge. docs/DECISIONS.md #43.
+- [x] **The branded PO PDF and the draft email text** (§5's "issue manually"), with the customer's
+      name and the landed total deliberately absent from both.
+- [x] **§5's expediting view** at `/procurement`: every open commitment, days late, and whose
+      delivery it holds up.
+- [x] **`/sales-orders` and `/sales-orders/[id]`** — closing session 1's own dead end, where
+      `listSalesOrders` and `getSalesOrder` existed with no route to them. The record shows §1's
+      three workstreams as three blocks, and §4's gate indicator "so nobody has to ask finance in a
+      chat app".
+- [x] Fixed two things found on the way: the RFQ PDF had been resolving its supplier through
+      `PrincipalProspect` since the session 1 cutover and so addressed every document to "Supplier";
+      and the sidebar's `truck` icon was never added to `AppShell`'s map, so the suppliers entry has
+      been rendering a blank placeholder since session 1.
+
+**Migration** `20260816000130_module_03_supplier_po`.
+
+**Still to build in module 03:** goods receipt (§6) with its mandatory incoming inspection, delivery
+(§7), and the §1 fan-out into finance and operations. `po_received → won` is still system-set with
+nothing setting it — a received PO is not a delivered job, and that becomes decidable once delivery
+exists.
+
+**State at this stop.** **734 tests** across 81 files pass on a clean run with the dev server
+stopped; typecheck, lint and `build:check` clean. `npm run seed` was run, because the three new
+permissions and the `supplier_po.approve` rule only reach the database through it — a manifest
+permission that never reaches the seed leaves every procedure gated on it permanently 403 with
+nothing visibly wrong.
+
+**Deliberately not built:** `downpayment.required` is not emitted and `financeStatus` still starts at
+`not_required`, because `PaymentTerm.downpaymentPct` is module 05's and there is nothing to read. The
+gate is built, tested and inert; it starts working the day a term carries a percentage.
 
 ## Not started
 - [ ] Modules 04–10
-- [ ] Module 03 sessions 2 and 3 — supplier PO, goods receipt, delivery, and the finance and
-      operations fan-out. Their permissions are already declared in the manifest, deliberately: §10
-      lists them, and a permission that appears later means a role assignment that has to be redone.
-      Their *events* are deliberately **not** declared, because the registry accepts a subscription to
-      any declared event and a subscriber to something nothing emits fails silently.
+- [ ] Module 03 session 3 — goods receipt with its mandatory ISO 9001 clause 8.4.2 incoming
+      inspection, delivery receipts, and the finance and operations fan-out. `goods_receipt.*` and
+      `delivery.create` are **not** yet declared in the manifest, and neither are their events: a
+      permission that appears later means a role assignment that has to be redone, but an *event*
+      declared before anything emits it lets a later module subscribe to something that never fires,
+      which fails silently. Declare each in the change that emits it.
 
 ## Decisions made this module
 - docs/DECISIONS.md #1-#3: session 1 (local DB deferred → real Supabase dev project instead;
@@ -1519,6 +1565,11 @@ once delivery exists.
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #42-#44: module 03 session 2 (both procurement gates refuse by default and can
+  be overridden by an officer with a reason, never silently, and never at draft time; the supplier PO
+  prints the goods total rather than the landed total, and allocation rounds in integer centavos with
+  the remainder to the largest line; a rolled-back migration row can make `prisma migrate dev` offer
+  to destroy the database, and `scripts/check-migration-checksums.ts` exists so that is diagnosable).
 - docs/DECISIONS.md #39-#41: module 03 session 1 (§3's check reports everything and blocks almost
   nothing — currency and an unquoted line, and nothing else; the sales order copies the quotation
   lines rather than referencing them, because the obligation is to what was ordered on the day;
@@ -1556,12 +1607,15 @@ and function; nobody has judged how they *look*.
   show red.
 - The redesigned `/login`, `/change-password` and `/enroll-totp` screens carrying the full-colour
   lockup on a light ground. Markup verified by `curl`; appearance not.
-- **Module 03's two new surfaces**: `/suppliers` (table, create form, record panel with the clause
-  8.4 control) and the three-way-check block on the quotation record. `/suppliers` is in the e2e
-  sweep, so it loads and renders its heading; the check block is not, because reaching it needs a
-  quotation with a recorded PO and the suite must not create one. Its server side has sixteen tests
-  against the real database. **The findings list, the quantity boxes and the two-step verify → raise
-  flow have not been looked at on screen.**
+- **Module 03's surfaces**: `/suppliers`, `/sales-orders`, `/sales-orders/[id]`, `/procurement`,
+  `/procurement/[id]`, and the three-way-check block on the quotation record. The three list screens
+  are in the e2e sweep, so they load and render their headings; the record screens and the check
+  block are not, because reaching them needs a quotation with a recorded PO and the suite must not
+  create one. Their server sides have 71 tests against the real database. **Nobody has looked at the
+  gate block, the per-line supplier picker, the landed-cost column or the expediting table on
+  screen.**
+- **The supplier PO PDF** was verified by asserting its assembled props — no PDF renderer exists in
+  this environment, the same limit module 02's documents have.
 - `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the
   `self-host-fallback` CI job is its first real run.
 

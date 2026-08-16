@@ -108,6 +108,32 @@ export const orderManifest = defineManifest({
       group: "Orders",
       defaultRoles: ["president", "vice_president"],
     },
+    // ---- §5's procurement permissions ----------------------------------------------------------
+    {
+      key: "supplier_po.create",
+      label: "Raise and edit supplier purchase orders",
+      group: "Orders",
+      // PD does the buying. Sales is deliberately absent: raising the customer's order and
+      // committing AIES's money are different jobs, and §5 puts an approval between them.
+      defaultRoles: ["president", "vice_president", "admin_manager", "operations_manager"],
+    },
+    {
+      key: "supplier_po.approve",
+      label: "Approve a supplier purchase order",
+      group: "Orders",
+      // §5: "the Vice President approves supplier POs, matching quotation approval." The President
+      // is here as the fallback Spec.md §4.4 gives every approval, resolved from the rule rather
+      // than from this list.
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
+      key: "procurement.override_downpayment_gate",
+      label: "Order before the customer's downpayment has arrived",
+      group: "Orders",
+      // §4: the override "happens in real life, and pretending otherwise means people work around
+      // the system instead of through it". Narrow, and it always writes a reason.
+      defaultRoles: ["president", "vice_president"],
+    },
   ],
 
   /**
@@ -120,7 +146,17 @@ export const orderManifest = defineManifest({
    * goods would let a later module subscribe to something that never fires, which is worse than a
    * boot error.
    */
-  emits: ["customer_po.received", "sales_order.created"],
+  emits: [
+    "customer_po.received",
+    "sales_order.created",
+    // §5's procurement events. `supplier_po.approved` is not in §9's list and is emitted anyway:
+    // §9 names the nine events *other modules* need, and this one is what module 05 will read to
+    // know a commitment exists before the invoice does. Declared because it is emitted — the rule
+    // this manifest follows is that `emits` describes reality, not intentions.
+    "supplier_po.created",
+    "supplier_po.approved",
+    "supplier_po.sent",
+  ],
 
   /**
    * §5c's promise, finally kept: "On `stage = appointed`, the prospect converts into a `Supplier`
@@ -154,6 +190,25 @@ export const orderManifest = defineManifest({
   ],
 
   nav: [
+    {
+      label: "Sales orders",
+      href: "/sales-orders",
+      icon: "clipboard-list",
+      permission: "sales_order.view",
+      // Immediately after the quotation block: a sales order is what a won quotation becomes, and
+      // it is the screen procurement, finance and operations all start from.
+      order: 28,
+    },
+    {
+      label: "Procurement",
+      href: "/procurement",
+      icon: "package",
+      permission: "supplier_po.create",
+      // §5's expediting view. Its own entry rather than a tab on sales orders, because the question
+      // it answers — "what is late, and whose delivery does it delay?" — is asked across every
+      // order at once.
+      order: 29,
+    },
     {
       label: "Suppliers",
       href: "/suppliers",

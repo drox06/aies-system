@@ -131,6 +131,11 @@ const APPROVAL_RULES: ApprovalRuleSeed[] = [
     escalateAfterHours: 24,
   },
   { key: "payment_terms.approve", label: "Payment terms change approval", escalateAfterHours: 24 },
+  // specs/03-order-procurement.md §5: "the Vice President approves supplier POs, matching quotation
+  // approval." A separate key from `quotation.approve` though both resolve to the VP today — they
+  // are decisions about different risks (a price AIES will charge, money AIES will spend), and
+  // sharing a key would mean routing spending elsewhere silently moved quotation approval with it.
+  { key: "supplier_po.approve", label: "Supplier PO approval", escalateAfterHours: 24 },
 ];
 
 /**

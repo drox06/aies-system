@@ -13,6 +13,23 @@ import {
   listSalesOrdersService,
   verifyCustomerPoService,
 } from "@/server/core/order/sales-order-service";
+import { buildSupplierPoEmailText } from "@/server/core/order/pdf/render";
+import {
+  decideSupplierPoApprovalService,
+  getSupplierPoApprovalStateService,
+  submitSupplierPoForApprovalService,
+} from "@/server/core/order/supplier-po-approval";
+import {
+  acknowledgeSupplierPoService,
+  cancelSupplierPoService,
+  createSupplierPosFromSalesOrderService,
+  getSupplierPoService,
+  listStaleCostsForSalesOrderService,
+  listSupplierPosService,
+  sendSupplierPoService,
+  supplierPoGatesService,
+  updateSupplierPoService,
+} from "@/server/core/order/supplier-po-service";
 import {
   getSupplierService,
   listSuppliersService,
@@ -189,4 +206,142 @@ export const orderRouter = router({
   getSalesOrder: p("sales_order.view")
     .input(z.object({ salesOrderId: z.string() }))
     .query(({ ctx, input }) => getSalesOrderService(ctx.user, input.salesOrderId)),
+
+  // ---- §5's supplier PO -------------------------------------------------------------------------
+
+  /**
+   * §5: "select lines → group by supplier → generate draft POs." One call, one PO per supplier.
+   */
+  createSupplierPos: p("supplier_po.create")
+    .input(
+      z.object({
+        salesOrderId: z.string(),
+        lines: z.array(
+          z.object({
+            salesOrderLineId: z.string(),
+            supplierId: z.string(),
+            unitCost: z.string().optional(),
+            quantity: z.string().optional(),
+          }),
+        ),
+        expectedArrivalDate: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createSupplierPosFromSalesOrderService(actorMeta(ctx), input)),
+
+  updateSupplierPo: p("supplier_po.create")
+    .input(
+      z.object({
+        supplierPOId: z.string(),
+        // §12's optimistic lock. Required, not optional: an optional version lets a caller opt out
+        // of the lock by omitting it.
+        version: z.number().int().nonnegative(),
+        poDate: z.coerce.date().optional(),
+        fxRate: z.string().optional(),
+        freight: z.string().optional(),
+        duties: z.string().optional(),
+        otherCharges: z.string().optional(),
+        expectedShipDate: z.coerce.date().nullish(),
+        expectedArrivalDate: z.coerce.date().nullish(),
+        incoterm: z.string().nullish(),
+        shipmentMode: z.enum(["air", "sea", "land", "courier"]).nullish(),
+        trackingRef: z.string().nullish(),
+        supplierRef: z.string().nullish(),
+        notes: z.string().nullish(),
+        lines: z
+          .array(
+            z.object({
+              description: z.string().min(1),
+              manufacturer: z.string().nullish(),
+              modelNumber: z.string().nullish(),
+              quantity: z.string(),
+              unit: z.string().optional(),
+              unitCost: z.string(),
+              leadTimeDays: z.number().int().positive().nullish(),
+              salesOrderLineId: z.string().nullish(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updateSupplierPoService(actorMeta(ctx), input)),
+
+  getSupplierPo: p("supplier_po.create")
+    .input(z.object({ supplierPOId: z.string() }))
+    .query(({ input }) => getSupplierPoService(input.supplierPOId)),
+
+  listSupplierPos: p("supplier_po.create")
+    .input(
+      z
+        .object({
+          salesOrderId: z.string().optional(),
+          supplierId: z.string().optional(),
+          status: z.string().optional(),
+          openOnly: z.boolean().optional(),
+          search: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => listSupplierPosService(input ?? {})),
+
+  /** Both gates, evaluated without writing — so the screen agrees with what `send` enforces. */
+  supplierPoGates: p("supplier_po.create")
+    .input(z.object({ supplierPOId: z.string() }))
+    .query(({ input }) => supplierPoGatesService(input.supplierPOId)),
+
+  /** §5's stale-cost warning, reported rather than enforced. */
+  staleCostsForSalesOrder: p("supplier_po.create")
+    .input(z.object({ salesOrderId: z.string() }))
+    .query(({ input }) => listStaleCostsForSalesOrderService(input.salesOrderId)),
+
+  submitSupplierPoForApproval: p("supplier_po.create")
+    .input(z.object({ supplierPOId: z.string() }))
+    .mutation(({ ctx, input }) => submitSupplierPoForApprovalService(actorMeta(ctx), input)),
+
+  decideSupplierPoApproval: p("supplier_po.approve")
+    .input(
+      z.object({
+        supplierPOId: z.string(),
+        decision: z.enum(["approved", "rejected"]),
+        comment: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => decideSupplierPoApprovalService(actorMeta(ctx), ctx.user, input)),
+
+  supplierPoApprovalState: p("supplier_po.create")
+    .input(z.object({ supplierPOId: z.string() }))
+    .query(({ ctx, input }) => getSupplierPoApprovalStateService(ctx.user, input.supplierPOId)),
+
+  /**
+   * §5: "Issue manually… a person sends it and marks it sent." Both gates bite here, and the
+   * override reasons are separate because an auditor asks the two questions separately.
+   */
+  sendSupplierPo: p("supplier_po.create")
+    .input(
+      z.object({
+        supplierPOId: z.string(),
+        downpaymentOverrideReason: z.string().nullish(),
+        unapprovedSupplierOverrideReason: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => sendSupplierPoService(actorMeta(ctx), ctx.user, input)),
+
+  acknowledgeSupplierPo: p("supplier_po.create")
+    .input(
+      z.object({
+        supplierPOId: z.string(),
+        supplierRef: z.string().nullish(),
+        expectedArrivalDate: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => acknowledgeSupplierPoService(actorMeta(ctx), input)),
+
+  cancelSupplierPo: p("supplier_po.create")
+    .input(z.object({ supplierPOId: z.string(), reason: z.string().min(3) }))
+    .mutation(({ ctx, input }) => cancelSupplierPoService(actorMeta(ctx), input)),
+
+  /** §5's second artefact: the draft email a person pastes into their mail client. */
+  supplierPoEmailText: p("supplier_po.create")
+    .input(z.object({ supplierPOId: z.string() }))
+    .query(({ input }) => buildSupplierPoEmailText(input.supplierPOId)),
 });

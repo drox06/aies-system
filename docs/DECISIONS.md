@@ -1440,3 +1440,97 @@ fresh directory as failure would make the screen read as broken.
 A principal appointed under §5c arrives **already approved**, with the expiry following the
 distributor agreement's. An appointment means the agreement was signed and the officers weighed it,
 which is the evidence clause 8.4 asks for; and a lapsed agreement should lapse the approval with it.
+
+## 42. Both procurement gates refuse by default and can be overridden — never silently
+
+**Module:** 03. **From:** specs/03-order-procurement.md §4 and §5, and ISO 9001 clause 8.4.
+
+Two separate refusals stand between a supplier PO and the outside world: the customer's downpayment
+has not arrived (§4), and the supplier is not approved to buy from (clause 8.4, built in session 1
+and gating nothing until now). §4 says exactly why neither is absolute:
+
+> The `president` or `vice_president` may override with a logged reason — **this happens in real
+> life, and pretending otherwise means people work around the system instead of through it.**
+
+That sentence is the whole design. A gate that cannot be passed gets passed anyway — on WhatsApp, by
+a PO raised outside the system, by a phone call — and then the system is not merely bypassed, it is
+*wrong*, because it now shows an order that does not exist. So the gates are:
+
+- **Checked at send, not at draft creation.** A draft is somebody working out what to buy; the
+  commitment is the send. Blocking the draft would stop procurement preparing while finance chases
+  the money, which helps nobody.
+- **Separately overridable, with separate reasons.** They answer different questions — "why did we
+  buy before the customer paid" and "why did we buy from an unapproved vendor" — and an auditor asks
+  them separately. One blanket "override" flag would collapse two answers into none.
+- **Written to the record *and* the audit log.** The log is the evidence; the column is what the next
+  person to open the PO reads. §11 asks only for the log; the column is the addition, because a
+  reason nobody can find while looking at the order is a reason nobody reads.
+- **Demanding of more than three characters.** Other reasons in this build accept three. This one
+  requires ten, because "urgent" explains nothing and this sentence is read years later by somebody
+  who was not in the room.
+
+**The downpayment gate reads `financeStatus`, not a payment record.** Module 05 owns payments and
+will move that column; module 03 owns the column. The dependency runs downward, there is no second
+mechanism to reconcile, and the gate is already correct on the day payments exist.
+
+**Today the downpayment gate is inert, and honestly so.** `PaymentTerm` is module 05's, so every
+sales order is created with `downpaymentPct = 0` and the gate reports "not required" — which is it
+working, not it failing. The blocking path is tested by setting the column directly, which is exactly
+what module 05 will do.
+
+## 43. The supplier PO prints the goods total, not the landed total
+
+**Module:** 03. **From:** specs/03-order-procurement.md §5.
+
+§5 asks for freight, duties, brokerage and bank charges on the PO header, "allocated across lines by
+value or by weight… **Without this, reported margin is fiction on imported goods.**"
+
+They are captured, allocated and shown on the AIES-facing screen. They are **not** on the document
+that goes to the supplier, and that is deliberate: those are AIES's own costs of getting the goods
+here, not part of what this supplier is owed. Printing them on their order invites them to quote
+against a number that is not theirs. The document shows the subtotal; the record shows the landed
+cost.
+
+Allocation is **by value only**. Weight is not captured on any line, and inventing a weight column
+nobody fills would give module 09 a second allocation basis that is always empty.
+
+**The rounding is the whole difficulty.** ₱1,000 of freight across three equal lines gives 333.33
+three times and loses a centavo, and a centavo lost per shipment is a margin report that never quite
+reconciles — worse than a visible error, because nobody can find it. So allocation happens in integer
+centavos, shares are floored, and **the remainder goes to the largest line**: the sum is exact and
+the residue lands where it is proportionally smallest. Ties break on the lowest line number so two
+runs over the same PO can never differ.
+
+Allocation is **derived at read time, never stored**. Changing the freight on the header would
+otherwise leave stale per-line values behind, and the stale one is the one module 09 would report.
+
+## 44. A rolled-back migration row can make Prisma offer to destroy your database
+
+**Module:** 03, but it is a standing hazard.
+
+`npx prisma migrate dev` answered a request to create a new migration with:
+
+> The migration `20260815140000_module_03_supplier_sales_order` was modified after it was applied.
+> We need to reset the "public" schema… **All data will be lost.**
+
+Nothing had been modified. That migration failed once on a UTF-8 BOM that PowerShell redirection had
+written into the file, was resolved with `migrate resolve --rolled-back`, had the BOM stripped, and
+applied cleanly. But **`migrate resolve --rolled-back` retains the failed row**, carrying the
+checksum of the file *as it was when it failed*. So `_prisma_migrations` held two rows for one
+migration, one of which can never match the file again. `migrate dev` compares by name, found the
+stale one, and offered the nuclear option.
+
+The first diagnostic missed it, because it built a `Map` keyed by migration name and the successful
+row overwrote the rolled-back one — a reminder that a lookup which silently keeps the last duplicate
+is a lookup that hides the case you are debugging.
+
+`scripts/check-migration-checksums.ts` exists so this is diagnosable rather than guessed at. It
+prints **every** row per migration, and `--fix` repairs only the two harmless cases: a
+line-endings-only difference (`git add` normalises CRLF to LF, so the file Prisma hashed at apply
+time is no longer the file on disk), and a rolled-back row whose checksum describes an attempt that
+never applied. It refuses to touch a migration whose SQL genuinely changed after a successful apply,
+because re-recording that checksum would bury a real problem.
+
+**The rule: never answer a checksum complaint with `migrate reset` against a database holding real
+work.** Diagnose first. The schema was never in question here — only a fingerprint on a row
+describing something that never happened.
