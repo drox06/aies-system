@@ -1317,16 +1317,16 @@ The company asked what should be done about each of the four risks this file had
 
 **Migration** `20260815130136_recovery_codes`: one `RecoveryCode` table.
 
-### Next concrete step
+### Where module 02 handed over
 
-**Module 03 — Customer PO, Sales Order, Procurement and Delivery.**
+*Historical. Module 03 is under way — see its own section below for where the build actually is.*
 
-Its opening act is already in place: `CustomerPO`, its manifest and `customer_po.received` were
-pulled forward in session 3 for the pipeline's Received PO column, and module 02 already reacts to
-that event by marking a quotation `accepted`. What specs/03-order-procurement.md adds is the rest of
-§2's models — `SalesOrder`, `SalesOrderLine`, `Supplier`, `SupplierPO`, `GoodsReceipt` — and §1's
-fan-out into finance, procurement and operations, which it is explicit should be **independent
-workstreams rather than one status chain**.
+Module 03's opening act was already in place when module 02 closed: `CustomerPO`, its manifest and
+`customer_po.received` were pulled forward in session 3 for the pipeline's Received PO column, and
+module 02 already reacts to that event by marking a quotation `accepted`. What
+specs/03-order-procurement.md adds is the rest of §2's models — `SalesOrder`, `SalesOrderLine`,
+`Supplier`, `SupplierPO`, `GoodsReceipt` — and §1's fan-out into finance, procurement and
+operations, which it is explicit should be **independent workstreams rather than one status chain**.
 
 Two things to carry in:
 
@@ -1348,9 +1348,9 @@ quotation), and the review gate above has been run.
 by server tests and a clean production build, not on screen — all three sit behind the TOTP login.
 The RFQ PDF was rendered from a throwaway record and its props asserted.
 
-**State at this stop.** Working tree clean, tagged `module-02-complete`. **628 tests** across 74
-files pass on a clean run with the dev server stopped; lint and typecheck clean. Everything is ahead of `origin/main` and
-**unpushed** — push it, or don't, but know that it is only on this machine.
+**State when module 02 closed.** Working tree clean, tagged `module-02-complete`. **628 tests**
+across 74 files passed on a clean run with the dev server stopped; lint and typecheck clean. It was
+unpushed at the time; everything through module 03 session 2 is now on `origin/main`.
 
 Module 02 is finished, sessions 3 and 4 both: §6's approval and its queue, §7's auto-expire, the
 working-hours fallback window, §3's supplier RFQ, §8's negotiation and what-if, §9's reuse and
@@ -1537,6 +1537,35 @@ nothing visibly wrong.
 **Deliberately not built:** `downpayment.required` is not emitted and `financeStatus` still starts at
 `not_required`, because `PaymentTerm.downpaymentPct` is module 05's and there is nothing to read. The
 gate is built, tested and inert; it starts working the day a term carries a percentage.
+
+### Next concrete step — module 03 session 3
+
+**Goods receipt (§6), delivery (§7), and the point where a sale becomes finished.**
+
+1. **`GoodsReceipt` and `GoodsReceiptLine`, with the inspection built in rather than bolted on.**
+   §6 is unambiguous: "**Incoming inspection is required** (ISO 9001 clause 8.4.2)… quantity check,
+   damage check, documentation check (test certificates, calibration certificates, datasheets,
+   warranty), and photos." A receipt that can reach `accepted` without one would let unchecked goods
+   into stock, which is the failure the clause exists to prevent — so the accept path has to demand
+   it, the way `verifyCustomerPoService` demands a reason.
+2. **The counters, and §11's named test.** "Partial receipt then partial delivery keeps
+   `qtyOrdered/Received/Delivered` consistent; **over-receipt and over-delivery are rejected**."
+   Those three columns already exist on `SalesOrderLine` and nothing has moved them yet. The
+   arithmetic belongs in a pure rules file so the over-receipt refusal is testable without a
+   database.
+3. **`DeliveryReceipt` and `DeliveryReceiptLine`** (§7). This module owns the *document*; module 04
+   owns the delivery *execution*, so the split has to be kept — building a scheduling concept here
+   would give module 04 something to reconcile.
+4. **The events, each declared in the change that emits it**: `goods.received`, `goods.rejected`,
+   `sales_order.goods_delivered`, `sales_order.completed`, `sales_order.closed`. None of them is in
+   the manifest yet, deliberately.
+5. **`po_received → won` finally becomes decidable.** It has been system-set with nothing setting it
+   since module 01. A received PO is not a delivered job; a delivered one is.
+
+**Deferred with a reason, not forgotten:** §6 says rejected quantities "auto-raise an NCR (module 08)
+against the supplier and a return-to-supplier task". Module 08 does not exist. Record the rejection
+and its reason on the receipt line; do not invent an NCR model here for module 08 to reconcile —
+the same trap the ISO 8.4 supplier register and `PaymentTerm` were both kept out of.
 
 ## Not started
 - [ ] Modules 04–10
