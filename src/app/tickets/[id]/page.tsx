@@ -7,6 +7,7 @@ import { CashAdvancePanel } from "./CashAdvancePanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { MaterialPanel } from "./MaterialPanel";
 import { MethodologyPanel } from "./MethodologyPanel";
+import { MobilizationPanel } from "./MobilizationPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -181,6 +182,9 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             methodologyId={null}
           />
 
+          {/* Last, because it reads all three gates above rather than asking again. */}
+          <MobilizationPanel ticketId={data.id} />
+
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>
             {/*
@@ -189,8 +193,9 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             */}
             <ul className="mt-2 space-y-1.5 text-sm text-text-muted">
               <li>
-                <span className="font-medium text-text">Mobilisation and execution</span> — §8,
-                which will read the three gates above rather than asking again.
+                <span className="font-medium text-text">Daily progress and standby</span> —
+                §8&rsquo;s execution half: steps completed against the method statement, and delay
+                cause codes.
               </li>
               <li>
                 <span className="font-medium text-text">QA, testing and close-out</span> — §9 to
@@ -198,8 +203,7 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
               </li>
             </ul>
             <p className="mt-2 text-xs text-text-muted">
-              Neither is built yet. Both gates before mobilisation are, which is the half that stops
-              a wasted day.
+              Neither is built yet. Everything up to the crew arriving on site is.
             </p>
           </Card>
 

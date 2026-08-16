@@ -5,9 +5,10 @@ import { defineManifest } from "@/server/core/module-registry";
  *
  * The largest module in the build: four gates, a delivery lane, an offline-first field application,
  * digital checklists and dispatch scheduling. Three sessions are in: §4's ticket and proposal, §5's
- * cash advance gate, §6.1's site inspection, §6.2's methodology and §7's material request.
+ * cash advance gate, §6.1's site inspection, §6.2's methodology, §7's material request and
+ * §8's mobilisation.
  *
- * §19 lists thirty permissions for the finished module; sixteen are here, because nine gate something.
+ * §19 lists thirty permissions for the finished module; seventeen are here, because nine gate something.
  * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
  * by tests/server/core/modules/permissions-are-used.test.ts. A permission declared ahead of its gate
  * sits in the admin role screen granting access to nothing; somebody assigns it and wonders why
@@ -33,6 +34,7 @@ export const operationsManifest = defineManifest({
     "MaterialRequestLine",
     "StockItem",
     "StockMovement",
+    "Mobilization",
   ],
 
   permissions: [
@@ -204,6 +206,14 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "admin_manager", "operations_manager"],
     },
     {
+      key: "ticket.dispatch",
+      label: "Send a crew to site, and record their return",
+      group: "Operations",
+      // §19. Dispatching is DJ's, and the officers'. Deliberately not the technician being sent —
+      // §8's readiness check is only worth having if somebody other than the crew signs it off.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
       key: "operations.override_methodology_gate",
       label: "Mobilize before the client has approved the method statement",
       group: "Operations",
@@ -221,7 +231,7 @@ export const operationsManifest = defineManifest({
   ],
 
   /**
-   * §18 lists twenty-eight events. Ten are emitted today.
+   * §18 lists twenty-eight events. Thirteen are emitted today.
    *
    * The registry rejects a subscription to an event nothing emits, so declaring the rest now would
    * let a later module subscribe to something that never fires — which fails silently, and is worse
@@ -238,6 +248,9 @@ export const operationsManifest = defineManifest({
     "material_request.raised",
     "material.purchase_required",
     "material.issued",
+    "ticket.mobilized",
+    "ticket.started",
+    "ticket.demobilized",
   ],
 
   /**

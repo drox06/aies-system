@@ -19,6 +19,17 @@ import {
 } from "@/server/core/operations/cash-advance-rules";
 import { listInspectionAssigneesService } from "@/server/core/crm/inspection-service";
 import { ITEM_TYPES, SOURCES } from "@/server/core/operations/material-request-rules";
+import { CLEARANCE_STATES, MOBILIZATION_TYPES } from "@/server/core/operations/mobilization-rules";
+import {
+  demobilizeService,
+  departService,
+  getMobilizationService,
+  listMobilizationsService,
+  planMobilizationService,
+  readinessForTicketService,
+  startWorkService,
+  updateMobilizationService,
+} from "@/server/core/operations/mobilization-service";
 import {
   adjustStockService,
   approveMaterialRequestService,
@@ -650,6 +661,95 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => upsertStockItemService(actorMeta(ctx), input)),
+
+  // ---- §8's mobilisation ------------------------------------------------------------------------
+
+  /**
+   * §8's green/red list, assembled from §5, §6.2 and §7's gates.
+   *
+   * A query on `ticket.view` rather than `ticket.dispatch`: everybody who can see the ticket should
+   * be able to see why it is not going anywhere. Only dispatching is restricted.
+   */
+  mobilizationReadiness: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => readinessForTicketService(input.ticketId)),
+
+  planMobilization: p("ticket.dispatch")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        type: z.enum(MOBILIZATION_TYPES),
+        plannedAt: z.coerce.date().nullish(),
+        crewIds: z.array(z.string()).optional(),
+        vehicleRef: z.string().max(120).nullish(),
+        driverName: z.string().max(120).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => planMobilizationService(actorMeta(ctx), input)),
+
+  updateMobilization: p("ticket.dispatch")
+    .input(
+      z.object({
+        mobilizationId: z.string(),
+        plannedAt: z.coerce.date().nullish(),
+        crewIds: z.array(z.string()).optional(),
+        vehicleRef: z.string().max(120).nullish(),
+        driverName: z.string().max(120).nullish(),
+        toolsChecklist: z
+          .array(
+            z.object({
+              label: z.string().max(200),
+              checked: z.boolean(),
+              note: z.string().max(300).optional(),
+            }),
+          )
+          .optional(),
+        ppeChecklist: z
+          .array(
+            z.object({
+              label: z.string().max(200),
+              checked: z.boolean(),
+              note: z.string().max(300).optional(),
+            }),
+          )
+          .optional(),
+        gatePassStatus: z.enum(CLEARANCE_STATES).optional(),
+        permitStatus: z.enum(CLEARANCE_STATES).optional(),
+        inductionCompleted: z.boolean().optional(),
+        departureOdometer: z.number().int().nonnegative().nullish(),
+        arrivalOdometer: z.number().int().nonnegative().nullish(),
+        notes: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updateMobilizationService(actorMeta(ctx), input)),
+
+  /** Refuses unless every mandatory readiness item passes — §8 says `ready_to_mobilize` requires it. */
+  depart: p("ticket.dispatch")
+    .input(z.object({ mobilizationId: z.string() }))
+    .mutation(({ ctx, input }) => departService(actorMeta(ctx), input.mobilizationId)),
+
+  startWork: p("ticket.dispatch")
+    .input(z.object({ mobilizationId: z.string() }))
+    .mutation(({ ctx, input }) => startWorkService(actorMeta(ctx), input.mobilizationId)),
+
+  /** Closes §5's liquidation deadline and §7's tool-return date onto the real demobilisation date. */
+  demobilize: p("ticket.dispatch")
+    .input(
+      z.object({
+        mobilizationId: z.string(),
+        arrivalOdometer: z.number().int().nonnegative().nullish(),
+        notes: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => demobilizeService(actorMeta(ctx), input)),
+
+  listMobilizations: p("ticket.view")
+    .input(z.object({ ticketId: z.string().optional(), status: z.string().optional() }).optional())
+    .query(({ input }) => listMobilizationsService(input ?? {})),
+
+  getMobilization: p("ticket.view")
+    .input(z.object({ mobilizationId: z.string() }))
+    .query(({ input }) => getMobilizationService(input.mobilizationId)),
 
   adjustStock: p("material_request.issue")
     .input(

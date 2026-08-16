@@ -106,6 +106,7 @@ model Ticket {
   inspections      SiteInspection[]
   methodologies    Methodology[]
   materialRequests MaterialRequest[]
+  mobilizations    Mobilization[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -203,6 +204,7 @@ model Project {
   inspections      SiteInspection[]
   methodologies    Methodology[]
   materialRequests MaterialRequest[]
+  mobilizations    Mobilization[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -696,4 +698,65 @@ model StockMovement {
 
   @@index([stockItemId, at])
   @@index([ticketId])
+}
+
+/// §8's mobilisation and demobilisation — one model, two directions.
+///
+/// §8's field list gives them a `type` rather than two models, and that is right: the same crew,
+/// vehicle, checklists and odometer readings are recorded going out and coming back, and the useful
+/// questions ("who went, in what, when did they leave and return") are asked across both.
+///
+/// The demobilisation row is the one that closes loops opened four sessions ago. §8: "Demobilization
+/// closes the loop: tools returned and reconciled against the material request, site cleared,
+/// customer notified, **cash advance liquidation triggered**, crew released." Its `actualAt` is the
+/// real demobilisation date that §5's liquidation deadline and §7's tool-return date have been
+/// deriving from proxies until now.
+model Mobilization {
+  id        String  @id @default(cuid())
+  ticketId  String
+  projectId String?
+
+  /// mobilization | demobilization (§8).
+  type String
+
+  plannedAt DateTime?
+  actualAt  DateTime?
+
+  /// Plain ids, read whole — the same choice `Ticket.assignedUserIds` made.
+  crewIds    String[] @default([])
+  vehicleRef String?
+  driverName String?
+
+  /// [{ label, checked, note }] — §8's tools and PPE checklists. Json because what is on them
+  /// differs by job, and a column per item would be a migration per site type.
+  toolsChecklist Json @default("[]")
+  ppeChecklist   Json @default("[]")
+
+  /// not_required | pending | obtained (§8). Site access is refused for want of a gate pass more
+  /// often than for anything technical, which is why it is a field rather than a note.
+  gatePassStatus     String  @default("not_required")
+  permitStatus       String  @default("not_required")
+  inductionCompleted Boolean @default(false)
+
+  departureOdometer Int?
+  arrivalOdometer   Int?
+
+  /// planned | ready | departed | on_site | returned | cancelled.
+  status String  @default("planned")
+  notes  String?
+
+  photoFileIds String[] @default([])
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket   @relation(fields: [ticketId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([ticketId, type])
+  @@index([status, plannedAt])
 }

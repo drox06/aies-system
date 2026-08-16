@@ -2337,3 +2337,43 @@ test caught it.
 `material-request.test.ts` asserts that a brand-new ticket reads `undecided`, because §7 says the
 unanswered state must be distinguishable. That assertion failed on the first run against a service
 that was otherwise correct — the bug was a year-old schema default, not the code under test.
+
+---
+
+## #66 — An escape hatch that opens nothing is worse than none
+
+specs/04-operations-projects.md §8, module 04 session 6.
+
+Session 2 built `operations.override_ca_gate` and session 4 built
+`operations.override_methodology_gate`. Both write an audit row and move the ticket's status. Neither
+changed the thing the gate function actually reads — `cashAdvanceGate` reads the advance's status,
+`methodologyGate` reads the method statement's — so both gates went on saying no.
+
+Until §8 there was nothing downstream asking, so the defect was invisible: the overrides appeared to
+work because the only observable effect was the audit row and the status they did write. Building the
+readiness check is what made the question "and then what?" answerable.
+
+An override that leaves the gate shut is worse than having no override at all. With none, somebody
+escalates. With one, somebody presses it, sees a confirmation, and believes they are through — and
+finds out at the gate.
+
+### Reading the audit log, rather than mirroring a flag
+
+`readinessForTicketService` looks for the override audit rows on the ticket and treats the matching
+item as passing, carrying the officer's reason onto the list.
+
+The alternative — a `caGateOverriddenAt` column on `Ticket` — was rejected. An override is a decision
+somebody made and signed; the audit row **is** the signed copy. A mirrored flag would be a second
+answer to "was this overridden", the two would eventually disagree, and the flag is the one that
+would be trusted because it is the one the code reads.
+
+The cost is a query against `AuditLog` in a read path, which is cheap and, more to the point,
+correct: there is exactly one record of the decision and everything reads it.
+
+### The narrower lesson
+
+**A gate and its override must be tested together.** Each of those overrides had a test proving it
+wrote its audit row and moved the status. Neither had a test proving anybody could then proceed,
+because at the time nothing could. Where a feature's whole purpose is to unblock something that does
+not exist yet, the test that matters cannot be written yet — and that is worth writing down at the
+time, rather than discovering two sessions later.

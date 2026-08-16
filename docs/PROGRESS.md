@@ -2022,7 +2022,45 @@ at issue time, because demobilisation does not exist yet. §8 corrects it to the
 interim arrangement as §5's liquidation deadline, and the reason both were written to take a date
 rather than read one.
 
-**Still to build in module 04:** §8's mobilisation, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
+### Session 6 — §8's mobilisation readiness, and the loops that close
+
+§8 is where the previous four sessions converge. Its execution half — daily progress, standby cause
+codes, the daily report — is session 7.
+
+- [x] **The readiness check asks; it never re-decides.** §5's, §6.2's and §7's gates were each built
+      inert, returning a verdict rather than throwing, precisely so this could call them. All three
+      are called and none of their reasoning is repeated.
+- [x] **A green/red list, not a verdict.** §8 asks for a list, and the reason is practical: a single
+      "not ready" badge tells a dispatcher nothing they can act on, where every line names the person
+      who has to do something.
+- [x] **What is mandatory is argued, not assumed.** The three gates, crew, PPE and the customer
+      contact block. Gate passes and permits are conditionally mandatory — `not_required` passes,
+      `pending` fails, mirroring §7's N/A. Induction is shown without blocking. Crew competence is
+      **unknown** and non-blocking, because module 08 owns it and does not exist: asserting a pass
+      would be a lie and asserting a fail would block every mobilisation.
+- [x] **An empty PPE checklist fails.** It is not a crew that needs none, it is a list nobody filled
+      in — the one place an absence is read as a failure rather than as not-applicable.
+- [x] **The overrides from sessions 2 and 4 finally open something.** Both wrote an audit row and
+      moved the ticket's status while the gate function went on reading the underlying record and
+      saying no. §8 reads the audit log, so an officer's override clears the item it was made
+      against — and only that item. docs/DECISIONS.md #66.
+- [x] **Demobilisation closes two loops it did not open.** §5's liquidation deadline and §7's tool
+      return date have been derived from the ticket's required-by date because the real
+      demobilisation date did not exist. Both are corrected from it here, through the same
+      `liquidationDueFrom` — which is why that function was written to take a date rather than read
+      one.
+- [x] **Outstanding tools are reported, not enforced.** A crew that lost something still has to
+      demobilise; refusing would leave the ticket open forever and the loss unrecorded.
+- [x] Screens: the readiness list, checklists and the whole run on the ticket panel.
+
+**Migrations** `20260816225817_mobilization` and `20260816230028_drop_mobilization_override_reason` —
+the second removes a column added earlier in the same session for an override §19 does not have, and
+which the individual gate overrides already cover.
+
+**State at this stop.** **1010 tests** across 100 files and **23 Playwright tests** pass with the dev
+server stopped; typecheck, lint and `build:check` clean. Counters reset last.
+
+**Still to build in module 04:** §8's execution half, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
 
@@ -2056,6 +2094,9 @@ offline PWA, §15's checklists, §16's time and installed base, §17's schedulin
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #66: an escape hatch that opens nothing is worse than none — the gate overrides
+  from sessions 2 and 4 wrote their audit rows and moved the status while the gates went on refusing,
+  invisible until §8 gave anybody a reason to ask.
 - docs/DECISIONS.md #65: a default must not assert a decision nobody made — `materialRequestStatus`
   defaulted to `not_applicable`, so every ticket claimed somebody had answered §7's question.
 - docs/DECISIONS.md #64: a test that reads a shared queue establishes that state rather than

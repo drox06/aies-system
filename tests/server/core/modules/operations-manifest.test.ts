@@ -72,6 +72,9 @@ describe("operations manifest", () => {
       "material_request.raised",
       "material.purchase_required",
       "material.issued",
+      "ticket.mobilized",
+      "ticket.started",
+      "ticket.demobilized",
     ]);
   });
 
