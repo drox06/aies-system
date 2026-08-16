@@ -46,12 +46,14 @@ const STATUS_TONE: Record<string, StatusTone> = {
   rejected: "cancelled",
   released: "active",
   partially_liquidated: "pending",
+  pending_settlement: "pending",
   liquidated: "approved",
   overdue_liquidation: "failed",
   extended: "pending",
 };
 
-const human = (value: string) => value.replace(/_/g, " ");
+const human = (value: string) =>
+  value === "pending_settlement" ? "pending settlement" : value.replace(/_/g, " ");
 
 export default function CashAdvanceRegisterPage() {
   const [scope, setScope] = useState<Scope>("outstanding");

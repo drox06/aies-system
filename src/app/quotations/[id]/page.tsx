@@ -247,7 +247,6 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             resolvedAt={data.scopeChangeResolvedAt}
             resolution={data.scopeChangeResolution}
             resolutionNote={data.scopeChangeResolutionNote}
-            canAct={editable || data.status === "sent"}
             onResolved={() => void quotation.refetch()}
           />
 
@@ -325,10 +324,6 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             quotationId={data.id}
             version={data.version}
             editable={editable}
-            deliveryLeadTime={data.deliveryLeadTime}
-            incoterm={data.deliveryTermIncoterm}
-            paymentTerms={data.paymentTermsText}
-            warranty={data.warrantyTerms}
             termsAndConditions={data.termsAndConditions ?? []}
             onSaved={refresh}
           />

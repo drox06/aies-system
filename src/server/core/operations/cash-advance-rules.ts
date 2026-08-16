@@ -80,6 +80,15 @@ export const CASH_ADVANCE_STATUSES = [
   "rejected",
   "released",
   "partially_liquidated",
+  /**
+   * Receipts are in and finance has not yet checked the physical documents against them.
+   *
+   * §5 gives `CashAdvanceLiquidation` a review cycle — draft | submitted | under_review | approved |
+   * rejected — which was modelled and never wired. This is the advance-level counterpart: filing
+   * receipts in the app is a claim, and the claim is not settled until somebody has the paper in
+   * their hand. A BIR official receipt is what makes the cost deductible, and the app cannot see it.
+   */
+  "pending_settlement",
   "liquidated",
   "overdue_liquidation",
   "extended",
@@ -98,6 +107,10 @@ export type CashAdvanceStatus = (typeof CASH_ADVANCE_STATUSES)[number];
 export const OUTSTANDING_STATUSES: readonly CashAdvanceStatus[] = [
   "released",
   "partially_liquidated",
+  // In the register because the advance is not closed; **not** treated as late or as a block on the
+  // next request — see `liquidationStanding`. The technician has done their part; the outstanding
+  // item is finance's check, and holding somebody's next advance hostage to that would be unfair.
+  "pending_settlement",
   "overdue_liquidation",
   "extended",
 ];
@@ -267,6 +280,23 @@ export function liquidationStanding(
       daysOverdue: 0,
       extensionReason: null,
       message: "Liquidated and closed.",
+    };
+  }
+
+  /**
+   * Filed, and waiting on finance.
+   *
+   * Reported as `settled` deliberately: the deadline was about the technician handing in receipts,
+   * and they have. Leaving it chaseable would nag somebody for a delay that is not theirs, and would
+   * block their next advance over finance's queue. What is still open is shown by the status itself.
+   */
+  if (advance.status === "pending_settlement") {
+    return {
+      state: "settled",
+      dueAt: null,
+      daysOverdue: 0,
+      extensionReason: null,
+      message: "Receipts filed. Waiting on finance to check the physical documents.",
     };
   }
 

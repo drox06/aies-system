@@ -17,6 +17,7 @@ import {
   CASH_ADVANCE_CATEGORIES,
   RELEASE_METHODS,
 } from "@/server/core/operations/cash-advance-rules";
+import { listInspectionAssigneesService } from "@/server/core/crm/inspection-service";
 import {
   approveInspectionService,
   completeInspectionService,
@@ -31,6 +32,8 @@ import {
   decideExtensionService,
   getCashAdvanceService,
   liquidateCashAdvanceService,
+  listLiquidationsAwaitingCheckService,
+  reviewLiquidationService,
   listCashAdvancesService,
   overrideCashAdvanceGateService,
   releaseCashAdvanceService,
@@ -220,6 +223,21 @@ export const operationsRouter = router({
     )
     .mutation(({ ctx, input }) => liquidateCashAdvanceService(actorMeta(ctx), input)),
 
+  /** §5's review: somebody with the paper in hand settles it, or sends it back. */
+  reviewLiquidation: p("cash_advance.review_liquidation")
+    .input(
+      z.object({
+        liquidationId: z.string(),
+        decision: z.enum(["approved", "rejected"]),
+        remarks: z.string().max(1000).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => reviewLiquidationService(actorMeta(ctx), input)),
+
+  liquidationsAwaitingCheck: p("cash_advance.review_liquidation").query(() =>
+    listLiquidationsAwaitingCheckService(),
+  ),
+
   requestLiquidationExtension: p("cash_advance.request")
     .input(
       z.object({
@@ -268,6 +286,16 @@ export const operationsRouter = router({
     .mutation(({ ctx, input }) => overrideCashAdvanceGateService(actorMeta(ctx), input)),
 
   // ---- §6.1's site inspection -------------------------------------------------------------------
+
+  /**
+   * Who could have attended a site visit.
+   *
+   * Reuses module 01's list rather than growing a second one — "people who might go to a site" is
+   * one question, and two answers would drift. Gated on `ticket.execute` rather than module 01's
+   * `inspection.request`, because the person filling in the report is the technician who went, and
+   * they do not necessarily hold the permission that *asks* for a visit.
+   */
+  inspectionAttendees: p("ticket.execute").query(() => listInspectionAssigneesService()),
 
   scheduleInspection: p("ticket.execute")
     .input(

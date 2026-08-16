@@ -156,7 +156,18 @@ export function Attachments({
                   ? `Attached ${uploaded[0]!.filename}.`
                   : `Attached ${uploaded.length} files.`,
               );
-              if (compact) setUploading(false);
+              /**
+               * Collapse the dropzone once something has landed, in every layout.
+               *
+               * This used to be `if (compact)`, which left the drop target expanded on the full
+               * layouts — a tall empty panel under the thumbnails that looked like the page had
+               * grown a blank section, and only went away when the surrounding card unmounted.
+               * Reported against the goods receipt screen after uploading a photo.
+               *
+               * Staying open only helps somebody attaching files one after another, and the
+               * dropzone already takes several at once; "Attach a file…" is one click away.
+               */
+              setUploading(false);
               refresh();
             }}
           />

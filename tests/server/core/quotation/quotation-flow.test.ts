@@ -70,7 +70,9 @@ describe("§5's immutability, as a transition map", () => {
   });
 
   it("offers revision from the statuses a customer has already seen", () => {
-    for (const status of ["sent", "under_negotiation", "rejected", "expired"]) {
+    // `accepted` included since 2026-08-16: a customer who has raised a PO has seen the quotation,
+    // and module 04 §6.1's scope change lands precisely there — see isRevisable for why.
+    for (const status of ["sent", "under_negotiation", "rejected", "expired", "accepted"]) {
       expect(isRevisable(status), status).toBe(true);
     }
     expect(isRevisable("draft")).toBe(false);

@@ -41,6 +41,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
   rejected: "cancelled",
   released: "active",
   partially_liquidated: "pending",
+  pending_settlement: "pending",
   liquidated: "approved",
   overdue_liquidation: "failed",
   extended: "pending",
@@ -54,7 +55,10 @@ const STANDING_TONE: Record<string, StatusTone> = {
   late: "failed",
 };
 
-const human = (value: string) => value.replace(/_/g, " ");
+const human = (value: string) =>
+  // §5's review step reads as a sentence rather than a slug: "pending settlement" alone does not
+  // say that the receipts are already in.
+  value === "pending_settlement" ? "liquidated — pending settlement" : value.replace(/_/g, " ");
 const pesos = (centavos: number) => (centavos / 100).toFixed(2);
 
 interface BreakdownRow {
@@ -195,6 +199,14 @@ export default function CashAdvancePage({ params }: { params: Promise<{ id: stri
               cashAdvanceId={data.id}
               approved={data.amountApproved ?? data.amountRequested}
               canRelease={permissions.includes("cash_advance.release")}
+              onDone={refresh}
+            />
+          )}
+
+          {data.status === "pending_settlement" && (
+            <SettlementReview
+              liquidationId={data.liquidations[0]?.id ?? null}
+              canReview={permissions.includes("cash_advance.review_liquidation")}
               onDone={refresh}
             />
           )}
@@ -398,7 +410,25 @@ function LiquidateCard({ cashAdvanceId, onDone }: { cashAdvanceId: string; onDon
   return (
     <Card className="p-4">
       <h2 className="text-sm font-semibold">Liquidate</h2>
-      <p className="mt-1 text-xs text-text-muted">
+
+      {/*
+        Deliberately the loudest thing in this card. Filing receipts here is a claim; what makes a
+        cost deductible is a BIR official receipt on paper, and finance cannot check a claim against
+        a document they never received. The advance stays at "pending settlement" until they do.
+      */}
+      <div className="mt-2 rounded-md border-2 border-amber-400 bg-amber-50 p-3">
+        <p className="text-sm font-semibold text-amber-900">
+          Hand the physical receipts to finance.
+        </p>
+        <p className="mt-1 text-sm text-amber-900">
+          The service invoices and official receipts you are recording below must be submitted to
+          finance as paper. Filing them here does not settle the advance — finance or the Vice
+          President checks the documents against this list first, and until they do it stays
+          <strong> liquidated — pending settlement</strong>.
+        </p>
+      </div>
+
+      <p className="mt-2 text-xs text-text-muted">
         Receipts, and the cash you are handing back. The advance settles when the two together
         account for what went out — unspent money still in a pocket is not settled.
       </p>
@@ -610,5 +640,69 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
       <dt className="text-xs text-text-muted">{label}</dt>
       <dd className="tabular min-w-0 truncate text-right">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * §5's liquidation review: the step where somebody with the paper in their hand settles it.
+ *
+ * Shown to everybody, actionable only by `cash_advance.review_liquidation`. The technician who filed
+ * needs to see that the advance is waiting on finance rather than on them — otherwise "pending
+ * settlement" looks like something they forgot to do.
+ */
+function SettlementReview({
+  liquidationId,
+  canReview,
+  onDone,
+}: {
+  liquidationId: string | null;
+  canReview: boolean;
+  onDone: () => void;
+}) {
+  const [remarks, setRemarks] = useState("");
+  const review = trpc.operations.reviewLiquidation.useMutation({ onSuccess: onDone });
+
+  return (
+    <Card className="border-amber-300 bg-amber-50/40 p-4">
+      <h2 className="text-sm font-semibold">Waiting on the physical receipts to be checked</h2>
+      <p className="mt-1 text-sm text-text-muted">
+        The numbers reconcile. What is left is somebody confirming the service invoices and official
+        receipts actually arrived, and match what was filed here.
+      </p>
+
+      {canReview && liquidationId ? (
+        <>
+          <div className="mt-3">
+            <Label htmlFor="review-remarks">Remarks (required to send back)</Label>
+            <Textarea
+              id="review-remarks"
+              rows={2}
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+            />
+          </div>
+          {review.error && <p className="mt-2 text-sm text-danger">{review.error.message}</p>}
+          <div className="mt-3 flex gap-2">
+            <Button
+              disabled={review.isPending}
+              onClick={() => review.mutate({ liquidationId, decision: "approved", remarks })}
+            >
+              Receipts checked — settle it
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={review.isPending || remarks.trim().length === 0}
+              onClick={() => review.mutate({ liquidationId, decision: "rejected", remarks })}
+            >
+              Send it back
+            </Button>
+          </div>
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-text-muted">
+          Finance or the Vice President does this. Nothing is outstanding from you.
+        </p>
+      )}
+    </Card>
   );
 }

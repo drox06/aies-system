@@ -29,7 +29,6 @@ export function ScopeChangeBanner({
   resolvedAt,
   resolution,
   resolutionNote,
-  canAct,
   onResolved,
 }: {
   quotationId: string;
@@ -40,11 +39,22 @@ export function ScopeChangeBanner({
   resolvedAt: string | Date | null;
   resolution: string | null;
   resolutionNote: string | null;
-  canAct: boolean;
   onResolved: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+
+  /**
+   * Gated on the permission, not on the quotation's status.
+   *
+   * It used to be `editable || status === "sent"`, which locked the banner exactly when it mattered:
+   * a scope change is found by a survey on a ticket, the ticket exists because the customer's PO
+   * arrived, and the PO moves the quotation to `accepted`. So the one state this banner is built for
+   * was the one state it could not be actioned in. Recording a decision about a finding is not an
+   * edit to the document, and nothing about the status should silence it.
+   */
+  const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  const canAct = (me.data?.permissions ?? []).includes("quotation.revise");
 
   const dismiss = trpc.quotation.dismissScopeChange.useMutation({
     onSuccess: () => {

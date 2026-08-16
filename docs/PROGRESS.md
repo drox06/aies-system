@@ -1903,6 +1903,44 @@ Two things the verification pass turned up, neither of them §6's:
       standing rule that follows: the e2e suite runs at the end of any session that touches a screen,
       and it ends green. docs/DECISIONS.md #61.
 
+### The company's review pass, 2026-08-16 — fixed in place
+
+The first walkthrough of sessions 2 and 3. It found two defects that made the features unusable, and
+several smaller ones.
+
+- [x] **A site inspection could never be completed.** `inspectionCompleteness` requires an attendee
+      and no screen could set one. Added the picker; the attendee list is module 01's, reused rather
+      than duplicated. docs/DECISIONS.md #62.
+- [x] **The scope-change banner was locked exactly when it mattered.** Gated on
+      `editable || status === "sent"`, and a scope change is always found when the quotation is
+      `accepted` — the PO is why the ticket exists. Now gated on `quotation.revise`. `isRevisable`
+      also omitted `accepted`, against its own rule "the statuses a customer has already seen", so a
+      quotation could not be re-priced against work the survey had just found.
+- [x] **Liquidation now waits on the physical receipts.** At the company's request, and it completes
+      §5's own review cycle, which session 2 modelled and never wired. An advance whose numbers
+      reconcile stops at `pending_settlement` — "liquidated — pending settlement" — until finance or
+      the VP checks the paper. `cash_advance.review_liquidation` gates it. The form carries a loud
+      reminder to hand the documents in. docs/DECISIONS.md #63.
+- [x] **The quotation stated its terms twice.** The "Commercial terms" block — delivery lead time,
+      delivery term, payment terms, warranty — duplicated clauses the default set already carries
+      word for word. Removed from the record panel and the PDF; the columns stay on the model, so
+      restoring it is a display change.
+- [x] **The attachment dropzone stayed open after uploading**, on every layout except `compact` —
+      a tall empty panel under the thumbnails, reported on the goods receipt screen. It now collapses
+      once a file lands.
+- [x] Removed a leftover test account. **The standing note that `customer-po.test.ts` leaks accounts
+      is withdrawn**: the leftover had no dependent rows and the test's cleanup is correctly ordered.
+      The likely cause was two vitest runs stopped mid-flight that day, which skips `afterAll`.
+
+*Reported and not defects, after checking:* the accreditation picker omits A4One because it lists
+accounts **without** a record and A4One is already accredited; and `AIESPO-260002` is in USD because
+the supplier Bestop is a USD supplier — a supplier PO is raised in the currency AIES will be invoiced
+in, and making it follow the quotation would misstate the liability.
+
+**Still to check on a real handset once the app is on Vercel:** every screen, starting with the site
+inspection form and the cash advance request — the two a technician fills in on site. localhost is
+not reachable from a phone, so this could not be done during the review.
+
 **Still to build in module 04:** §6.2's methodology and its client-approval gate, §7's material
 request gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
@@ -1938,6 +1976,11 @@ offline PWA, §15's checklists, §16's time and installed base, §17's schedulin
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #62-#63: the company's review pass (a server rule with no way to satisfy it is
+  not a rule — the inspection could not be completed and the scope-change banner was locked in the
+  one state it exists for, both invisible to unit tests that call services directly and to smoke
+  tests that only assert a page renders; and filing a receipt in the app is a claim, not proof, so
+  liquidation now waits on finance checking the physical documents).
 - docs/DECISIONS.md #60-#61: found while verifying session 3's photographs (file access checkers were
   registered only by accident of module load order, so on Vercel every file would have been
   downloadable solely by its uploader across all nine entity types; and the end-to-end suite had been

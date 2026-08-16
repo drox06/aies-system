@@ -2175,3 +2175,78 @@ Two things follow, and both are now true:
   2 and 3 added six surfaces between them and neither ran it until prompted.
 - It must end green or the failure gets fixed in that session. There is no such thing as a known
   failing e2e test here; there is only a suite people believe or a suite people ignore.
+
+---
+
+## #62 — A server-side rule with no way to satisfy it is not a rule
+
+Found by the company's review pass on module 04 session 3, 2026-08-16.
+
+Two defects, one shape. In both cases the service was right, the screen was missing, and every test
+passed because the tests called the service directly.
+
+**The site inspection could never be completed.** `inspectionCompleteness` requires at least one
+attendee; the report form had no attendee field, and the booking panel sent `inspectedByIds: []`. So
+the server asked for something no screen could supply, and `completeInspectionService` was
+unreachable through the UI — permanently.
+
+**The scope-change banner was locked exactly when it mattered.** Its actions were gated on
+`editable || status === "sent"`. A scope change is found by surveying a ticket; the ticket exists
+because the customer's purchase order arrived; the purchase order moves the quotation to `accepted`.
+So the single state the banner is built for was the one state it could not be actioned in. Compounding
+it, `isRevisable` omitted `accepted` too — against its own stated rule, "the statuses a customer has
+already seen" — leaving no way to re-price work the company had just discovered.
+
+### Why the existing tests could not catch either
+
+Both had unit coverage that passed. `cash-advance.test.ts` and `site-inspection.test.ts` call
+services with well-formed arguments, which is exactly what a screen that cannot produce those
+arguments never does. The Playwright suite passed too: it asserts pages *render*, and both pages
+rendered perfectly — one of them just had no field on it.
+
+The gap is between "the page loads" and "a person can finish the job". Nothing in the build tested
+the second, and the company found both defects within an hour of looking.
+
+### What follows
+
+- When a rule requires a field, the change that adds the rule adds the input. They are one change,
+  not two, and splitting them produces exactly this.
+- A permission or status gate on a UI action must be justified against the state the feature
+  actually occurs in — not the state the record happens to be in while you are writing it.
+- Screen-level smoke tests are necessary and not sufficient. The class of bug they miss is the one
+  where every part works and no path connects them, which is the same class as DECISIONS #60.
+
+---
+
+## #63 — Filing a receipt in the app is a claim, not proof
+
+specs/04-operations-projects.md §5, at the company's request during the same review.
+
+Session 2 treated a cash advance as settled the moment the numbers reconciled. The company's
+correction: the physical service invoices and official receipts have to reach finance, and somebody
+has to check them against what was typed, before the advance is closed.
+
+They are right, and §5 already said so — `CashAdvanceLiquidation.status` is specified as
+draft | submitted | under_review | approved | rejected. I modelled that vocabulary in session 2 and
+wired nothing to move it, which made filing receipts in the app equivalent to proving they exist.
+They are not the same thing: what makes a cost deductible is a BIR official receipt, on paper, and no
+amount of typing produces one.
+
+So an advance whose numbers reconcile now stops at **`pending_settlement`** — shown as "liquidated —
+pending settlement" — and `reviewLiquidationService` closes it. `cash_advance.review_liquidation`
+gates the review, which §19 names and nothing had used.
+
+### Pending settlement is not the technician's problem
+
+`pending_settlement` is in `OUTSTANDING_STATUSES`, so the advance stays visible in the register as an
+open item. But `liquidationStanding` reports it as **settled**, so it is never chased as late and
+never blocks the next advance. The deadline was about handing receipts in, and they have been handed
+in; holding somebody's next advance hostage to finance's queue would punish them for a delay that is
+not theirs.
+
+### The reminder is part of the control
+
+The liquidation form carries a bordered notice that the paper must be submitted to finance. It is
+deliberately the loudest thing in that card: a technician who files in the app and keeps the receipts
+in a folder in their truck has not done the thing the status now waits for, and the only moment they
+can be told is while they are typing.

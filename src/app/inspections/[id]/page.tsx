@@ -180,6 +180,7 @@ function InspectionForm({
   initial: {
     findings: string | null;
     inspectedAt: Date | string | null;
+    inspectedByIds: string[];
     accessConstraints: string | null;
     tagNumbers: string[];
     hazards: string[];
@@ -192,6 +193,8 @@ function InspectionForm({
   onSaved: () => void;
 }) {
   const [findings, setFindings] = useState(initial.findings ?? "");
+  const [attendees, setAttendees] = useState<string[]>(initial.inspectedByIds);
+  const people = trpc.operations.inspectionAttendees.useQuery();
   const [inspectedAt, setInspectedAt] = useState(
     initial.inspectedAt ? new Date(initial.inspectedAt).toISOString().slice(0, 10) : "",
   );
@@ -260,6 +263,40 @@ function InspectionForm({
 
       <Card className="p-4">
         <h2 className="text-sm font-semibold">What was found</h2>
+
+        {/*
+          Who went. Required to complete the report — and missing entirely until 2026-08-16, which
+          made completion impossible through the UI: the server asked for attendees and no screen
+          could supply them. The server rule was right; the form was the half that was never built.
+        */}
+        <fieldset className="mt-3">
+          <legend className="text-xs text-text-muted">Who attended</legend>
+          {people.isPending && <p className="mt-1 text-sm text-text-muted">Loading people…</p>}
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5">
+            {(people.data ?? []).map((person) => (
+              <label key={person.id} className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={attendees.includes(person.id)}
+                  onChange={(e) =>
+                    setAttendees(
+                      e.target.checked
+                        ? [...attendees, person.id]
+                        : attendees.filter((id) => id !== person.id),
+                    )
+                  }
+                />
+                {person.name}
+                {person.isTechnical && <span className="text-xs text-text-muted">(field)</span>}
+              </label>
+            ))}
+          </div>
+          {attendees.length === 0 && (
+            <p className="mt-1 text-xs text-amber-800">
+              At least one person, or the report cannot be completed.
+            </p>
+          )}
+        </fieldset>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
@@ -389,6 +426,7 @@ function InspectionForm({
             save.mutate({
               inspectionId,
               inspectedAt: inspectedAt ? new Date(inspectedAt) : null,
+              inspectedByIds: attendees,
               findings,
               accessConstraints,
               tagNumbers: list(tagNumbers),

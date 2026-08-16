@@ -8,6 +8,7 @@ import {
   getCashAdvanceService,
   liquidateCashAdvanceService,
   listCashAdvancesService,
+  reviewLiquidationService,
   overrideCashAdvanceGateService,
   releaseCashAdvanceService,
   requestCashAdvanceService,
@@ -395,9 +396,103 @@ describe("§5 — liquidation", () => {
     expect(second.withoutOfficialReceipt).toBe(1);
 
     const row = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
-    expect(row.status).toBe("liquidated");
+    // `pending_settlement`, not `liquidated`: since 2026-08-16 the numbers reconciling is not the
+    // end of it — finance checks the physical official receipts first. See reviewLiquidationService.
+    expect(row.status).toBe("pending_settlement");
     expect(Number(row.amountLiquidated)).toBe(3_000);
     expect(Number(row.amountReturned)).toBe(2_000);
+  });
+
+  /**
+   * §5's review cycle, wired on 2026-08-16 after the company pointed out that filing receipts in the
+   * app is a claim, not proof. What makes a cost deductible is a BIR official receipt on paper.
+   */
+  it("stops at pending_settlement rather than settling itself", async () => {
+    const { lead, advance } = await releasedAdvance();
+
+    const result = await liquidateCashAdvanceService(actorFor(lead), {
+      cashAdvanceId: advance.id,
+      lines: [
+        {
+          date: "2026-08-20",
+          category: "fuel",
+          description: "Diesel",
+          amount: 3_000_00,
+          hasOfficialReceipt: true,
+        },
+      ],
+      amountReturnedCentavos: 2_000_00,
+    });
+    expect(result.settled).toBe(true);
+
+    const row = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(row.status).toBe("pending_settlement");
+    expect(row.liquidatedAt).toBeNull();
+
+    // Not chased and not blocking: the technician has done their part.
+    expect((await requestEligibilityService(lead.id)).allowed).toBe(true);
+  });
+
+  it("settles only once somebody has checked the physical receipts", async () => {
+    const { lead, advance } = await releasedAdvance();
+    const finance = await makeUser("finance_officer", ["cash_advance.review_liquidation"]);
+
+    const filed = await liquidateCashAdvanceService(actorFor(lead), {
+      cashAdvanceId: advance.id,
+      lines: [
+        {
+          date: "2026-08-20",
+          category: "fuel",
+          description: "Diesel",
+          amount: 5_000_00,
+          hasOfficialReceipt: true,
+        },
+      ],
+    });
+
+    await reviewLiquidationService(actorFor(finance), {
+      liquidationId: filed.id,
+      decision: "approved",
+    });
+
+    const row = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(row.status).toBe("liquidated");
+    expect(row.liquidatedAt).not.toBeNull();
+  });
+
+  it("sends a liquidation back with a reason, and reopens the advance", async () => {
+    const { lead, advance } = await releasedAdvance();
+    const finance = await makeUser("finance_officer", ["cash_advance.review_liquidation"]);
+
+    const filed = await liquidateCashAdvanceService(actorFor(lead), {
+      cashAdvanceId: advance.id,
+      lines: [
+        {
+          date: "2026-08-20",
+          category: "fuel",
+          description: "Diesel",
+          amount: 5_000_00,
+          hasOfficialReceipt: true,
+        },
+      ],
+    });
+
+    await expect(
+      reviewLiquidationService(actorFor(finance), {
+        liquidationId: filed.id,
+        decision: "rejected",
+      }),
+    ).rejects.toThrow(/Say what is wrong/);
+
+    await reviewLiquidationService(actorFor(finance), {
+      liquidationId: filed.id,
+      decision: "rejected",
+      remarks: "Only two of the four official receipts arrived.",
+    });
+
+    const row = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(row.status).toBe("partially_liquidated");
+    expect(row.liquidatedAt).toBeNull();
   });
 
   it("records a reimbursement when the crew overspent", async () => {

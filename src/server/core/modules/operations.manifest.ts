@@ -105,6 +105,15 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "finance_officer", "admin_manager"],
     },
     {
+      key: "cash_advance.review_liquidation",
+      label: "Check the physical receipts and settle a liquidation",
+      group: "Finance",
+      // §19 names this permission. §5 gives the liquidation a review cycle and it is finance's: the
+      // app can record that receipts were filed, but only somebody holding the paper can say a BIR
+      // official receipt exists. The VP too, since a five-person company has no clean cover.
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
+    },
+    {
       key: "cash_advance.view_register",
       label: "See every cash advance and what is outstanding",
       group: "Finance",

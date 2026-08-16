@@ -208,17 +208,16 @@ export function QuotationDocument(props: CustomerQuotationPdfProps) {
           </View>
         </View>
 
-        <Text style={s.sectionHeading}>Commercial terms</Text>
-        <View style={s.twoCol}>
-          <View style={s.col}>
-            <Term label="Delivery lead time" value={props.terms.deliveryLeadTime} />
-            <Term label="Delivery term" value={props.terms.incoterm} />
-          </View>
-          <View style={s.col}>
-            <Term label="Payment terms" value={props.terms.paymentTerms} />
-            <Term label="Warranty" value={props.terms.warranty} />
-          </View>
-        </View>
+        {/*
+          The "Commercial terms" block was removed on 2026-08-16 at the company's request.
+          It printed delivery lead time, delivery term, payment terms and warranty as four labelled
+          values — and the terms and conditions below already state all four as numbered clauses, in
+          the company's own words (LEAD TIME, PAYMENT TERMS, WARRANTY, DELIVERY in terms.ts). A
+          document that says the same thing twice invites the two copies to disagree, and on a
+          quotation that is a contract the disagreement is the customer's to exploit.
+
+          The underlying fields are untouched on the model, so restoring this is a display change.
+        */}
 
         {(props.exclusions || props.assumptions) && (
           <>
@@ -272,15 +271,6 @@ export function QuotationDocument(props: CustomerQuotationPdfProps) {
         </View>
       </Page>
     </Document>
-  );
-}
-
-function Term({ label, value }: { label: string; value: string | null }) {
-  return (
-    <View style={{ marginBottom: 4 }}>
-      <Text style={s.label}>{label}</Text>
-      <Text style={s.value}>{value || "—"}</Text>
-    </View>
   );
 }
 

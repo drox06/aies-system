@@ -167,6 +167,18 @@ export function isRevisable(status: string): boolean {
     status === "sent" ||
     status === "under_negotiation" ||
     status === "rejected" ||
-    status === "expired"
+    status === "expired" ||
+    /**
+     * `accepted` was missing until 2026-08-16, and its absence was an oversight rather than a rule:
+     * the criterion is "a quotation the customer has already seen", and a customer who has raised a
+     * purchase order against one has certainly seen it.
+     *
+     * It matters because of specs/04-operations-projects.md §6.1. A site inspection finds extra
+     * scope *after* the PO has arrived — that is the normal case, since the ticket being surveyed
+     * exists because the order came in — and the quotation is `accepted` by then. Without this, the
+     * one situation the scope-change link is built for is the one situation nothing could be done
+     * about: no revision, and no way to re-price work the company has just discovered.
+     */
+    status === "accepted"
   );
 }

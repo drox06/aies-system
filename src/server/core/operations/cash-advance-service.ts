@@ -808,8 +808,15 @@ export async function liquidateCashAdvanceService(actor: ActorMeta, input: Liqui
     await tx.cashAdvance.update({
       where: { id: advance.id },
       data: {
-        status: result.settled ? "liquidated" : "partially_liquidated",
-        liquidatedAt: result.settled ? new Date() : null,
+        /**
+         * Settled by the numbers is not settled by finance.
+         *
+         * §5 gives the liquidation a review cycle, and the reason is physical: a BIR official
+         * receipt is what makes a cost deductible, and the app cannot see a piece of paper. So the
+         * advance sits at `pending_settlement` until somebody has checked the documents against
+         * what was filed here. `liquidatedAt` is set by that review, not by this.
+         */
+        status: result.settled ? "pending_settlement" : "partially_liquidated",
         amountLiquidated: money(cumulativeSpent),
         amountReturned: money(cumulativeReturned),
         amountReimbursed: money(result.balanceReimbursable),
@@ -1191,4 +1198,121 @@ async function safeNotify(input: Parameters<typeof notify>[0]) {
   } catch {
     // ignored
   }
+}
+
+// ---- §5's liquidation review --------------------------------------------------------------------
+
+/**
+ * Finance checks the physical documents and settles the advance, or sends it back.
+ *
+ * §5 gives `CashAdvanceLiquidation` a status of draft | submitted | under_review | approved |
+ * rejected. That vocabulary was modelled in session 2 and nothing moved it, which left filing
+ * receipts in the app equivalent to proving they existed. They are not the same thing: what makes a
+ * cost deductible is a BIR official receipt, on paper, in the office — and no amount of typing
+ * produces one.
+ *
+ * So an advance whose numbers reconcile now stops at `pending_settlement`, and this is the step that
+ * closes it. Rejecting returns it to `partially_liquidated` so the crew can resubmit; the rejected
+ * liquidation row stays, because two attempts at reconciling one advance are two records and the
+ * first is part of the history.
+ */
+export async function reviewLiquidationService(
+  actor: ActorMeta,
+  input: { liquidationId: string; decision: "approved" | "rejected"; remarks?: string },
+) {
+  const liquidation = await db.cashAdvanceLiquidation.findFirst({
+    where: { id: input.liquidationId },
+    include: {
+      cashAdvance: { select: { id: true, number: true, status: true, requestedById: true } },
+    },
+  });
+  if (!liquidation) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That liquidation no longer exists." });
+  }
+  if (liquidation.status === "approved" || liquidation.status === "rejected") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `This liquidation has already been ${liquidation.status}.`,
+    });
+  }
+  if (input.decision === "rejected" && !input.remarks?.trim()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Say what is wrong with it. A liquidation sent back without a reason is one the crew " +
+        "cannot correct.",
+    });
+  }
+
+  const advance = liquidation.cashAdvance;
+  const approved = input.decision === "approved";
+
+  await db.$transaction(async (tx) => {
+    await tx.cashAdvanceLiquidation.update({
+      where: { id: liquidation.id },
+      data: {
+        status: approved ? "approved" : "rejected",
+        reviewedById: actor.actorId,
+        reviewedAt: new Date(),
+        remarks: input.remarks ?? liquidation.remarks,
+      },
+    });
+
+    await tx.cashAdvance.update({
+      where: { id: advance.id },
+      data: {
+        // Back to partially liquidated on a rejection: money is still out and unaccounted for, which
+        // is exactly what that status means.
+        status: approved ? "liquidated" : "partially_liquidated",
+        liquidatedAt: approved ? new Date() : null,
+        version: { increment: 1 },
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: approved ? "liquidation_settled" : "liquidation_rejected",
+      entityType: CASH_ADVANCE_ENTITY_TYPE,
+      entityId: advance.id,
+      summary: approved
+        ? `Checked the physical receipts against ${advance.number} and settled it`
+        : `Sent the liquidation on ${advance.number} back — ${input.remarks}`,
+      diff: {
+        status: { from: advance.status, to: approved ? "liquidated" : "partially_liquidated" },
+      },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  await safeNotify({
+    recipientId: advance.requestedById,
+    type: CASH_ADVANCE_APPROVAL_DECIDED_NOTIFICATION_TYPE,
+    title: approved
+      ? `${advance.number} is settled`
+      : `${advance.number} — your liquidation was sent back`,
+    body: approved
+      ? "Finance has checked the receipts against what you filed."
+      : (input.remarks ?? ""),
+    entityType: CASH_ADVANCE_ENTITY_TYPE,
+    entityId: advance.id,
+  });
+
+  return { status: approved ? ("liquidated" as const) : ("partially_liquidated" as const) };
+}
+
+/** Liquidations waiting on somebody to check the paper against them. */
+export async function listLiquidationsAwaitingCheckService() {
+  return db.cashAdvanceLiquidation.findMany({
+    where: { status: { in: ["submitted", "under_review"] } },
+    include: {
+      cashAdvance: {
+        select: { id: true, number: true, status: true, purpose: true, amountApproved: true },
+      },
+    },
+    orderBy: { submittedAt: "asc" },
+    take: 100,
+  });
 }
