@@ -93,6 +93,7 @@ model Ticket {
   project      Project?               @relation(fields: [projectId], references: [id])
   lines        TicketSalesOrderLine[]
   cashAdvances CashAdvance[]
+  inspections  SiteInspection[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -183,10 +184,11 @@ model Project {
   deletedAt DateTime?
   deletedBy String?
 
-  account      CustomerAccount @relation(fields: [accountId], references: [id])
-  site         Site?           @relation(fields: [siteId], references: [id])
+  account      CustomerAccount  @relation(fields: [accountId], references: [id])
+  site         Site?            @relation(fields: [siteId], references: [id])
   tickets      Ticket[]
   cashAdvances CashAdvance[]
+  inspections  SiteInspection[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -315,4 +317,103 @@ model CashAdvanceLiquidation {
 
   @@index([cashAdvanceId, submittedAt])
   @@index([status])
+}
+
+/// §6.1's site inspection — the visit itself, as distinct from the ask.
+///
+/// §6 opens by scoping it: "Only `new_project` tickets take this branch, per the flowchart." But
+/// the section then widens it in a sentence that matters more than the sketch above it: "This is
+/// **also the sub-flow module 01 calls** when sales requests a pre-quotation inspection — same
+/// record type, raised from an inquiry instead of a ticket."
+///
+/// So §6.1's field list (`ticketId, projectId?, siteId`) is incomplete by its own prose, and this
+/// model carries `inquiryId` and `inspectionRequestId` as well. All four origins are nullable
+/// because an inspection legitimately arrives by two routes:
+///
+///  1. **From a ticket**, when a new project needs surveying before work is planned.
+///  2. **From an inquiry**, when sales cannot price the job without somebody looking at the site —
+///     specs/01-crm-inquiry.md §5, whose `InspectionRequest` is the *request* and this is the
+///     *visit*. crm.prisma already anticipated this: "When module 04 lands it consumes
+///     `inspection.requested` and this becomes the request of record with the field task
+///     alongside it."
+///
+/// Keeping them one model rather than two is the spec's instruction and also the useful choice: the
+/// findings, the photographs and the scope-change flag are identical whichever way the visit was
+/// asked for, and a company that inspects a site pre-quotation and again pre-mobilisation wants both
+/// visits in one place.
+model SiteInspection {
+  id     String @id @default(cuid())
+  /// AIESSIR-{YY}{####} — site inspection report.
+  number String @unique
+
+  /// Origins. See the model comment: at least one is always set, enforced by the service rather
+  /// than by a check constraint, so the error is a sentence instead of a Postgres violation.
+  ticketId            String?
+  projectId           String?
+  inquiryId           String?
+  inspectionRequestId String? @unique
+  siteId              String?
+
+  inspectedAt    DateTime?
+  /// Plain ids. Several people attend a survey and the list is read whole, never queried across —
+  /// the same choice `Ticket.assignedUserIds` made.
+  inspectedByIds String[]  @default([])
+
+  /// §6.1's free-form record of what was found and what is already there.
+  findings           String?
+  existingConditions Json    @default("{}")
+
+  /// [{ label, value, unit }] — §6.1's measurements. Json because no two surveys measure the same
+  /// things, and a column per dimension would be a migration per site type.
+  measurements Json     @default("[]")
+  /// Equipment tag numbers seen on site. specs/01-crm-inquiry.md §5 names a tag list as one of the
+  /// "required outputs" precisely because coming back for it costs a second visit.
+  tagNumbers   String[] @default([])
+
+  accessConstraints  String?
+  permitsRequired    String[] @default([])
+  hazards            String[] @default([])
+  /// { power, air, water, crane, scaffolding } — §6.1's list, as booleans with a note.
+  utilitiesAvailable Json     @default("{}")
+
+  /// FileObject ids from module 00 storage.
+  photoFileIds  String[] @default([])
+  sketchFileIds String[] @default([])
+
+  /// scheduled | completed | approved (§6.1).
+  status String @default("scheduled")
+
+  /// §6.1: "**If `scopeChangeIdentified` is true, emit `scope_change.identified`.** … Discovering at
+  /// inspection that the job is bigger than quoted is normal; discovering it *after* mobilization is
+  /// expensive. This link is one of the highest-value things the platform does."
+  ///
+  /// A boolean and not an inference. Nothing can reliably derive "this is bigger than we quoted"
+  /// from findings text, and a guess here either cries wolf or stays silent on the one that mattered.
+  scopeChangeIdentified Boolean @default(false)
+  scopeChangeNotes      String?
+
+  /// Set when the event has actually been emitted, so re-saving an inspection that already reported
+  /// a scope change does not tell sales twice. Nullable rather than a boolean: the timestamp is the
+  /// answer to "when did sales find out", which is the question asked afterwards.
+  scopeChangeReportedAt DateTime?
+
+  requestedById String?
+  scheduledFor  DateTime?
+  completedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket?  @relation(fields: [ticketId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([ticketId])
+  @@index([inquiryId])
 }

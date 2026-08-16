@@ -20,6 +20,7 @@ import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
+import { ScopeChangeBanner } from "./ScopeChangeBanner";
 import { NegotiationPanel } from "./NegotiationPanel";
 import { QuotationPoPanel } from "./QuotationPoPanel";
 import { ReusePanel } from "./ReusePanel";
@@ -93,6 +94,14 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     sentAt: string | null;
     account: { id: string; code: string; name: string } | null;
     inquiry: { id: string; number: string } | null;
+    // module 04 §6.1's mark, carried on the document it affects. See ScopeChangeBanner.
+    scopeChangeFlaggedAt: string | null;
+    scopeChangeNotes: string | null;
+    scopeChangeSource: string | null;
+    scopeChangeInspectionId: string | null;
+    scopeChangeResolvedAt: string | null;
+    scopeChangeResolution: string | null;
+    scopeChangeResolutionNote: string | null;
     lines: {
       // Sent all along; declared now because §3's PO check compares by line number, and a check
       // that matched on array position would misread any quotation whose lines were reordered.
@@ -227,6 +236,21 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
         }
       >
         <div className="space-y-4">
+          {/* Above Details on purpose: it is the one thing on this page that changes what the
+              reader should do next. */}
+          <ScopeChangeBanner
+            quotationId={data.id}
+            flaggedAt={data.scopeChangeFlaggedAt}
+            notes={data.scopeChangeNotes}
+            source={data.scopeChangeSource}
+            inspectionId={data.scopeChangeInspectionId}
+            resolvedAt={data.scopeChangeResolvedAt}
+            resolution={data.scopeChangeResolution}
+            resolutionNote={data.scopeChangeResolutionNote}
+            canAct={editable || data.status === "sent"}
+            onResolved={() => void quotation.refetch()}
+          />
+
           <Card className="p-4">
             <h2 className="text-sm font-semibold">Details</h2>
             <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">

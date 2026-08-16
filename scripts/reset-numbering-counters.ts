@@ -141,6 +141,14 @@ async function highestInUse(documentType: string): Promise<number> {
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
     }
+    // Added by module 04 session 3, which started issuing AIESSIR numbers.
+    case "site_inspection": {
+      const rows = await db.siteInspection.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
     default:
       // Never `return 0`. See NOT_YET_ISSUED — a forgotten case and an empty series look identical
       // from here, and guessing wrong resets a counter below numbers that are on real documents.

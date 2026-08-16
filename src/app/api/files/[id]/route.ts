@@ -2,10 +2,18 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { canAccessFile } from "@/server/core/storage/access";
+// Populates the file-access registries. Without it this route is its own bundle on Vercel,
+// the registries are empty, and every file becomes downloadable only by its uploader.
+import { FILE_CHECKERS_REGISTERED } from "@/server/core/storage/register-checkers";
+
 import { getFileDownloadUrl } from "@/server/core/storage/storage";
 import type { AuthedUser } from "@/server/core/rbac/types";
 
 export const runtime = "nodejs";
+
+// Referenced, not merely imported: a bare side-effect import is exactly the line a tidy-up removes,
+// and removing it makes every file downloadable only by its uploader. See register-checkers.ts.
+void FILE_CHECKERS_REGISTERED;
 
 // specs/00-foundation.md §7.2: "Downloads always go through /api/files/[id], which checks
 // permission server-side and then issues a short-lived signed URL. Never a public bucket, never

@@ -127,6 +127,31 @@ export const quotationManifest = defineManifest({
    */
   consumes: [
     {
+      /**
+       * specs/04-operations-projects.md §6.1: "Module 02 subscribes and prompts sales to raise a
+       * quotation revision… **This link is one of the highest-value things the platform does.**"
+       *
+       * It **prompts**. See promptRevisionOnScopeChange for why raising the revision automatically
+       * would be wrong: only a human knows whether extra scope is chargeable, absorbed, or a
+       * misunderstanding, and a revision that appears by itself still has to be priced by somebody
+       * who was not told why.
+       */
+      event: "scope_change.identified",
+      handler: async (payload) => {
+        const { promptRevisionOnScopeChange } =
+          await import("@/server/core/quotation/scope-change-service");
+        await promptRevisionOnScopeChange(
+          payload as {
+            siteInspectionId?: string;
+            number?: string;
+            ticketId?: string | null;
+            inquiryId?: string | null;
+            notes?: string | null;
+          },
+        );
+      },
+    },
+    {
       event: "inquiry.quoting_started",
       // Dynamically imported so registering the manifest does not pull Prisma into every consumer
       // of manifests.ts — which includes prisma/seed.ts and the nav tests. The service loads only

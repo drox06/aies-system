@@ -18,6 +18,14 @@ import {
   RELEASE_METHODS,
 } from "@/server/core/operations/cash-advance-rules";
 import {
+  approveInspectionService,
+  completeInspectionService,
+  getInspectionService,
+  listInspectionsService,
+  saveInspectionService,
+  scheduleInspectionService,
+} from "@/server/core/operations/site-inspection-service";
+import {
   cashAdvanceGateForTicket,
   decideCashAdvanceService,
   decideExtensionService,
@@ -258,4 +266,87 @@ export const operationsRouter = router({
   overrideCashAdvanceGate: p("operations.override_ca_gate")
     .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
     .mutation(({ ctx, input }) => overrideCashAdvanceGateService(actorMeta(ctx), input)),
+
+  // ---- §6.1's site inspection -------------------------------------------------------------------
+
+  scheduleInspection: p("ticket.execute")
+    .input(
+      z.object({
+        ticketId: z.string().nullish(),
+        projectId: z.string().nullish(),
+        inquiryId: z.string().nullish(),
+        siteId: z.string().nullish(),
+        scheduledFor: z.coerce.date().nullish(),
+        inspectedByIds: z.array(z.string()).default([]),
+      }),
+    )
+    .mutation(({ ctx, input }) => scheduleInspectionService(actorMeta(ctx), input)),
+
+  /**
+   * Records what the surveyor found — and, when the scope grew, tells sales on the spot.
+   *
+   * `scopeChangeIdentified` is on the *save*, not on completion, deliberately: §6.1's value is how
+   * early the warning lands, and a surveyor who flags it from site on Tuesday should not have it
+   * held until the paperwork is finished on Friday.
+   */
+  saveInspection: p("ticket.execute")
+    .input(
+      z.object({
+        inspectionId: z.string(),
+        inspectedAt: z.coerce.date().nullish(),
+        inspectedByIds: z.array(z.string()).optional(),
+        findings: z.string().max(20000).nullish(),
+        existingConditions: z.record(z.string(), z.unknown()).optional(),
+        measurements: z
+          .array(
+            z.object({
+              label: z.string().max(200),
+              value: z.string().max(100),
+              unit: z.string().max(30).default(""),
+            }),
+          )
+          .optional(),
+        tagNumbers: z.array(z.string().max(100)).optional(),
+        accessConstraints: z.string().max(5000).nullish(),
+        permitsRequired: z.array(z.string().max(200)).optional(),
+        hazards: z.array(z.string().max(200)).optional(),
+        utilitiesAvailable: z
+          .record(
+            z.string(),
+            z.object({ available: z.boolean(), note: z.string().max(300).optional() }),
+          )
+          .optional(),
+        photoFileIds: z.array(z.string()).optional(),
+        sketchFileIds: z.array(z.string()).optional(),
+        scopeChangeIdentified: z.boolean().optional(),
+        scopeChangeNotes: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveInspectionService(actorMeta(ctx), input)),
+
+  completeInspection: p("ticket.execute")
+    .input(z.object({ inspectionId: z.string() }))
+    .mutation(({ ctx, input }) => completeInspectionService(actorMeta(ctx), input.inspectionId)),
+
+  /** §6.1's `approved`. See INSPECTION_APPROVE_PERMISSION for why `project.manage` gates it. */
+  approveInspection: p("project.manage")
+    .input(z.object({ inspectionId: z.string() }))
+    .mutation(({ ctx, input }) => approveInspectionService(actorMeta(ctx), input.inspectionId)),
+
+  listInspections: p("ticket.view")
+    .input(
+      z
+        .object({
+          status: z.string().optional(),
+          ticketId: z.string().optional(),
+          inquiryId: z.string().optional(),
+          scopeChangeOnly: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .query(({ ctx, input }) => listInspectionsService(ctx.user, input ?? {})),
+
+  getInspection: p("ticket.view")
+    .input(z.object({ inspectionId: z.string() }))
+    .query(({ ctx, input }) => getInspectionService(ctx.user, input.inspectionId)),
 });

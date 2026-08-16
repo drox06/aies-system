@@ -4,20 +4,31 @@ import { defineManifest } from "@/server/core/module-registry";
  * Module 04 — Operations and Projects (specs/04-operations-projects.md).
  *
  * The largest module in the build: four gates, a delivery lane, an offline-first field application,
- * digital checklists and dispatch scheduling. This manifest declares **session 1 only** — the ticket
- * itself and §4's proposal.
+ * digital checklists and dispatch scheduling. Three sessions are in: §4's ticket and proposal, §5's
+ * cash advance gate, and §6.1's site inspection.
  *
- * §19 lists thirty permissions for the finished module; four are here, because four gate something.
+ * §19 lists thirty permissions for the finished module; nine are here, because nine gate something.
  * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
- * by tests/server/core/modules/permissions-are-used.test.ts. `cash_advance.approve` declared now
- * would sit in the admin role screen granting access to nothing for weeks; somebody would assign it
- * and wonder why nothing happened. docs/DECISIONS.md #52.
+ * by tests/server/core/modules/permissions-are-used.test.ts. A permission declared ahead of its gate
+ * sits in the admin role screen granting access to nothing; somebody assigns it and wonders why
+ * nothing happened. docs/DECISIONS.md #52.
+ *
+ * `cash_advance.approve` and `cash_advance.approve_extension` are **not** here — they are foundation
+ * permissions seeded by module 00, which needed them to seed the approval rules with §5's
+ * four-working-hour escalation window. Redeclaring either would be a second owner for one key.
  */
 export const operationsManifest = defineManifest({
   key: "operations",
   name: "Operations",
   version: "0.1.0",
-  models: ["Ticket", "TicketSalesOrderLine", "Project", "CashAdvance", "CashAdvanceLiquidation"],
+  models: [
+    "Ticket",
+    "TicketSalesOrderLine",
+    "Project",
+    "CashAdvance",
+    "CashAdvanceLiquidation",
+    "SiteInspection",
+  ],
 
   permissions: [
     {
@@ -108,6 +119,28 @@ export const operationsManifest = defineManifest({
       ],
     },
     {
+      key: "ticket.execute",
+      label: "Record field work — site inspections and findings",
+      group: "Operations",
+      // §19: technicians do the work, so they hold this. The officers and DJ hold it because in a
+      // five-person company they go to site too (Spec.md §1.2).
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "technician",
+        "admin_manager",
+      ],
+    },
+    {
+      key: "project.manage",
+      label: "Plan a project and sign off its site inspection",
+      group: "Operations",
+      // §6.1's `approved` state. See INSPECTION_APPROVE_PERMISSION in site-inspection-rules.ts for
+      // why an existing §19 key is reused rather than a new `inspection.approve` invented.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
       key: "operations.override_ca_gate",
       label: "Mobilize a crew before the cash advance is released",
       group: "Operations",
@@ -118,7 +151,7 @@ export const operationsManifest = defineManifest({
   ],
 
   /**
-   * §18 lists twenty-eight events. Four are emitted today.
+   * §18 lists twenty-eight events. Six are emitted today.
    *
    * The registry rejects a subscription to an event nothing emits, so declaring the rest now would
    * let a later module subscribe to something that never fires — which fails silently, and is worse
@@ -129,19 +162,52 @@ export const operationsManifest = defineManifest({
     "cash_advance.requested",
     "cash_advance.released",
     "cash_advance.liquidation_overdue",
+    "site_inspection.completed",
+    "scope_change.identified",
   ],
 
   /**
-   * Nothing yet, and that is §4's rule rather than an omission.
+   * One subscription, and a deliberate absence.
    *
-   * The obvious wiring is to subscribe to `sales_order.created` and generate tickets. §4 forbids it:
-   * "**Do not auto-generate silently — one PO can legitimately be one ticket or eight, and only a
-   * human knows which.**" So the proposal is computed on demand when somebody opens the sales order,
-   * and a subscriber here would be a way of quietly doing the thing the spec rules out.
+   * **Still absent: `sales_order.created`.** The obvious wiring is to subscribe to it and generate
+   * tickets, and §4 forbids exactly that: "**Do not auto-generate silently — one PO can legitimately
+   * be one ticket or eight, and only a human knows which.**" The proposal is computed on demand when
+   * somebody opens the sales order, and a subscriber here would be a quiet way of doing the thing
+   * the spec rules out. `operations-manifest.test.ts` pins its absence by name.
    *
    * `goods.received` and `payment.received` arrive when the gates that read them do.
    */
-  consumes: [],
+  consumes: [
+    {
+      /**
+       * specs/01-crm-inquiry.md §5: "Module 04 subscribes and creates a scheduled field task."
+       *
+       * crm.prisma has carried that promise in a comment since module 01 was built — "when module 04
+       * lands it consumes `inspection.requested` and this becomes the request of record with the
+       * field task alongside it". This is module 04 landing.
+       *
+       * Unlike `sales_order.created`, there is no judgement being skipped here: somebody has already
+       * decided a site needs visiting and said so on a form. Scheduling the visit they asked for is
+       * mechanical, and §5 asks for it in as many words.
+       */
+      event: "inspection.requested",
+      // Dynamically imported so registering the manifest does not pull Prisma into every consumer
+      // of manifests.ts — which includes prisma/seed.ts and the nav tests.
+      handler: async (payload) => {
+        const { scheduleFromInspectionRequest } =
+          await import("@/server/core/operations/site-inspection-service");
+        await scheduleFromInspectionRequest(
+          payload as {
+            inspectionRequestId?: string;
+            inquiryId?: string;
+            siteId?: string | null;
+            assignedToId?: string | null;
+            dueAt?: string | null;
+          },
+        );
+      },
+    },
+  ],
 
   nav: [
     {
@@ -161,6 +227,13 @@ export const operationsManifest = defineManifest({
       // their ticket, where they are looking anyway.
       permission: "cash_advance.view_register",
       order: 41,
+    },
+    {
+      label: "Site inspections",
+      href: "/inspections",
+      icon: "clipboard-check",
+      permission: "ticket.execute",
+      order: 42,
     },
   ],
 });

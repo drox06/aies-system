@@ -60,6 +60,7 @@ import {
   listQuotationApprovalQueueService,
   submitQuotationForApprovalService,
 } from "@/server/core/quotation/approval-service";
+import { dismissScopeChangeService } from "@/server/core/quotation/scope-change-service";
 
 function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
   return {
@@ -499,6 +500,17 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => reviseQuotationService(actorMeta(ctx), input)),
+
+  /**
+   * Clears a site inspection's scope-change mark without revising.
+   *
+   * `quotation.revise` rather than a permission of its own: deciding that extra scope needs no
+   * revision is the same judgement as deciding it does, made the other way. The reason is required
+   * by the service — see dismissScopeChangeService.
+   */
+  dismissScopeChange: p("quotation.revise")
+    .input(z.object({ quotationId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => dismissScopeChangeService(actorMeta(ctx), input)),
 
   revisions: p("quotation.view")
     .input(z.object({ quotationId: z.string() }))

@@ -4,6 +4,7 @@ import { use } from "react";
 import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
 import { CashAdvancePanel } from "./CashAdvancePanel";
+import { InspectionPanel } from "./InspectionPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -156,6 +157,13 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
               </>
             )}
           </Card>
+
+          <InspectionPanel
+            ticketId={data.id}
+            ticketType={data.type}
+            projectId={data.project?.id ?? null}
+            siteId={data.site?.id ?? null}
+          />
 
           <CashAdvancePanel ticketId={data.id} />
 

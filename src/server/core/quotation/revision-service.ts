@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import { emit } from "@/server/core/events/emit";
 import { isRevisable, REVISION_REASONS } from "@/server/core/quotation/quotation-lifecycle";
 import { quotationDisplayNumber } from "@/server/core/quotation/quotation-number";
+import { resolveScopeChangeOnRevision } from "./scope-change-service";
 import { diffRevisions, type DiffSide } from "@/server/core/quotation/revision-diff";
 import type { ActorMeta } from "@/server/core/quotation/quotation-service";
 
@@ -157,6 +158,18 @@ export async function reviseQuotationService(
       userAgent: actor.userAgent,
       requestId: actor.requestId,
     });
+
+    /**
+     * A site inspection's scope-change mark is answered by the revision itself.
+     *
+     * specs/04-operations-projects.md §6.1 asks the platform to prompt a revision; raising one **is**
+     * the action the prompt was asking for, so it clears the mark here rather than leaving somebody
+     * to dismiss it afterwards. A second click to acknowledge a thing you have just done is how
+     * people learn to dismiss without reading. docs/DECISIONS.md #59.
+     *
+     * The new revision does not inherit the mark — it is the response to it, not another instance.
+     */
+    await resolveScopeChangeOnRevision(tx, source.id, actor.actorId);
 
     await emit(
       tx,

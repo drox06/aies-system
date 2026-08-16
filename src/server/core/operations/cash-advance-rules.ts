@@ -21,9 +21,6 @@ export const CASH_ADVANCE_APPROVAL_RULE = "cash_advance.approve";
 /** Requesting an extension routes through its own rule, seeded with a 24-hour window. */
 export const CASH_ADVANCE_EXTENSION_RULE = "cash_advance.approve_extension";
 
-/** §19's permission for mobilizing a crew whose advance has not been released. */
-export const CA_GATE_OVERRIDE_PERMISSION = "operations.override_ca_gate";
-
 /**
  * Seeing advances that are not your own.
  *

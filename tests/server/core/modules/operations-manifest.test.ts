@@ -35,7 +35,9 @@ describe("operations manifest", () => {
       // Declared in session 1 and removed the same day: they gated nothing either.
       "ticket.cancel",
       "project.view",
-      "project.manage",
+      // `project.manage` was on this list until session 3, which gave it §6.1's inspection sign-off.
+      // That is the rule working in the intended direction: a permission comes back the moment
+      // something gates it, not before.
     ]) {
       expect(declared, `${key} belongs to the session that builds its gate`).not.toContain(key);
     }
@@ -60,12 +62,14 @@ describe("operations manifest", () => {
    * nothing emits, so an early declaration lets a later module subscribe to something that never
    * fires — a silent failure, worse than a boot error.
    */
-  it("emits only what session 1 and session 2 actually emit", () => {
+  it("emits only what the sessions so far actually emit", () => {
     expect(operationsManifest.emits).toEqual([
       "ticket.generated",
       "cash_advance.requested",
       "cash_advance.released",
       "cash_advance.liquidation_overdue",
+      "site_inspection.completed",
+      "scope_change.identified",
     ]);
   });
 
@@ -87,11 +91,31 @@ describe("operations manifest", () => {
     expect(roles("operations.override_ca_gate")).toEqual(["president", "vice_president"]);
   });
 
-  it("subscribes to nothing, which is §4's rule rather than an omission", () => {
-    // The obvious wiring is `sales_order.created` → generate. §4 forbids it outright: "Do not
-    // auto-generate silently — one PO can legitimately be one ticket or eight, and only a human
-    // knows which." A subscriber here would be a quiet way of doing the thing the spec rules out.
-    expect(operationsManifest.consumes).toEqual([]);
+  /**
+   * §4's rule, pinned by naming the event rather than by counting subscriptions.
+   *
+   * This used to assert `consumes` was empty, which was true in session 1 and would have failed in
+   * session 3 for the wrong reason — the `inspection.requested` subscription is legitimate, and an
+   * emptiness assertion cannot tell the two apart. What actually matters is the specific absence, so
+   * that is what is asserted now.
+   */
+  it("never subscribes to sales_order.created, which is §4's rule", () => {
+    // §4 forbids it outright: "Do not auto-generate silently — one PO can legitimately be one
+    // ticket or eight, and only a human knows which." A subscriber would be a quiet way of doing
+    // the thing the spec rules out.
+    const events = operationsManifest.consumes.map((c) => c.event);
+    expect(events).not.toContain("sales_order.created");
+    expect(events).not.toContain("customer_po.received");
+  });
+
+  /**
+   * specs/01-crm-inquiry.md §5: "Module 04 subscribes and creates a scheduled field task."
+   *
+   * crm.prisma has carried that promise in a comment since module 01 was built. Pinned so a later
+   * refactor cannot quietly drop it and leave the comment lying.
+   */
+  it("subscribes to inspection.requested, which module 01 has been waiting for", () => {
+    expect(operationsManifest.consumes.map((c) => c.event)).toContain("inspection.requested");
   });
 
   it("is registered, so its permissions reach the seed", () => {

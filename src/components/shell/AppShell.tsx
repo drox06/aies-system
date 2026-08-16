@@ -276,6 +276,7 @@ const ICONS: Record<string, LucideIcon> = {
   // Module 04 (specs/04-operations-projects.md).
   wrench: Wrench,
   wallet: Wallet,
+  "clipboard-check": ClipboardCheck,
 };
 
 const ICON_SIZE = 20;

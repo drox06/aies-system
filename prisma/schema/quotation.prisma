@@ -156,6 +156,32 @@ model Quotation {
   deletedAt DateTime?
   deletedBy String?
 
+  /// specs/04-operations-projects.md §6.1's scope change, carried on the document it affects.
+  ///
+  /// §6.1 calls the inspection-to-quotation link "one of the highest-value things the platform
+  /// does", and module 04 emits `scope_change.identified` for it. The notification that follows is
+  /// a nudge; **these columns are the record**, and they exist because a nudge is not enough on its
+  /// own. The in-app bell is the only channel with a handler today (docs/DECISIONS.md #10), so a
+  /// notification nobody happens to see is a scope change nobody ever learns about — and the crew
+  /// mobilises three weeks later against a quotation that was never revised.
+  ///
+  /// So the flag stays on the quotation until somebody either revises it or dismisses it with a
+  /// reason. docs/DECISIONS.md #59.
+  scopeChangeFlaggedAt    DateTime?
+  scopeChangeNotes        String?
+  /// The inspection that found it, for a link, and its number, for a sentence.
+  scopeChangeInspectionId String?
+  scopeChangeSource       String?
+  /// Last time the nightly sweep chased it. Null until the first chase.
+  scopeChangeChasedAt     DateTime?
+
+  scopeChangeResolvedAt     DateTime?
+  scopeChangeResolvedById   String?
+  /// revised | dismissed. Set by reviseQuotationService automatically, or by an explicit dismissal.
+  scopeChangeResolution     String?
+  /// Required when dismissing. "We absorbed it" is a decision worth keeping; silence is not.
+  scopeChangeResolutionNote String?
+
   account           CustomerAccount        @relation(fields: [accountId], references: [id])
   inquiry           Inquiry?               @relation(fields: [inquiryId], references: [id])
   site              Site?                  @relation(fields: [siteId], references: [id])
@@ -174,6 +200,8 @@ model Quotation {
   @@index([status, validUntil])
   @@index([preparedById, status])
   @@index([inquiryId])
+  // The nightly sweep's query: flagged and not yet resolved.
+  @@index([scopeChangeFlaggedAt, scopeChangeResolvedAt])
 }
 
 model QuotationLine {

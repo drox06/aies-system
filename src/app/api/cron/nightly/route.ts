@@ -10,6 +10,7 @@ import { sweepQuotationsToArchive } from "@/server/core/quotation/archive-servic
 import { sweepOverdueRfqs } from "@/server/core/quotation/rfq-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepOverdueLiquidationsService } from "@/server/core/operations/cash-advance-service";
+import { sweepUnactionedScopeChanges } from "@/server/core/quotation/scope-change-service";
 import {
   sweepDormantAccounts,
   sweepFollowUps,
@@ -143,6 +144,16 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] overdue liquidation sweep failed:", error);
     results.overdueLiquidations = { error: String(error) };
+  }
+
+  // specs/04-operations-projects.md §6.1's link, chased. The event fires once so the warning stays
+  // worth reading; this is what stops "once" from meaning "never again" when nobody acts on it.
+  // docs/DECISIONS.md #59.
+  try {
+    results.unactionedScopeChanges = await sweepUnactionedScopeChanges();
+  } catch (error) {
+    console.error("[cron/nightly] scope change sweep failed:", error);
+    results.unactionedScopeChanges = { error: String(error) };
   }
 
   return NextResponse.json(results);

@@ -1953,3 +1953,225 @@ absence of a rule.
 The sanctioned way out is the one §5 already provides: ask the Vice President for an extension. That
 is why *formally extended* does not block while *late* does — if an approved extension left the
 block in place, granting one would mean nothing.
+
+---
+
+## #56 — The scope-change link prompts sales; it does not raise the revision
+
+specs/04-operations-projects.md §6.1, module 04 session 3.
+
+§6.1 is unusually emphatic: "Discovering at inspection that the job is bigger than quoted is normal;
+discovering it *after* mobilization is expensive. **This link is one of the highest-value things the
+platform does.**"
+
+The tempting implementation is to raise the quotation revision automatically. It is wrong twice.
+Only a human knows whether extra scope is chargeable, absorbed as goodwill, or a misunderstanding to
+be argued about with the customer — and a revision that appears by itself still has to be priced by
+somebody who was not told why it exists. The spec's own verb is "prompts", and it is load-bearing.
+
+So `promptRevisionOnScopeChange` finds the quotation behind the surveyed work and notifies whoever
+prepared it, carrying the surveyor's own words. The decision stays with sales; what changes is that
+they hear on the day of the survey rather than from an argument on site.
+
+### Firing once is what makes it worth reading
+
+`scopeChangeReportedAt` records that sales has been told. A surveyor correcting a measurement
+re-saves the inspection, and a second "the job is bigger than quoted" notification would teach the
+recipient to close them unread — destroying precisely the warning the section says must land.
+
+It also refuses to fire on a flag with no notes. An inspection can be saved while still `scheduled`,
+and a half-filled draft should not page sales; `inspectionCompleteness` separately blocks the flag
+from reaching `completed` unexplained, because sales cannot revise a quotation against a tick box.
+
+### The emission is on *save*, not on completion
+
+The whole value is how early it lands. A surveyor who flags a scope change from the site on Tuesday
+and finishes the paperwork on Friday has given sales three days; waiting for `completed` throws them
+away.
+
+---
+
+## #57 — Photographs on a site inspection are a warning, not a gate
+
+specs/04-operations-projects.md §6.1, module 04 session 3.
+
+`inspectionCompleteness` blocks on three fields — when the visit happened, who attended, what was
+found — and treats missing photographs and measurements as warnings that the screen shows and the
+record keeps.
+
+Requiring photographs is the obvious stricter choice, and it is wrong. A refused-entry visit produces
+none and is still a real inspection, whose finding is "we could not get in" — exactly the sort of
+thing that must be recordable, because it is the thing that changes a schedule. §6.1 does not ask for
+photographs to be mandatory.
+
+The general rule this is an instance of: **a gate people cannot satisfy honestly gets satisfied
+dishonestly.** A survey with one meaningless photograph attached to clear a requirement is worse than
+one that openly admits it has none, because the first looks complete to everybody downstream.
+
+The same reasoning appears in module 03's goods receipt, where photograph presence is *recorded and
+frozen* rather than required, and in §5's cash advance, where a short release is recorded rather than
+refused.
+
+---
+
+## #58 — Pin the absence you mean, not a proxy for it
+
+specs/04-operations-projects.md §4 and §6.1, module 04 session 3.
+
+`operations-manifest.test.ts` asserted `operationsManifest.consumes` was **empty**, to protect §4's
+rule: "Do not auto-generate silently — one PO can legitimately be one ticket or eight, and only a
+human knows which."
+
+The intent was right and the assertion was a proxy. Session 3 added a subscription to
+`inspection.requested` — which specs/01-crm-inquiry.md §5 asks for by name, and which crm.prisma has
+promised in a comment since module 01 — and the test failed. Not because anything was wrong, but
+because emptiness cannot distinguish the subscription the spec demands from the one it forbids.
+
+A proxy assertion fails in exactly this way: it goes red on a correct change, and the cheapest way to
+make it green is to weaken it. It now asserts what it actually means — that `sales_order.created` and
+`customer_po.received` are not subscribed — which is both stronger (it stays meaningful as more
+subscriptions land) and honest about what it is protecting. A second test pins the presence of
+`inspection.requested`, so a refactor cannot quietly drop it and leave the schema comment lying.
+
+---
+
+## #59 — A notification is not a record: the scope change is marked on the quotation
+
+specs/04-operations-projects.md §6.1, module 04 session 3.
+
+§6.1 calls the inspection-to-quotation link "one of the highest-value things the platform does". The
+first implementation emitted `scope_change.identified`, module 02 subscribed, and it notified the
+person who prepared the quotation. That is what the spec asks for, and it was not enough.
+
+The notification goes to the in-app bell with email off, because the `notify_email` queue still has
+no handler (docs/DECISIONS.md #10). So the platform's highest-value link sat entirely on its weakest
+channel. Miss the bell and **nothing ever surfaces the finding again** — the crew mobilises three
+weeks later against a quotation nobody revised, which is precisely the failure §6.1 exists to
+prevent, arriving by a different road.
+
+So the finding is now written onto the `Quotation` itself and stays visible until it is resolved. The
+notification is the nudge; the columns are the record.
+
+### Still a prompt, not an automatic revision
+
+Unchanged, and worth restating because the mark makes auto-revising look more tempting rather than
+less. Only a human knows whether extra scope is chargeable, absorbed, or a misunderstanding, and a
+revision raised by a robot still has to be priced by somebody who was not told why it appeared. §6.1's
+verb is "prompts".
+
+### Two ways out, and both are recorded
+
+- **Revising the quotation** clears the mark automatically, inside `reviseQuotationService`'s own
+  transaction. Raising the revision *is* the action the prompt was asking for; a second click to
+  acknowledge a thing you have just done is how people learn to dismiss without reading.
+- **Dismissing** requires a reason of real length. "We absorbed it" is a decision worth keeping where
+  silence is not, and it is what somebody reads six months later when the job overran and nobody
+  remembers agreeing to it.
+
+A resolved mark is still shown, quietly. Hiding it the moment it is dealt with would throw away the
+only evidence the decision was ever made.
+
+### Once, but not never again
+
+The **event** fires once — `scopeChangeReportedAt` on the inspection — because a surveyor correcting
+a measurement must not re-send "the job is bigger than quoted", and a warning that arrives repeatedly
+is one people learn to close unread.
+
+But *once, ever* also means *never again*. `sweepUnactionedScopeChanges` runs nightly and chases the
+unresolved **mark** every three working days, widening to the account owner as well as the preparer —
+after a fortnight the person who wrote the quotation may not be the person who can get a decision out
+of the customer. Working days rather than calendar, so a Friday finding does not chase somebody on a
+Sunday.
+
+§6 asks for none of this. It is the same shape as the seven-day silent-quotation sweep and the
+overdue-liquidation sweep already running nightly, and it is the difference between a link that fires
+and a link that lands.
+
+### A second finding does not overwrite the first
+
+`promptRevisionOnScopeChange` guards its write on the flag still being clear. The newer inspection
+still notifies — the person needs to know — but silently replacing the older notes would lose a
+finding nobody had dealt with, which is the thing the whole mechanism exists to stop.
+
+---
+
+## #60 — File access checkers must be registered by the route that reads them
+
+Found while verifying module 04 session 3's inspection photographs; affects module 00's storage core
+and all nine entity types that use it.
+
+`src/server/core/storage/access.ts` keeps its checkers in module-level `Map`s, populated as a side
+effect of importing the module that owns each entity type. That pattern is fine. What was missing was
+anything guaranteeing the import had happened by the time somebody asked to download a file.
+
+`/api/files/[id]/route.ts` imports `canAccessFile` and nothing else.
+
+On a single long-lived Node process it worked **by accident**: the tRPC route loads
+`src/server/api/root.ts`, which pulls in every router and therefore every service, so the maps were
+full by the time anyone clicked a photograph. **Next.js bundles each route separately.** In
+production that route is its own function whose import graph contains none of those services, the
+maps are empty, and `canAccessFile` falls through to its default:
+
+```ts
+return file.uploaderId === user.id;
+```
+
+Every file, of every entity type, readable only by whoever uploaded it. The president cannot open a
+certificate PD uploaded; the operations manager approving a site inspection cannot see its
+photographs.
+
+### The default was right; the assumption was not
+
+`canAccessFile`'s fallback is deliberately conservative — "never no one, never anyone signed in" —
+and it is the reason this fails **closed**. A permissive default would have made the same bug a
+disclosure rather than an obstruction. Nothing about the default changes; what changes is that
+registration is now guaranteed rather than assumed.
+
+### The fix, and why a barrel
+
+`src/server/core/storage/register-checkers.ts` imports all nine registrar modules and exports a
+constant the route **references** — a bare side-effect import is exactly the line a tidy-up removes,
+and removing it silently restores the bug.
+
+Alternatives considered and rejected: registering inside `access.ts` inverts the dependency and makes
+the storage core import every business module; lazy `await import(...)` inside each checker moves the
+same ordering problem one level down.
+
+### Why this needed a test rather than a comment
+
+`tests/server/core/storage/file-access-registration.test.ts` asserts the barrel lists every module
+that calls a registrar — **by reading the source**, not by importing the modules. Importing them here
+would register the checkers and make any assertion about the registry pass trivially, which is the
+trap this exact class of bug sets. It carries a self-check for the same reason the permission audit
+does.
+
+### The lesson generalises
+
+A registry filled by import side effects is only as reliable as the weakest entry point that reads
+it. Any such registry needs either an explicit load step or a test that the load step is complete —
+the working-by-accident case is indistinguishable from the working-by-design case right up until a
+bundler separates them.
+
+---
+
+## #61 — A red end-to-end suite nobody runs is worse than no suite
+
+Found in the same pass as #60.
+
+`tests/e2e/home.spec.ts` asserted a heading reading "AIES Operations Platform" on the login page.
+That heading was replaced by the full-colour logo lockup when the auth screens were restyled (commit
+`61f13f0`). The test had been failing from that moment until module 04 session 3 — through five
+sessions of work, because nothing re-ran it.
+
+The direct cost was small: one stale assertion, fixed by asserting the logo's accessible name and the
+"Sign in" heading that is actually rendered. The real cost is what a standing failure does to the
+suite's value. When the run finally happened it reported `1 failed, 20 passed`, and the tempting
+reading — the one very nearly taken — is "that failure is old, the new work is green". A suite that
+trains its reader to skip failures has stopped being a check.
+
+Two things follow, and both are now true:
+
+- The e2e suite runs at the end of a session that adds or changes a screen, not "eventually". Sessions
+  2 and 3 added six surfaces between them and neither ran it until prompted.
+- It must end green or the failure gets fixed in that session. There is no such thing as a known
+  failing e2e test here; there is only a suite people believe or a suite people ignore.

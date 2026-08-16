@@ -1818,10 +1818,95 @@ lint and `build:check` clean. The counters were reset last, so the next document
   it, which is exactly what docs/DECISIONS.md #52 built the test for: hiding a nav entry is not a
   control, because the URL is still there to type. It now gates the register *and* the record.
 
-**Still to build in module 04:** §6's site inspection and methodology, §7's material request gate,
-§8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and commissioning,
-§11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's offline PWA,
-§15's checklists, §16's time and installed base, §17's scheduling.
+### Session 3 — §6.1's site inspection, and the link the spec calls the highest-value one
+
+§6 has two independent documents. This session is the first; §6.2's methodology is session 4, split
+at a model boundary because 6.2 carries a gate, a client-approval cycle, a PDF and a revision chain
+on its own.
+
+- [x] **`SiteInspection`, with four possible origins rather than §6.1's three.** The field sketch
+      lists `ticketId, projectId?, siteId`; the prose beneath it says the model is "**also the
+      sub-flow module 01 calls** when sales requests a pre-quotation inspection — same record type,
+      raised from an inquiry instead of a ticket". So `inquiryId` and `inspectionRequestId` are on it
+      too, and the prose wins over the sketch.
+- [x] **Module 04 now consumes `inspection.requested`.** crm.prisma has carried the promise in a
+      comment since module 01 was built — "when module 04 lands it consumes `inspection.requested`
+      and this becomes the request of record with the field task alongside it". The subscriber is
+      idempotent on the request id, because a queue retry that scheduled a second visit would put two
+      surveyors on one site. Completing the visit closes module 01's request.
+- [x] **§6.1's scope-change link, end to end.** The surveyor's flag emits `scope_change.identified`;
+      module 02 subscribes and notifies the person who prepared the quotation, with the surveyor's
+      own words in the body. §6.1: "This link is one of the highest-value things the platform does."
+- [x] **It prompts; it does not revise.** §6.1 says "prompts sales to raise a quotation revision",
+      and the wording is load-bearing — only a human knows whether extra scope is chargeable,
+      absorbed, or a misunderstanding, and a revision raised by a robot still has to be priced by
+      somebody who was not told why it appeared.
+- [x] **It fires once.** `scopeChangeReportedAt` records having told sales, so correcting a
+      measurement does not send a second "the job is bigger than quoted". A warning that arrives
+      repeatedly is one people learn to close unread, and this is the warning the section says must
+      land. It also refuses to fire on a flag with no notes — a half-filled draft should not page
+      sales, and sales cannot revise a quotation against a tick box.
+- [x] **Completion needs three fields, and photographs are only a warning.** A refused-entry visit
+      produces no photographs and is still a real inspection whose finding is "we could not get in".
+      A gate people cannot satisfy honestly gets satisfied dishonestly — one meaningless photograph
+      to clear it.
+- [x] **Unchecked is not "not available".** The utilities block distinguishes the two: a planner who
+      reads "no crane" brings one; a planner who reads "nobody checked" asks.
+- [x] **`project.manage` comes back.** It was one of the eleven permissions the 2026-08-16 audit
+      deleted for gating nothing; §6.1's sign-off is the gate that earns it. `inspection.approve` was
+      considered and rejected — §19 enumerates this module's permissions and does not list one, and
+      inventing a key the spec lacks is a worse deviation than reusing one it has.
+- [x] Screens: `/inspections` with a "found extra scope" view of its own, `/inspections/[id]` with
+      the scope-change question placed **first** — a surveyor filling this in on a phone in a plant
+      answers what is in front of them — and a panel on the ticket.
+- [x] Numbering: `AIESSIR-{YY}{####}`, new, for the same reason `AIESPRJ` was — an inspection report
+      is a document a customer receives when the survey changes the scope, and "the one from last
+      Tuesday" is not a reference.
+
+- [x] **The finding is marked on the quotation, not only notified.** Folded into this session after
+      review. Emitting and notifying put §6.1's highest-value link on the weakest channel the build
+      has — the in-app bell, with email off because the `notify_email` queue has no handler
+      (docs/DECISIONS.md #10). Miss it and nothing ever surfaces the finding again. The mark stays on
+      the quotation until somebody revises it or records why no revision is needed; revising clears
+      it automatically, dismissing demands a reason, and a resolved mark is still shown quietly
+      because "we absorbed it" is history worth keeping. docs/DECISIONS.md #59.
+- [x] **A nightly sweep chases what nobody actioned.** The *event* fires once, so the warning stays
+      worth reading — but *once, ever* also means *never again*. `sweepUnactionedScopeChanges` chases
+      the unresolved mark every three working days, widening to the account owner as well as the
+      preparer. Neither this nor the mark is asked for by §6; both match the seven-day
+      silent-quotation and overdue-liquidation sweeps already running nightly.
+
+**Migrations** `20260816095212_site_inspection` and `20260816104003_quotation_scope_change`.
+
+*Caught by a pin rather than by review:* `operations-manifest.test.ts` asserted `consumes` was
+**empty**, to protect §4's "do not auto-generate silently". That assertion could not tell a
+legitimate subscription from the forbidden one, and it failed on `inspection.requested` for the wrong
+reason. It now names the event it is actually guarding against — `sales_order.created` — which is
+both a stronger test and an honest one.
+
+### Found by verifying session 3 rather than by building it
+
+Two things the verification pass turned up, neither of them §6's:
+
+- [x] **File access checkers were registered only by accident of module load order.**
+      `/api/files/[id]` imports `canAccessFile` and nothing else; the checkers register as a side
+      effect of importing each owning module. On one Node process the tRPC route loads every service
+      and fills the maps in time. Next.js bundles each route separately, so in production that route
+      would have had an empty map and `canAccessFile` would fall through to
+      `file.uploaderId === user.id` — **every file, of all nine entity types, readable only by
+      whoever uploaded it.** Fixed with an explicit `register-checkers.ts` barrel the route
+      references, plus a test that reads the source (importing the modules would register them and
+      make the assertion pass trivially). docs/DECISIONS.md #60.
+- [x] **The end-to-end suite had been red since the auth screens were restyled.**
+      `home.spec.ts` asserted a text heading the logo lockup replaced in commit `61f13f0`, and
+      nothing re-ran the suite for five sessions. Corrected to assert what the page renders. The
+      standing rule that follows: the e2e suite runs at the end of any session that touches a screen,
+      and it ends green. docs/DECISIONS.md #61.
+
+**Still to build in module 04:** §6.2's methodology and its client-approval gate, §7's material
+request gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
+commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
+offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
 
 **What it unblocks when §13 lands:** module 03's §7 delivery receipt, and with it
 `sales_order.goods_delivered`, `delivery.dr_signed` and `po_received → won`.
@@ -1853,6 +1938,18 @@ lint and `build:check` clean. The counters were reset last, so the next document
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #60-#61: found while verifying session 3's photographs (file access checkers were
+  registered only by accident of module load order, so on Vercel every file would have been
+  downloadable solely by its uploader across all nine entity types; and the end-to-end suite had been
+  failing since the auth screens were restyled, unnoticed, because nothing re-ran it).
+- docs/DECISIONS.md #59: a notification is not a record — §6.1's scope change is marked on the
+  quotation and chased nightly until somebody revises or explicitly absorbs it, because the link the
+  spec calls its highest-value one was sitting entirely on the in-app bell.
+- docs/DECISIONS.md #56-#58: module 04 session 3 (§6.1's scope-change link *prompts* sales rather
+  than raising the revision, and fires exactly once so the warning stays worth reading; photographs
+  on an inspection are a warning not a gate, because a gate people cannot satisfy honestly gets
+  satisfied dishonestly; pin the absence you mean — asserting `consumes` was empty was a proxy that
+  went red on a correct change).
 - docs/DECISIONS.md #53-#55: module 04 session 2 (an advance settles on cash *recorded*, never on
   `released − spent`, which made every advance settle on its first receipt; approving and releasing
   are different permissions so the gap §5 exists to surface stays representable; the block on a new

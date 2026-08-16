@@ -336,6 +336,14 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // several tickets say which one they roll up to.
   { documentType: "project", format: "AIESPRJ-{YY}{####}", label: "Project" },
   { documentType: "cash_advance", format: "AIESCA-{YY}{####}", label: "Cash Advance" },
+  // specs/04-operations-projects.md §6.1. Not in Spec.md §5's table either, and it needs one for the
+  // same reason `project` did: an inspection report is a document the company hands to a customer
+  // when the survey changes the scope, and "the one from last Tuesday" is not a reference.
+  {
+    documentType: "site_inspection",
+    format: "AIESSIR-{YY}{####}",
+    label: "Site Inspection Report",
+  },
   { documentType: "material_request", format: "AIESMR-{YY}{####}", label: "Material Request" },
   { documentType: "methodology", format: "AIESMTH-{YY}{####}", label: "Methodology" },
   { documentType: "delivery_receipt", format: "AIESDR-{YY}{####}", label: "Delivery Receipt" },
