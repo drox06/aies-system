@@ -296,3 +296,93 @@ export async function getSupplierService(supplierId: string) {
   }
   return supplier;
 }
+
+/**
+ * Soft-deletes a supplier (Spec.md §5 — nothing is hard-deleted, codes are never reused).
+ *
+ * Asked for by the company on 2026-08-16, and reserved to the President. §2 makes the directory
+ * deliberately easy to add to — "fast and forgiving… it is the only way suppliers get in" — which
+ * means duplicates and typos get in too, and until now there was no way to take one out. A directory
+ * that only grows is one people stop trusting, and then they keep the real list somewhere else.
+ *
+ * **Refuses whenever something still points at the supplier**, and says which thing. A purchase
+ * order or a price request that resolves to a deleted vendor is worse than a cluttered list: the
+ * document stops being able to say who it was addressed to.
+ */
+export async function deleteSupplierService(
+  actor: ActorMeta,
+  input: { supplierId: string; reason: string },
+) {
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say why. The question asked later is never whether it was deleted but why.",
+    });
+  }
+
+  const supplier = await db.supplier.findFirst({
+    where: { id: input.supplierId, deletedAt: null },
+    include: {
+      principalProspect: { select: { companyName: true } },
+      _count: { select: { supplierPOs: true, supplierQuoteRequests: true } },
+    },
+  });
+  if (!supplier) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That supplier no longer exists." });
+  }
+
+  const blockers: string[] = [];
+  if (supplier._count.supplierPOs > 0) {
+    blockers.push(`${supplier._count.supplierPOs} purchase order(s)`);
+  }
+  if (supplier._count.supplierQuoteRequests > 0) {
+    blockers.push(`${supplier._count.supplierQuoteRequests} price request(s)`);
+  }
+  if (blockers.length > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${supplier.code} ${supplier.name} still has ${blockers.join(" and ")} against it. ` +
+        `Deleting it would leave those documents unable to say who they were addressed to. ` +
+        `Withdraw its clause 8.4 approval instead if it should not be bought from.`,
+    });
+  }
+
+  return db.$transaction(async (tx) => {
+    // §5c's conversion runs off the prospect's `supplierId`, and it is idempotent *because* of that
+    // column. Leaving it set while the supplier is gone would make the prospect permanently
+    // unconvertible; clearing it lets an appointment produce a fresh supplier if that is wanted.
+    if (supplier.principalProspect) {
+      await tx.principalProspect.updateMany({
+        where: { supplierId: supplier.id },
+        data: { supplierId: null },
+      });
+    }
+
+    const updated = await tx.supplier.update({
+      where: { id: supplier.id },
+      data: { deletedAt: new Date(), deletedBy: actor.actorId },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "delete",
+      entityType: SUPPLIER_ENTITY_TYPE,
+      entityId: supplier.id,
+      summary:
+        `Deleted supplier ${supplier.code} ${supplier.name}` +
+        (supplier.principalProspect
+          ? `, and unlinked it from the principal prospect ${supplier.principalProspect.companyName}`
+          : "") +
+        ` — ${reason}`,
+      diff: { deletedAt: { from: null, to: updated.deletedAt?.toISOString() ?? null } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return updated;
+  });
+}

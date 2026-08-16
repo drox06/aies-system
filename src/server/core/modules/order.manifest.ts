@@ -55,6 +55,16 @@ export const orderManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "admin_manager", "marketing_manager"],
     },
     {
+      key: "supplier.delete",
+      label: "Delete a supplier from the directory",
+      group: "Orders",
+      // The President alone, at the company's request on 2026-08-16. §2 makes the directory
+      // deliberately easy to add to, which means duplicates and typos get in too — and a directory
+      // that only ever grows is one people stop trusting. Narrower than approving, because removing
+      // a vendor takes its whole history off the working list.
+      defaultRoles: ["president"],
+    },
+    {
       key: "supplier.approve",
       label: "Approve a supplier under ISO 9001 clause 8.4",
       group: "Orders",

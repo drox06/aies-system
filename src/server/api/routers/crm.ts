@@ -68,6 +68,8 @@ import {
   createPrincipalService,
   getPrincipalService,
   listPrincipalsService,
+  deletePrincipalService,
+  overridePrincipalStageService,
   transitionPrincipalService,
   updatePrincipalService,
 } from "@/server/core/crm/principal-service";
@@ -603,6 +605,27 @@ export const crmRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => transitionPrincipalService(actorMeta(ctx), input)),
+
+  /**
+   * The President's way back through §5c's forward-only stage machine, and out of it.
+   *
+   * Both take a reason, and both are `principal.correct` rather than `principal_prospect.manage` —
+   * a rule everybody can step around is not a rule, and the forward-only order is what makes the
+   * pipeline mean anything.
+   */
+  overridePrincipalStage: p("principal.correct")
+    .input(
+      z.object({
+        prospectId: z.string(),
+        to: z.enum(PRINCIPAL_STAGES),
+        reason: z.string().min(3).max(500),
+      }),
+    )
+    .mutation(({ ctx, input }) => overridePrincipalStageService(actorMeta(ctx), input)),
+
+  deletePrincipal: p("principal.correct")
+    .input(z.object({ prospectId: z.string(), reason: z.string().min(3).max(500) }))
+    .mutation(({ ctx, input }) => deletePrincipalService(actorMeta(ctx), input)),
 
   logActivity: p("crm.create")
     .input(

@@ -39,6 +39,7 @@ import {
   updateSupplierPoService,
 } from "@/server/core/order/supplier-po-service";
 import {
+  deleteSupplierService,
   getSupplierService,
   listSuppliersService,
   setSupplierApprovalService,
@@ -156,6 +157,14 @@ export const orderRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => upsertSupplierService(actorMeta(ctx), input)),
+
+  /**
+   * The President's removal, for the duplicates and typos §2's forgiving form lets in. Refuses
+   * while any purchase order or price request still points at the supplier.
+   */
+  deleteSupplier: p("supplier.delete")
+    .input(z.object({ supplierId: z.string(), reason: z.string().min(3).max(500) }))
+    .mutation(({ ctx, input }) => deleteSupplierService(actorMeta(ctx), input)),
 
   /** ISO 9001 clause 8.4. Narrower than `supplier.manage` — see the manifest. */
   setSupplierApproval: p("supplier.approve")

@@ -1430,6 +1430,9 @@ Notes for whoever picks this up:
     fired 897 times, claimed a job `queue.test.ts` was about to claim, and failed it. It also
     processed `principal.appointed` events emitted by tests, converting test prospects into **real**
     supplier records that outlived the fixtures that made them.
+  - `customer-po.test.ts` still leaks ~5 `CustomerAccount` rows per run (codes `PO-…`), even after
+    the quotation leak it also had was fixed. `purge-leaked-test-records.ts` clears them; the cause
+    has not been traced and is worth ten minutes rather than a guess.
   - **Reset the numbering counters last**, after the final suite run, before the company looks at the
     app. Tests allocate real numbers from the live counters, so every run drags them up; a reset is a
     hand-over step, not a stable state. `npx tsx scripts/purge-leaked-test-records.ts --apply` then
@@ -1611,6 +1614,27 @@ Both were routes between working halves — the same class of defect as the thre
 module 01, and the reason the e2e sweep exists. Neither is caught by it, because reaching those
 screens needs a quotation with a recorded PO and the suite must not create one.
 
+### The President's corrections — asked for after the first screen pass
+
+- [x] **A principal's stage can be set by hand**, backwards or skipping, outside §5c's forward-only
+      machine. That machine is right for the ordinary path and has no reverse gear, so a stage
+      entered by mistake was permanent — and a record that cannot be corrected is one people stop
+      keeping the real answer in. Reason mandatory; it is the only account of why.
+- [x] **A principal prospect and a supplier can be deleted**, soft, with a reason. §2 makes the
+      supplier directory deliberately easy to add to ("fast and forgiving — it is the only way
+      suppliers get in"), which means duplicates and typos get in too, and nothing could take one
+      out.
+- [x] Both under **`principal.correct` and `supplier.delete`, granted to the President alone** — a
+      narrower grant than appointing or approving, which the Vice President shares.
+- [x] Each refuses when something downstream would be left pointing at nothing: a prospect that has
+      been converted into a supplier, a supplier with a purchase order or price request against it.
+      Deleting a supplier **unlinks its prospect**, because `supplierId` is what makes §5c's
+      conversion idempotent and leaving it set would make that prospect permanently unconvertible.
+- [x] The stage override deliberately **does not emit `principal.stage_changed`**. Subscribers treat
+      that as the pipeline moving; a correction is somebody fixing the record, and an override into
+      `appointed` firing it would create a supplier behind the officers' backs — the one decision
+      §5c reserves to them.
+
 ### Next concrete step
 
 **Module 03 is as complete as its dependencies allow.** What remains in it — §7's delivery receipt,
@@ -1625,10 +1649,13 @@ So the next step is a decision the company should make rather than one to assume
 2. **Or module 05 next**, which would make §4's downpayment gate live — it is built, tested and
    inert today only because `PaymentTerm.downpaymentPct` does not exist yet.
 
-**Either way, before more building: the screens want a human eye.** Eleven routes have now been
-built and only their loading is asserted. The list under "Not visually verified" is longer than it
-has been at any point in this build, and the three bugs that reached the company were all of a kind
-no server test can catch.
+**The company chose: module 04.** It unblocks §7's delivery, which is the only thing keeping module
+03 from being finished, and it is the consumer of `sales_order.created` and `goods.received` — both
+now emitting the per-line payloads it was promised.
+
+**The first screen pass has happened** and found two real defects, both routes-between-working-halves
+rather than broken services (see above). More of that kind is likely: eleven routes are built and
+only their loading is asserted.
 
 **Small and still open in module 02:** the line editor shows the raw cost but has no field for the
 FX rate, so a foreign-currency line can only be costed through the RFQ flow today.

@@ -9,12 +9,14 @@ import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   EXCLUSIVITY_TERMS,
   humanStage,
   PRINCIPAL_APPOINT_PERMISSION,
   PRINCIPAL_ENTITY_TYPE,
+  PRINCIPAL_STAGES,
   principalStagesFrom,
 } from "@/server/core/crm/principal-lifecycle";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -54,8 +56,15 @@ export function PrincipalPanel({
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
 
+  const [correctionStage, setCorrectionStage] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const whoami = trpc.system.whoami.useQuery();
-  const mayAppoint = (whoami.data?.permissions ?? []).includes(PRINCIPAL_APPOINT_PERMISSION);
+  const permissions = whoami.data?.permissions ?? [];
+  const mayAppoint = permissions.includes(PRINCIPAL_APPOINT_PERMISSION);
+  /** The President alone — see the crm manifest. */
+  const mayCorrect = permissions.includes("principal.correct");
 
   useEffect(() => {
     const data = prospect.data;
@@ -78,6 +87,8 @@ export function PrincipalPanel({
 
   const update = trpc.crm.updatePrincipal.useMutation({ onSuccess: refresh });
   const transition = trpc.crm.transitionPrincipal.useMutation({ onSuccess: refresh });
+  const overrideStage = trpc.crm.overridePrincipalStage.useMutation({ onSuccess: refresh });
+  const remove = trpc.crm.deletePrincipal.useMutation();
 
   const data = prospect.data;
   const stages = data ? principalStagesFrom(data.stage) : [];
@@ -516,6 +527,117 @@ export function PrincipalPanel({
                   {update.isPending ? "Saving…" : "Save"}
                 </Button>
               </div>
+
+              {/*
+                §5c's stage order has no reverse gear, which is right for the ordinary path and
+                leaves a stage entered by mistake permanent. This is the President's way back — and
+                out. Hidden entirely for everybody else rather than shown and refused: a control that
+                always errors teaches people to distrust the ones that work.
+              */}
+              {mayCorrect && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <h3 className="text-sm font-semibold">Correct this record</h3>
+                  <p className="mt-1 text-xs text-text-muted">
+                    Outside the normal stage order. Whatever you write is the only record of why.
+                  </p>
+
+                  <div className="mt-2">
+                    <Label htmlFor="pp-correct-reason">Reason</Label>
+                    <Input
+                      id="pp-correct-reason"
+                      value={correctionReason}
+                      onChange={(e) => setCorrectionReason(e.target.value)}
+                      placeholder="Entered at the wrong stage; moving it back to in discussion."
+                    />
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div>
+                      <Label htmlFor="pp-correct-stage">Set stage to</Label>
+                      <Select
+                        id="pp-correct-stage"
+                        value={correctionStage}
+                        onChange={(e) => setCorrectionStage(e.target.value)}
+                      >
+                        <option value="">Choose…</option>
+                        {PRINCIPAL_STAGES.filter((stage) => stage !== data.stage).map((stage) => (
+                          <option key={stage} value={stage}>
+                            {humanStage(stage)}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={
+                        overrideStage.isPending ||
+                        correctionStage === "" ||
+                        correctionReason.trim().length < 3
+                      }
+                      onClick={() =>
+                        void (async () => {
+                          try {
+                            await overrideStage.mutateAsync({
+                              prospectId,
+                              to: correctionStage as (typeof PRINCIPAL_STAGES)[number],
+                              reason: correctionReason,
+                            });
+                            toastSuccess(`Stage set to ${humanStage(correctionStage)}.`);
+                            setCorrectionStage("");
+                            setCorrectionReason("");
+                          } catch (error) {
+                            toastError(error);
+                          }
+                        })()
+                      }
+                    >
+                      Set stage
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-700"
+                      disabled={remove.isPending || correctionReason.trim().length < 3}
+                      onClick={() => setConfirmDelete(true)}
+                    >
+                      Delete prospect
+                    </Button>
+                  </div>
+                  {data.supplierId && (
+                    <p className="mt-1.5 text-xs text-text-muted">
+                      This prospect has been converted into a supplier, so it cannot be deleted —
+                      that would leave the supplier with no record of where it came from. Delete the
+                      supplier first.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <ConfirmDialog
+                open={confirmDelete}
+                onOpenChange={setConfirmDelete}
+                title={`Delete ${data.companyName}?`}
+                description={`It comes off the pipeline and out of every list. Reason: ${correctionReason}`}
+                confirmLabel="Delete"
+                destructive
+                confirmPhrase={data.companyName}
+                isPending={remove.isPending}
+                onConfirm={() =>
+                  void (async () => {
+                    try {
+                      await remove.mutateAsync({ prospectId, reason: correctionReason });
+                      toastSuccess(`${data.companyName} deleted.`);
+                      setConfirmDelete(false);
+                      onChanged();
+                      onClose();
+                    } catch (error) {
+                      toastError(error);
+                    }
+                  })()
+                }
+              />
 
               <div className="mt-4 border-t border-border pt-4">
                 <ActivityFeed entityType="PrincipalProspect" entityId={prospectId} />

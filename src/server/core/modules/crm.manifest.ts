@@ -111,6 +111,15 @@ export const crmManifest = defineManifest({
       // See PRINCIPAL_APPOINT_PERMISSION in principal-lifecycle.ts.
       defaultRoles: ["president", "vice_president"],
     },
+    {
+      key: "principal.correct",
+      label: "Correct or delete a principal prospect, outside the normal stage order",
+      group: "CRM",
+      // The President alone, at the company's request on 2026-08-16 — narrower than appointing,
+      // which the Vice President shares. §5c's stage machine has no reverse gear, so a stage entered
+      // by mistake is otherwise permanent; this is the way back, and it always writes a reason.
+      defaultRoles: ["president"],
+    },
   ],
 
   // specs/01-crm-inquiry.md §8.

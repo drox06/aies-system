@@ -6,6 +6,7 @@ import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -38,11 +39,17 @@ export function SupplierPanel({
   const utils = trpc.useUtils();
   const supplier = trpc.order.getSupplier.useQuery({ supplierId });
   const whoami = trpc.system.whoami.useQuery();
-  const mayApprove = (whoami.data?.permissions ?? []).includes(SUPPLIER_APPROVE_PERMISSION);
+  const permissions = whoami.data?.permissions ?? [];
+  const mayApprove = permissions.includes(SUPPLIER_APPROVE_PERMISSION);
+  /** The President alone — see the order manifest. */
+  const mayDelete = permissions.includes("supplier.delete");
 
   const [reason, setReason] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [expiry, setExpiry] = useState("");
 
+  const remove = trpc.order.deleteSupplier.useMutation();
   const setApproval = trpc.order.setSupplierApproval.useMutation({
     onSuccess: () => {
       void utils.order.getSupplier.invalidate({ supplierId });
@@ -202,6 +209,63 @@ export function SupplierPanel({
                   </div>
                 )}
               </section>
+
+              {/*
+                §2 makes this directory deliberately easy to add to, which means duplicates and
+                typos get in too. Until now nothing could take one out, and a directory that only
+                grows is one people stop trusting. The President alone — see the order manifest.
+              */}
+              {mayDelete && (
+                <section className="mt-5 rounded-md border border-border p-3">
+                  <h3 className="text-sm font-semibold">Remove from the directory</h3>
+                  <p className="mt-1 text-xs text-text-muted">
+                    Refused while any purchase order or price request still points here — those
+                    documents would lose the record of who they were addressed to.
+                  </p>
+                  <div className="mt-2">
+                    <Label htmlFor="sup-delete-reason">Why</Label>
+                    <Input
+                      id="sup-delete-reason"
+                      value={deleteReason}
+                      onChange={(e) => setDeleteReason(e.target.value)}
+                      placeholder="Duplicate of AIESSUP-0002, created by mistake."
+                    />
+                  </div>
+                  <Button
+                    className="mt-2 text-red-700"
+                    size="sm"
+                    variant="ghost"
+                    disabled={remove.isPending || deleteReason.trim().length < 3}
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    Delete supplier
+                  </Button>
+                </section>
+              )}
+
+              <ConfirmDialog
+                open={confirmDelete}
+                onOpenChange={setConfirmDelete}
+                title={`Delete ${data.name}?`}
+                description={`It comes out of the directory and every picker. Reason: ${deleteReason}`}
+                confirmLabel="Delete"
+                destructive
+                confirmPhrase={data.code}
+                isPending={remove.isPending}
+                onConfirm={() =>
+                  void (async () => {
+                    try {
+                      await remove.mutateAsync({ supplierId, reason: deleteReason });
+                      toastSuccess(`${data.code} ${data.name} deleted.`);
+                      setConfirmDelete(false);
+                      onChanged();
+                      onClose();
+                    } catch (error) {
+                      toastError(error);
+                    }
+                  })()
+                }
+              />
 
               <section className="mt-5">
                 <h3 className="text-sm font-semibold">History</h3>

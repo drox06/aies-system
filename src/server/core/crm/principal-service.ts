@@ -11,6 +11,7 @@ import {
   PRINCIPAL_APPOINT_PERMISSION,
   PRINCIPAL_ENTITY_TYPE,
   PRINCIPAL_EXPIRY_WARNING_DAYS,
+  PRINCIPAL_STAGES,
 } from "@/server/core/crm/principal-lifecycle";
 import { emit } from "@/server/core/events/emit";
 import { notify } from "@/server/core/notify/notify";
@@ -577,3 +578,142 @@ export async function sweepPrincipalExpiries(
 }
 
 export type PrincipalWhere = Prisma.PrincipalProspectWhereInput;
+
+// ---- the President's corrections ----------------------------------------------------------------
+
+/**
+ * Sets a prospect's stage to anything, bypassing §5c's forward-only machine.
+ *
+ * Asked for by the company on 2026-08-16, and narrower than it sounds. `transitionPrincipalService`
+ * enforces a state machine that is right for the ordinary path and has no reverse gear — so a stage
+ * entered by mistake, or a prospect that was appointed and should not have been, is stuck forever
+ * with no way back short of a database edit. That is worse than an override: it means the record
+ * stops matching reality, and people start keeping the real answer somewhere else.
+ *
+ * So the President can put a prospect in any stage, and the price is a **reason** — the same trade
+ * the appointment override makes. The reason is what an auditor reads; the machine is what everyone
+ * else follows.
+ *
+ * Deliberately **not** a general "edit the stage" for anybody with `principal_prospect.manage`: the
+ * forward-only rule is what makes the pipeline mean anything, and a rule everybody can step around
+ * is not a rule.
+ */
+export async function overridePrincipalStageService(
+  actor: ActorMeta,
+  input: { prospectId: string; to: string; reason: string },
+) {
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say why the stage is being set by hand. That sentence is the whole record of it.",
+    });
+  }
+  if (!PRINCIPAL_STAGES.includes(input.to as (typeof PRINCIPAL_STAGES)[number])) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `"${input.to}" is not a stage. §5c's stages are: ${PRINCIPAL_STAGES.join(", ")}.`,
+    });
+  }
+
+  const prospect = await db.principalProspect.findFirst({
+    where: { id: input.prospectId, deletedAt: null },
+  });
+  if (!prospect) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That prospect no longer exists." });
+  }
+  if (prospect.stage === input.to) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${prospect.companyName} is already ${humanStage(input.to)}.`,
+    });
+  }
+
+  return db.$transaction(async (tx) => {
+    const updated = await tx.principalProspect.update({
+      where: { id: prospect.id },
+      data: { stage: input.to },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "stage_overridden",
+      entityType: PRINCIPAL_ENTITY_TYPE,
+      entityId: prospect.id,
+      summary:
+        `Set ${prospect.companyName} from ${humanStage(prospect.stage)} to ` +
+        `${humanStage(input.to)} by hand, outside §5c's stage order — ${reason}`,
+      diff: { stage: { from: prospect.stage, to: input.to } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    // No `principal.stage_changed` event. Subscribers to that treat it as the pipeline moving; a
+    // correction is somebody fixing the record, and firing the same event would, for instance, let
+    // an override *into* `appointed` create a supplier behind the officers' backs — which is
+    // precisely the decision §5c reserves to them.
+    return updated;
+  });
+}
+
+/**
+ * Soft-deletes a prospect (Spec.md §5: nothing is ever hard-deleted, numbers are never reused).
+ *
+ * Refuses once a supplier has been created from it. That conversion is §5c's whole promise and the
+ * supplier is a live record other modules point at — deleting the prospect would leave it with no
+ * account of where it came from, which is exactly the history the conversion exists to preserve.
+ */
+export async function deletePrincipalService(
+  actor: ActorMeta,
+  input: { prospectId: string; reason: string },
+) {
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say why. The question asked later is never whether it was deleted but why.",
+    });
+  }
+
+  const prospect = await db.principalProspect.findFirst({
+    where: { id: input.prospectId, deletedAt: null },
+  });
+  if (!prospect) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That prospect no longer exists." });
+  }
+  if (prospect.supplierId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${prospect.companyName} has already been converted into a supplier. Deleting the prospect ` +
+        `would leave that supplier with no record of where it came from — delete the supplier ` +
+        `first if this was a mistake.`,
+    });
+  }
+
+  return db.$transaction(async (tx) => {
+    const updated = await tx.principalProspect.update({
+      where: { id: prospect.id },
+      data: { deletedAt: new Date(), deletedBy: actor.actorId },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "delete",
+      entityType: PRINCIPAL_ENTITY_TYPE,
+      entityId: prospect.id,
+      summary:
+        `Deleted principal prospect ${prospect.companyName} ` +
+        `(was ${humanStage(prospect.stage)}) — ${reason}`,
+      diff: { deletedAt: { from: null, to: updated.deletedAt?.toISOString() ?? null } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return updated;
+  });
+}
