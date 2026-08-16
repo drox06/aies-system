@@ -220,6 +220,7 @@ model SupplierPO {
   supplier   Supplier         @relation(fields: [supplierId], references: [id])
   salesOrder SalesOrder?      @relation(fields: [salesOrderId], references: [id])
   lines      SupplierPOLine[]
+  receipts   GoodsReceipt[]
 
   @@index([supplierId, status])
   @@index([salesOrderId])
@@ -258,9 +259,119 @@ model SupplierPOLine {
   updatedAt DateTime @updatedAt
 
   supplierPO SupplierPO @relation(fields: [supplierPOId], references: [id], onDelete: Cascade)
+  receipts   GoodsReceiptLine[]
 
   @@unique([supplierPOId, lineNo])
   @@index([salesOrderLineId])
+}
+
+/// Goods arriving against a supplier PO (§6).
+///
+/// §6's first sentence is a requirement, not a description: "**Incoming inspection is required**
+/// (ISO 9001 clause 8.4.2, verification of externally provided processes/products): quantity check,
+/// damage check, documentation check (test certificates, calibration certificates, datasheets,
+/// warranty), and photos."
+///
+/// So the four checks are columns rather than a free-text note, and `status` cannot reach `accepted`
+/// without them. A receipt that could be accepted unchecked would let unverified goods into stock,
+/// which is precisely what the clause exists to prevent — and "we always check" is not evidence an
+/// auditor accepts.
+///
+/// **Partial receipts are the normal case**, not the exception: a PO for five meters routinely
+/// arrives as three and then two. So a supplier PO has many receipts, and the running totals live on
+/// the lines rather than being inferred from the newest one.
+model GoodsReceipt {
+  id     String @id @default(cuid())
+  /// GRN-{YY}-{#####} from the numbering service.
+  number String @unique
+
+  supplierPOId String
+
+  receivedAt   DateTime @default(now())
+  receivedById String
+
+  /// draft | inspected | accepted | partially_rejected | rejected (§2).
+  ///
+  /// `draft` is what somebody is filling in while the boxes are still on the floor. Everything from
+  /// `inspected` onward has passed the clause 8.4.2 checks below.
+  status String @default("draft")
+
+  /// §6's paperwork trail. Nullable because a delivery genuinely arrives without a waybill
+  /// sometimes, and a required field somebody has to invent a value for is a field that gets
+  /// invented values.
+  packingListRef String?
+  invoiceRef     String?
+  waybillRef     String?
+
+  /// §6's four checks, ISO 9001 clause 8.4.2.
+  ///
+  /// Separate booleans rather than one "inspected" flag, because they fail independently and for
+  /// different reasons: the count can be right while the calibration certificate is missing, and
+  /// those are two different conversations with the supplier.
+  quantityChecked      Boolean @default(false)
+  damageChecked        Boolean @default(false)
+  documentationChecked Boolean @default(false)
+  /// Whether at least one photograph was attached. Derived from the stored files at inspection time
+  /// and frozen here, so a photo deleted later cannot retroactively invalidate a passed inspection.
+  photosAttached       Boolean @default(false)
+
+  inspectionNotes String?
+  inspectedById   String?
+  inspectedAt     DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  supplierPO SupplierPO         @relation(fields: [supplierPOId], references: [id])
+  lines      GoodsReceiptLine[]
+
+  @@index([supplierPOId, receivedAt])
+  @@index([status])
+}
+
+/// What actually arrived, per line (§2).
+///
+/// The three quantities are not redundant: `qtyReceived` is what came off the truck, and it splits
+/// into `qtyAccepted` and `qtyRejected`. Only the accepted part advances the sales order's
+/// fulfilment — §11 requires that "partial receipt then partial delivery keeps
+/// qtyOrdered/Received/Delivered consistent", and counting rejected goods as received would make a
+/// customer's order look fulfilled by a box that is going back to the supplier.
+model GoodsReceiptLine {
+  id             String @id @default(cuid())
+  goodsReceiptId String
+  /// Which line of the supplier PO this fulfils. Not nullable: goods that answer no order line are
+  /// goods nobody bought, and recording them here would hide a real problem.
+  supplierPOLineId String
+
+  qtyReceived Decimal @default(0) @db.Decimal(14, 3)
+  qtyAccepted Decimal @default(0) @db.Decimal(14, 3)
+  qtyRejected Decimal @default(0) @db.Decimal(14, 3)
+  /// Required when anything is rejected. §6 sends rejections to module 08 as an NCR; module 08 does
+  /// not exist, so the reason is recorded here and the NCR is raised from it when it does — rather
+  /// than inventing an NCR model now for module 08 to reconcile.
+  rejectionReason String?
+
+  /// §6: "Serial numbers captured per unit where applicable — these become the installed-equipment
+  /// register in module 04 and drive after-sales support."
+  serialNumbers String[] @default([])
+  batchNo       String?
+  /// §6 files calibration and test certificates as controlled documents in module 07 "linked to the
+  /// serial number, so they can be re-issued to the customer years later". Module 07 does not exist;
+  /// the upload is a plain `FileObject` id today and becomes a controlled-document reference then.
+  calibrationCertFileId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  goodsReceipt   GoodsReceipt   @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  supplierPOLine SupplierPOLine @relation(fields: [supplierPOLineId], references: [id])
+
+  @@unique([goodsReceiptId, supplierPOLineId])
+  @@index([supplierPOLineId])
 }
 
 /// The obligation (§2), and the module's centre of gravity.

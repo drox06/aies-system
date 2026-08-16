@@ -13,6 +13,14 @@ import {
   listSalesOrdersService,
   verifyCustomerPoService,
 } from "@/server/core/order/sales-order-service";
+import {
+  acceptGoodsReceiptService,
+  createGoodsReceiptService,
+  getGoodsReceiptService,
+  inspectGoodsReceiptService,
+  listGoodsReceiptsService,
+  outstandingForSupplierPoService,
+} from "@/server/core/order/goods-receipt-service";
 import { buildSupplierPoEmailText } from "@/server/core/order/pdf/render";
 import {
   decideSupplierPoApprovalService,
@@ -344,4 +352,77 @@ export const orderRouter = router({
   supplierPoEmailText: p("supplier_po.create")
     .input(z.object({ supplierPOId: z.string() }))
     .query(({ input }) => buildSupplierPoEmailText(input.supplierPOId)),
+
+  // ---- §6's goods receipt -----------------------------------------------------------------------
+
+  /** What is still owed on a PO, per line — the numbers the receiving screen starts from. */
+  outstandingForSupplierPo: p("goods_receipt.create")
+    .input(z.object({ supplierPOId: z.string() }))
+    .query(({ input }) => outstandingForSupplierPoService(input.supplierPOId)),
+
+  createGoodsReceipt: p("goods_receipt.create")
+    .input(
+      z.object({
+        supplierPOId: z.string(),
+        receivedAt: z.coerce.date().optional(),
+        packingListRef: z.string().nullish(),
+        invoiceRef: z.string().nullish(),
+        waybillRef: z.string().nullish(),
+        lines: z.array(
+          z.object({
+            supplierPOLineId: z.string(),
+            qtyReceived: z.string(),
+            qtyAccepted: z.string().optional(),
+            qtyRejected: z.string().optional(),
+            rejectionReason: z.string().nullish(),
+            serialNumbers: z.array(z.string()).optional(),
+            batchNo: z.string().nullish(),
+            calibrationCertFileId: z.string().nullish(),
+          }),
+        ),
+      }),
+    )
+    .mutation(({ ctx, input }) => createGoodsReceiptService(actorMeta(ctx), input)),
+
+  /**
+   * ISO 9001 clause 8.4.2. Its own permission, narrower than booking goods in — the person who
+   * unloaded the crate should not also be the one certifying it.
+   */
+  inspectGoodsReceipt: p("goods_receipt.inspect")
+    .input(
+      z.object({
+        goodsReceiptId: z.string(),
+        version: z.number().int().nonnegative(),
+        quantityChecked: z.boolean(),
+        damageChecked: z.boolean(),
+        documentationChecked: z.boolean(),
+        inspectionNotes: z.string().nullish(),
+        lines: z
+          .array(
+            z.object({
+              goodsReceiptLineId: z.string(),
+              qtyAccepted: z.string(),
+              qtyRejected: z.string(),
+              rejectionReason: z.string().nullish(),
+              serialNumbers: z.array(z.string()).optional(),
+              calibrationCertFileId: z.string().nullish(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => inspectGoodsReceiptService(actorMeta(ctx), input)),
+
+  /** The only call that advances the customer's order. Gated on the inspection being complete. */
+  acceptGoodsReceipt: p("goods_receipt.inspect")
+    .input(z.object({ goodsReceiptId: z.string() }))
+    .mutation(({ ctx, input }) => acceptGoodsReceiptService(actorMeta(ctx), input)),
+
+  getGoodsReceipt: p("goods_receipt.create")
+    .input(z.object({ goodsReceiptId: z.string() }))
+    .query(({ input }) => getGoodsReceiptService(input.goodsReceiptId)),
+
+  listGoodsReceipts: p("goods_receipt.create")
+    .input(z.object({ supplierPOId: z.string().optional(), status: z.string().optional() }))
+    .query(({ input }) => listGoodsReceiptsService(input)),
 });

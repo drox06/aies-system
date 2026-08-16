@@ -1534,3 +1534,86 @@ because re-recording that checksum would bury a real problem.
 **The rule: never answer a checksum complaint with `migrate reset` against a database holding real
 work.** Diagnose first. The schema was never in question here — only a fingerprint on a row
 describing something that never happened.
+
+## 45. Booking goods in and certifying them are two acts, by two people
+
+**Module:** 03. **From:** specs/03-order-procurement.md §6, and ISO 9001 clause 8.4.2.
+
+§6 opens with a requirement rather than a description: "**Incoming inspection is required** (ISO 9001
+clause 8.4.2, verification of externally provided processes/products): quantity check, damage check,
+documentation check (test certificates, calibration certificates, datasheets, warranty), and photos."
+
+The obvious implementation is one call — type the quantities, tick a box, save. It would be wrong,
+because the two acts happen at different moments and usually to different people. The boxes arrive
+and get counted at the gate, often by a technician on a phone; the calibration certificates get
+checked against them later, sometimes the next day, by somebody who was not there. A single call
+forces whoever signs for the delivery to also certify paperwork they have not seen, and the reliable
+result of that is a tick box that always gets ticked.
+
+So there are three services and two permissions:
+
+- `createGoodsReceiptService` records what arrived. `goods_receipt.create`, granted to technicians.
+- `inspectGoodsReceiptService` records the four checks. `goods_receipt.inspect`, **not** granted to
+  technicians — the person who unloaded the crate should not be the one certifying it.
+- `acceptGoodsReceiptService` is the only thing that moves a quantity onto the customer's order, and
+  the only place the gate is enforced.
+
+**All four checks, no partial credit.** Three out of four with a warning was considered and rejected:
+an inspection that can be *mostly* done is one that is mostly not done, and the clause's whole value
+is that "we checked" means something specific. They are four separate booleans rather than one flag
+because they fail for different reasons — the count can be right while the certificate is missing,
+and those are two different conversations with the supplier.
+
+**Photographs are counted, never claimed.** There is no "did you take photos?" checkbox, because that
+is a checkbox that always gets ticked. The server counts the stored image files. It then *freezes*
+the result on the record, so a photo deleted next year cannot retroactively invalidate an inspection
+that really happened.
+
+**Only accepted quantities advance fulfilment.** Rejected goods are going back to the supplier;
+counting them as received would make a customer's order look fulfilled by a box in a returns bay.
+For the same reason the supplier PO's status and the sales order's procurement column are both
+**derived** from quantities rather than set by hand — a status that disagrees with its own numbers is
+the sort of thing nobody notices until procurement chases a delivery that is already in the
+warehouse.
+
+**Rejections do not invent an NCR.** §6 says they "auto-raise an NCR (module 08) against the supplier
+and a return-to-supplier task". Module 08 does not exist. The reason is recorded on the line and
+`goods.rejected` carries everything the NCR will need, so raising one later is a read of that event
+rather than an archaeology exercise. Inventing an NCR model here would hand module 08 something to
+reconcile instead of something to build — the same trap `PaymentTerm` and the supplier register were
+both kept out of.
+
+## 46. Delivery is not built, because §7 gates it on a module that does not exist
+
+**Module:** 03. **From:** specs/03-order-procurement.md §7.
+
+§7 is unusually explicit about the boundary, and it rules this session out of building delivery:
+
+> **DR request** comes from a delivery ticket (module 04 §13), **not from a screen in this module**.
+> A DR is never issued without a ticket to execute it — the flowchart's `DR REQ` box is a real gate
+> and prevents DRs floating around unassigned.
+
+Module 04 does not exist, so there is no ticket, so there is no legitimate way to create a delivery
+receipt. The three options were all bad in different ways:
+
+1. **Build a "create DR" screen anyway.** It would breach the one boundary §7 states outright, and
+   the DRs it created would be exactly the unassigned ones the gate exists to prevent.
+2. **Build the model and service with no route to them.** This build has shipped that failure three
+   times (docs/DECISIONS.md #38) — accreditation, contacts and plants, photographs — and each time it
+   was reported by the company rather than caught by a test.
+3. **Invent a minimal ticket here** so the gate has something to check. That is the trap this build
+   has refused four times now: a concept invented early for a later module to reconcile.
+
+So `DeliveryReceipt` is **not** in the schema, `delivery.create` is **not** in the manifest, and
+`sales_order.goods_delivered` and `delivery.dr_signed` are **not** declared — a manifest's `emits`
+describes what is emitted, and an event declared early lets a later module subscribe to something
+that never fires, which fails silently.
+
+The consequence is worth stating plainly: **`po_received → won` still has nothing setting it.** A
+received PO is not a delivered job, and the thing that would make it decidable is precisely what §7
+gates on module 04. It moves when delivery does.
+
+What *is* built and stays built: `SalesOrderLine.qtyDelivered` exists, `procurementStatusFrom` and
+the receipt arithmetic are pure and tested, and §8's inventory posture ("track quantities on hand
+only as `qtyReceived − qtyDelivered` per sales order line") needs no further schema — so when module
+04's delivery lane lands, this half is waiting for it rather than needing rework.

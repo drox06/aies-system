@@ -134,6 +134,30 @@ export const orderManifest = defineManifest({
       // the system instead of through it". Narrow, and it always writes a reason.
       defaultRoles: ["president", "vice_president"],
     },
+    // ---- §6's goods receipt ---------------------------------------------------------------------
+    {
+      key: "goods_receipt.create",
+      label: "Book in goods arriving against a supplier PO",
+      group: "Orders",
+      // Whoever is at the gate when the truck arrives. Wider than inspecting, because counting
+      // boxes and certifying paperwork are different acts — see goods-receipt-service.ts.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "admin_manager",
+        "operations_manager",
+        "technician",
+      ],
+    },
+    {
+      key: "goods_receipt.inspect",
+      label: "Record the ISO 9001 clause 8.4.2 incoming inspection",
+      group: "Orders",
+      // Narrower: this is the signature that says the goods were verified, and an auditor asks who
+      // gave it. Technicians are absent deliberately — the person who unloaded the crate should not
+      // also be the one certifying it.
+      defaultRoles: ["president", "vice_president", "admin_manager", "operations_manager"],
+    },
   ],
 
   /**
@@ -156,6 +180,10 @@ export const orderManifest = defineManifest({
     "supplier_po.created",
     "supplier_po.approved",
     "supplier_po.sent",
+    // §6. `goods.rejected` fires only when something actually was rejected — module 08 raises its
+    // NCR from it, so an event on every clean delivery would be an NCR queue nobody could read.
+    "goods.received",
+    "goods.rejected",
   ],
 
   /**

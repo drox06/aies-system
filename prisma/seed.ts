@@ -287,6 +287,10 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   { documentType: "supplier", format: "SUP-{####}", label: "Supplier code" },
   { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
   { documentType: "supplier_po", format: "PO-{YY}-{#####}", label: "Supplier PO" },
+  // specs/03-order-procurement.md §6. "GRN" rather than "GR": goods received note is what the
+  // warehouse calls the piece of paper, and a document type nobody recognises by its prefix is one
+  // people write the wrong number on.
+  { documentType: "goods_receipt", format: "GRN-{YY}-{#####}", label: "Goods Receipt" },
   { documentType: "ticket", format: "TKT-{YY}-{#####}", label: "Ticket" },
   { documentType: "cash_advance", format: "CA-{YY}-{#####}", label: "Cash Advance" },
   { documentType: "material_request", format: "MR-{YY}-{#####}", label: "Material Request" },

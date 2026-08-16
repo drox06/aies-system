@@ -28,9 +28,22 @@ describe("order manifest", () => {
       "supplier_po.create",
       "supplier_po.approve",
       "procurement.override_downpayment_gate",
+      "goods_receipt.create",
+      "goods_receipt.inspect",
     ]) {
       expect(declared, `§10 requires ${key}`).toContain(key);
     }
+  });
+
+  it("keeps booking goods in wider than certifying them", () => {
+    const roles = (key: string) =>
+      orderManifest.permissions.find((p) => p.key === key)?.defaultRoles ?? [];
+
+    // Whoever is at the gate when the truck arrives can book it in…
+    expect(roles("goods_receipt.create")).toContain("technician");
+    // …but the clause 8.4.2 signature is somebody else's. The person who unloaded the crate should
+    // not also be the one certifying it.
+    expect(roles("goods_receipt.inspect")).not.toContain("technician");
   });
 
   it("keeps buying and approving apart, and the override narrower still", () => {
@@ -80,14 +93,21 @@ describe("order manifest", () => {
     expect(orderManifest.emits).toContain("supplier_po.approved");
   });
 
+  it("emits §6's receipt events now that goods can be received", () => {
+    expect(orderManifest.emits).toContain("goods.received");
+    expect(orderManifest.emits).toContain("goods.rejected");
+  });
+
   it("does not declare events nothing can emit yet", () => {
     // §9 lists nine events for the finished module. The registry rejects a subscription to an event
-    // nothing emits, so declaring `goods.received` before anything can receive goods would let a
-    // later module subscribe to something that never fires — worse than a boot error, because it
-    // fails silently. When session 3 lands, this pin names the work.
-    expect(orderManifest.emits).not.toContain("goods.received");
-    expect(orderManifest.emits).not.toContain("goods.rejected");
+    // nothing emits, so declaring one early lets a later module subscribe to something that never
+    // fires — worse than a boot error, because it fails silently.
+    //
+    // Delivery is module 04's ticket-gated lane: §7 says "a DR is never issued without a ticket to
+    // execute it", and module 04 does not exist. So these two stay undeclared, and this pin names
+    // the work on the day it lands.
     expect(orderManifest.emits).not.toContain("sales_order.goods_delivered");
+    expect(orderManifest.emits).not.toContain("delivery.dr_signed");
     // §4's downpayment event needs module 05's `PaymentTerm` to have a percentage on it.
     expect(orderManifest.emits).not.toContain("downpayment.required");
   });
@@ -140,5 +160,15 @@ describe("seeded numbering for module 03", () => {
     const format = await db.numberingFormat.findUnique({ where: { documentType: "sales_order" } });
     expect(format, "run `npm run seed`").not.toBeNull();
     expect(format?.format).toBe("SO-{YY}-{#####}");
+  });
+
+  it("has a goods receipt series the warehouse will recognise", async () => {
+    const format = await db.numberingFormat.findUnique({
+      where: { documentType: "goods_receipt" },
+    });
+    expect(format, "run `npm run seed`").not.toBeNull();
+    // "GRN" and not "GR": goods received note is what the piece of paper is called, and a prefix
+    // nobody recognises is one people write the wrong number on.
+    expect(format?.format).toBe("GRN-{YY}-{#####}");
   });
 });

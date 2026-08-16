@@ -1538,43 +1538,78 @@ nothing visibly wrong.
 `not_required`, because `PaymentTerm.downpaymentPct` is module 05's and there is nothing to read. The
 gate is built, tested and inert; it starts working the day a term carries a percentage.
 
-### Next concrete step — module 03 session 3
+### Session 3 — §6's goods receipt, and why §7's delivery is not here
 
-**Goods receipt (§6), delivery (§7), and the point where a sale becomes finished.**
+- [x] **`GoodsReceipt` and `GoodsReceiptLine`**, with §6's four clause 8.4.2 checks as columns rather
+      than as a note. Partial receipts are the normal case, so a PO has many receipts and the running
+      totals live on the lines.
+- [x] **Booking in and certifying are two acts** (`goods_receipt.create` / `goods_receipt.inspect`,
+      the second deliberately not granted to technicians). docs/DECISIONS.md #45.
+- [x] **The inspection is a gate.** A receipt cannot be accepted until all four checks are done, and
+      **photographs are counted from the stored files rather than claimed on a form** — then frozen,
+      so a photo deleted later cannot retroactively invalidate an inspection that happened.
+- [x] **§11's arithmetic**, pure and tested without a database: over-receipt refused against *what is
+      still owed* (so three-then-three against an order for five is caught, which is the dangerous
+      case because each receipt looks fine alone), accepted + rejected must equal what arrived, and
+      negative quantities refused with a pointer at the rejection column.
+- [x] **Acceptance is the only thing that moves a quantity**, and it moves three in one transaction:
+      the PO line, the sales order line, and — derived, never hand-set — the PO's status and §1's
+      procurement column. Only *accepted* goods count.
+- [x] **`goods.received` carries the serial numbers per line**, because §6 says they become module
+      04's installed-equipment register: which units, not how many. `goods.rejected` fires only when
+      something was rejected, and carries what module 08's NCR will need.
+- [x] **Screens**: a receiving panel on the supplier PO, and `/procurement/receipts/[id]` for the
+      inspection itself.
+- [x] Numbering: `GRN-{YY}-{#####}`.
 
-1. **`GoodsReceipt` and `GoodsReceiptLine`, with the inspection built in rather than bolted on.**
-   §6 is unambiguous: "**Incoming inspection is required** (ISO 9001 clause 8.4.2)… quantity check,
-   damage check, documentation check (test certificates, calibration certificates, datasheets,
-   warranty), and photos." A receipt that can reach `accepted` without one would let unchecked goods
-   into stock, which is the failure the clause exists to prevent — so the accept path has to demand
-   it, the way `verifyCustomerPoService` demands a reason.
-2. **The counters, and §11's named test.** "Partial receipt then partial delivery keeps
-   `qtyOrdered/Received/Delivered` consistent; **over-receipt and over-delivery are rejected**."
-   Those three columns already exist on `SalesOrderLine` and nothing has moved them yet. The
-   arithmetic belongs in a pure rules file so the over-receipt refusal is testable without a
-   database.
-3. **`DeliveryReceipt` and `DeliveryReceiptLine`** (§7). This module owns the *document*; module 04
-   owns the delivery *execution*, so the split has to be kept — building a scheduling concept here
-   would give module 04 something to reconcile.
-4. **The events, each declared in the change that emits it**: `goods.received`, `goods.rejected`,
-   `sales_order.goods_delivered`, `sales_order.completed`, `sales_order.closed`. None of them is in
-   the manifest yet, deliberately.
-5. **`po_received → won` finally becomes decidable.** It has been system-set with nothing setting it
-   since module 01. A received PO is not a delivered job; a delivered one is.
+**Migration** `20260816010411_module_03_goods_receipt`.
 
-**Deferred with a reason, not forgotten:** §6 says rejected quantities "auto-raise an NCR (module 08)
-against the supplier and a return-to-supplier task". Module 08 does not exist. Record the rejection
-and its reason on the receipt line; do not invent an NCR model here for module 08 to reconcile —
-the same trap the ISO 8.4 supplier register and `PaymentTerm` were both kept out of.
+**State at this stop.** **776 tests** across 83 files pass on a clean run with the dev server
+stopped; typecheck, lint and `build:check` clean. `npm run seed` was run for the two new permissions
+and the `goods_receipt` numbering format.
+
+**§7's delivery is deliberately not built.** §7 says a DR request "comes from a delivery ticket
+(module 04 §13), **not from a screen in this module**. A DR is never issued without a ticket to
+execute it." Module 04 does not exist, so there is no legitimate way to create one — and the three
+alternatives were breaching the stated boundary, shipping unreachable code (this build's most
+repeated failure), or inventing a ticket concept for module 04 to reconcile. So `DeliveryReceipt` is
+not in the schema and its events are not declared. docs/DECISIONS.md #46.
+
+**Which means `po_received → won` still has nothing setting it.** A received PO is not a delivered
+job, and the thing that would make it decidable is exactly what §7 gates on module 04. What is ready
+for that day: `qtyDelivered` exists, the receipt arithmetic and `procurementStatusFrom` are pure and
+tested, and §8's inventory posture needs no further schema.
+
+### Next concrete step
+
+**Module 03 is as complete as its dependencies allow.** What remains in it — §7's delivery receipt,
+`sales_order.completed` / `.closed`, and `po_received → won` — is gated on module 04's delivery
+ticket, and §7 is explicit that a DR must never be issued without one.
+
+So the next step is a decision the company should make rather than one to assume:
+
+1. **Module 04 next**, which unblocks delivery and lets module 03 be finished properly. It is also
+   the module that consumes `sales_order.created` and `goods.received`, both of which are now being
+   emitted with the per-line payloads module 04 was promised.
+2. **Or module 05 next**, which would make §4's downpayment gate live — it is built, tested and
+   inert today only because `PaymentTerm.downpaymentPct` does not exist yet.
+
+**Either way, before more building: the screens want a human eye.** Eleven routes have now been
+built and only their loading is asserted. The list under "Not visually verified" is longer than it
+has been at any point in this build, and the three bugs that reached the company were all of a kind
+no server test can catch.
+
+**Small and still open in module 02:** the line editor shows the raw cost but has no field for the
+FX rate, so a foreign-currency line can only be costed through the RFQ flow today.
 
 ## Not started
 - [ ] Modules 04–10
-- [ ] Module 03 session 3 — goods receipt with its mandatory ISO 9001 clause 8.4.2 incoming
-      inspection, delivery receipts, and the finance and operations fan-out. `goods_receipt.*` and
-      `delivery.create` are **not** yet declared in the manifest, and neither are their events: a
-      permission that appears later means a role assignment that has to be redone, but an *event*
-      declared before anything emits it lets a later module subscribe to something that never fires,
-      which fails silently. Declare each in the change that emits it.
+- [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
+      capture, and `sales_order.goods_delivered` / `delivery.dr_signed`. **Blocked on module 04**,
+      not deferred by choice: §7 gates a DR on a delivery ticket that does not exist.
+      docs/DECISIONS.md #46. `delivery.create` is not declared in the manifest and neither are its
+      events — declare each in the change that emits it.
+- [ ] `po_received → won`, which is decidable only once delivery is.
 
 ## Decisions made this module
 - docs/DECISIONS.md #1-#3: session 1 (local DB deferred → real Supabase dev project instead;
@@ -1594,6 +1629,11 @@ the same trap the ISO 8.4 supplier register and `PaymentTerm` were both kept out
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #45-#46: module 03 session 3 (booking goods in and certifying them are two acts
+  under two permissions, all four clause 8.4.2 checks with no partial credit, and photographs counted
+  from the stored files rather than claimed on a form; §7's delivery is not built because §7 itself
+  gates a DR on a module 04 ticket that does not exist, and the three ways around that were all
+  worse than waiting).
 - docs/DECISIONS.md #42-#44: module 03 session 2 (both procurement gates refuse by default and can
   be overridden by an officer with a reason, never silently, and never at draft time; the supplier PO
   prints the goods total rather than the landed total, and allocation rounds in integer centavos with
@@ -1637,12 +1677,12 @@ and function; nobody has judged how they *look*.
 - The redesigned `/login`, `/change-password` and `/enroll-totp` screens carrying the full-colour
   lockup on a light ground. Markup verified by `curl`; appearance not.
 - **Module 03's surfaces**: `/suppliers`, `/sales-orders`, `/sales-orders/[id]`, `/procurement`,
-  `/procurement/[id]`, and the three-way-check block on the quotation record. The three list screens
-  are in the e2e sweep, so they load and render their headings; the record screens and the check
-  block are not, because reaching them needs a quotation with a recorded PO and the suite must not
-  create one. Their server sides have 71 tests against the real database. **Nobody has looked at the
-  gate block, the per-line supplier picker, the landed-cost column or the expediting table on
-  screen.**
+  `/procurement/[id]`, `/procurement/receipts/[id]`, and the three-way-check block on the quotation
+  record. The three list screens are in the e2e sweep, so they load and render their headings; the
+  record screens are not, because reaching them needs a quotation with a recorded PO and the suite
+  must not create one. Their server sides have 110 tests against the real database. **Nobody has
+  looked at the gate block, the per-line supplier picker, the landed-cost column, the expediting
+  table, the receiving form or the inspection checklist on screen.**
 - **The supplier PO PDF** was verified by asserting its assembled props — no PDF renderer exists in
   this environment, the same limit module 02's documents have.
 - `docker/docker-compose.yml` has never been executed at all (no Docker on this machine) — the

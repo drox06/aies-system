@@ -12,6 +12,7 @@ import { SUPPLIER_PO_ENTITY_TYPE } from "@/server/core/order/supplier-po-rules";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
+import { ReceiveGoods } from "./ReceiveGoods";
 
 /**
  * One supplier purchase order (specs/03-order-procurement.md §4 and §5).
@@ -447,12 +448,15 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
               data.status === "partially_received" ||
               data.status === "received") && (
               <p className="mt-2 text-xs text-text-muted">
-                Acknowledged. Goods receipt against this order is the next session&rsquo;s work — §6
-                requires an incoming inspection, and building the receipt without it would let
-                unchecked goods into stock.
+                {data.status === "received"
+                  ? "Everything on this order has arrived and been accepted."
+                  : "Book deliveries in below as they arrive. Each one needs its own incoming inspection."}
               </p>
             )}
           </Card>
+
+          {/* §6, next to the order it answers rather than on a screen somebody has to remember. */}
+          <ReceiveGoods supplierPOId={data.id} poStatus={data.status} onReceived={refresh} />
 
           {(data.downpaymentOverrideReason ?? data.unapprovedSupplierOverrideReason) && (
             <Card className="p-4">
