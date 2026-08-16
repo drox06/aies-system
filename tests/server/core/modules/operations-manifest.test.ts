@@ -29,7 +29,6 @@ describe("operations manifest", () => {
     for (const key of [
       "cash_advance.approve",
       "material_request.raise",
-      "methodology.approve",
       "qa.record",
       "delivery.execute",
       // Declared in session 1 and removed the same day: they gated nothing either.
@@ -70,6 +69,7 @@ describe("operations manifest", () => {
       "cash_advance.liquidation_overdue",
       "site_inspection.completed",
       "scope_change.identified",
+      "methodology.approved",
     ]);
   });
 

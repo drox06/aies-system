@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
+
+/**
+ * Same precondition as queue.test.ts, and for the same reason: `drain` takes the oldest pending jobs
+ * in the table, so a backlog left by other files starves this one's own job. See the long note there
+ * — it failed on 2026-08-17 once exactly ten had accumulated.
+ */
+beforeAll(async () => {
+  await db.job.deleteMany({ where: { status: "pending" } });
+});
 import { emit } from "@/server/core/events/emit";
 import { relayOutboxToJobs } from "@/server/core/jobs/relay";
 import { drain } from "@/server/core/jobs/queue";

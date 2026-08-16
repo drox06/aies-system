@@ -32,7 +32,6 @@ import { parseFormat } from "../src/server/core/numbering/format";
  */
 const NOT_YET_ISSUED = new Set([
   "material_request",
-  "methodology",
   "delivery_receipt",
   "service_report",
   "billing_statement",
@@ -136,6 +135,15 @@ async function highestInUse(documentType: string): Promise<number> {
     // so the series has rows to protect and a case has to read them.
     case "cash_advance": {
       const rows = await db.cashAdvance.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
+    // Added by module 04 session 4, which started issuing AIESMTH numbers. Revisions share a number,
+    // so the highest in use is still the highest `number` — not the row count.
+    case "methodology": {
+      const rows = await db.methodology.findMany({
         where: { deletedAt: null },
         select: { number: true },
       });

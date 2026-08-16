@@ -1,8 +1,32 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { __resetJobHandlersForTests, registerJobHandler } from "@/server/core/jobs/registry";
 import { drain, enqueue } from "@/server/core/jobs/queue";
+
+/**
+ * These tests need a queue with nothing else in it, and say so rather than hoping.
+ *
+ * `drain` claims the **oldest pending jobs globally** — `ORDER BY "runAt" ASC LIMIT batchSize` — by
+ * design, because that is what a worker should do. That makes every test here implicitly dependent
+ * on the state of a shared table.
+ *
+ * It broke on 2026-08-17. Other test files emit domain events; relay.test.ts turns every unrelayed
+ * outbox row into a job; nothing drains those, so pending jobs accumulate across runs. Once exactly
+ * ten had piled up, `drain({ batchSize: 10 })` claimed them instead of the job the test had just
+ * enqueued, and the assertions read "expected 'pending' to be 'succeeded'" — which looks like a
+ * broken queue and is actually a full one.
+ *
+ * It failed as the suite grew rather than when anything changed, which is the worst way for a test
+ * to be wrong: sessions 2 to 4 added event-emitting tests until the pile crossed the batch size.
+ *
+ * Pending jobs on a test database are detritus by definition — nothing asserts on another file's
+ * unprocessed jobs — so clearing them is safe, and doing it here makes the precondition explicit
+ * instead of accidental.
+ */
+beforeAll(async () => {
+  await db.job.deleteMany({ where: { status: "pending" } });
+});
 
 const createdJobIds: string[] = [];
 

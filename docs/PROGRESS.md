@@ -1941,7 +1941,48 @@ in, and making it follow the quotation would misstate the liability.
 inspection form and the cash advance request — the two a technician fills in on site. localhost is
 not reachable from a phone, so this could not be done during the review.
 
-**Still to build in module 04:** §6.2's methodology and its client-approval gate, §7's material
+### Session 4 — §6.2's method statement, and the gate the client controls
+
+- [x] **`Methodology`, with a revision chain shaped like the quotation's.** §6.2 calls the chain
+      "the evidence of what was agreed", so a client rejection raises R+1 as a draft and the rejected
+      revision **stays rejected** — `canTransition` refuses to move it. A document that could be
+      edited back into acceptability would prove nothing about what the customer turned down.
+- [x] **The gate needs the status *and* the document.** §6.2: "blocked until `status =
+      client_approved` **and** the client's approval document is attached." A status is something
+      AIES set; the document is something the customer signed. Gating on the status alone would let
+      the company mobilise on somebody's recollection of a phone call — the exact dispute this
+      section exists to win. `recordClientDecisionService` refuses an approval with no file, so the
+      record can never read approved while the gate stays shut.
+- [x] **The dates are written by the acts, never typed.** `submittedToClientAt` is set by sending
+      and nothing else. §6.2: "Client methodology approval is a common and invisible source of
+      schedule slip, and AIES is usually blamed for delays it did not cause. **A dated submission
+      record changes that conversation.**" The register's default view is "With the client", showing
+      days unanswered.
+- [x] **`clientApprovalRequired` is waived by a service call with a mandatory reason**, not a
+      checkbox — §6.2 calls it "a rare exception… not a routine setting", and the difference is that
+      this leaves an audit row naming who decided the customer need not see it.
+- [x] **§6.2's institutional library.** Cloning offers only client-approved method statements — a
+      draft somebody abandoned is not a template, and cloning a rejected revision would propagate
+      whatever the customer objected to. The clone copies the *method* and not the history: no client
+      dates, no approvals, no JSA, and a fresh number.
+- [x] **`materialRequestSeed` is written and tested now**, shaped as §7 will want it, so the session
+      that builds the material request finds the answer rather than inventing a second reading of the
+      same two columns. §6.2: "Nobody should type the same list twice."
+- [x] **`operations.override_methodology_gate`**, president and VP only, reason required and logged.
+- [x] Screens: `/methodologies` with the "with the client" view, `/methodologies/[id]`, and a panel
+      on the ticket. **Every field the server requires has an input** — checked deliberately against
+      docs/DECISIONS.md #62, which is the defect this session was written straight after.
+
+**Migration** `20260816160309_methodology`.
+
+*Caught by the full suite, and not by anything in this session's diff:* `queue.test.ts` and
+`relay.test.ts` failed because `drain()` claims the oldest pending jobs **globally**, and exactly ten
+leftovers from other files had accumulated — enough to consume `batchSize: 10` before the test's own
+job. It broke from the suite growing rather than from a change, and it looked like flake. Both files
+now clear pending jobs in `beforeAll`, stating the precondition instead of inheriting it.
+docs/DECISIONS.md #64.
+
+**Still to build in module 04:** §7's material
 request gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
@@ -1976,6 +2017,8 @@ offline PWA, §15's checklists, §16's time and installed base, §17's schedulin
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #64: a test that reads a shared queue establishes that state rather than
+  inheriting it — the queue tests broke from the suite growing, not from any change to the queue.
 - docs/DECISIONS.md #62-#63: the company's review pass (a server rule with no way to satisfy it is
   not a rule — the inspection could not be completed and the scope-change banner was locked in the
   one state it exists for, both invisible to unit tests that call services directly and to smoke

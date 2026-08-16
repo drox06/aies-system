@@ -86,14 +86,15 @@ model Ticket {
   deletedAt DateTime?
   deletedBy String?
 
-  account      CustomerAccount        @relation(fields: [accountId], references: [id])
-  site         Site?                  @relation(fields: [siteId], references: [id])
-  salesOrder   SalesOrder?            @relation(fields: [salesOrderId], references: [id])
-  customerPO   CustomerPO?            @relation(fields: [customerPOId], references: [id])
-  project      Project?               @relation(fields: [projectId], references: [id])
-  lines        TicketSalesOrderLine[]
-  cashAdvances CashAdvance[]
-  inspections  SiteInspection[]
+  account       CustomerAccount        @relation(fields: [accountId], references: [id])
+  site          Site?                  @relation(fields: [siteId], references: [id])
+  salesOrder    SalesOrder?            @relation(fields: [salesOrderId], references: [id])
+  customerPO    CustomerPO?            @relation(fields: [customerPOId], references: [id])
+  project       Project?               @relation(fields: [projectId], references: [id])
+  lines         TicketSalesOrderLine[]
+  cashAdvances  CashAdvance[]
+  inspections   SiteInspection[]
+  methodologies Methodology[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -184,11 +185,12 @@ model Project {
   deletedAt DateTime?
   deletedBy String?
 
-  account      CustomerAccount  @relation(fields: [accountId], references: [id])
-  site         Site?            @relation(fields: [siteId], references: [id])
-  tickets      Ticket[]
-  cashAdvances CashAdvance[]
-  inspections  SiteInspection[]
+  account       CustomerAccount  @relation(fields: [accountId], references: [id])
+  site          Site?            @relation(fields: [siteId], references: [id])
+  tickets       Ticket[]
+  cashAdvances  CashAdvance[]
+  inspections   SiteInspection[]
+  methodologies Methodology[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -416,4 +418,102 @@ model SiteInspection {
   @@index([status, scheduledFor])
   @@index([ticketId])
   @@index([inquiryId])
+}
+
+/// §6.2's method statement — how the work will actually be done.
+///
+/// §6.2: "It is a **controlled document** (module 07), not a free-text field." Module 07 does not
+/// exist, so `documentId` is nullable and waits for it. Everything else is here, because the part
+/// that matters commercially is not the filing — it is the sentence below.
+///
+/// §6.2: "**The client approves the methodology before work starts. Always.**" And the reason the
+/// dates are modelled as carefully as the content: "Client methodology approval is a common and
+/// invisible source of schedule slip, and AIES is usually blamed for delays it did not cause. **A
+/// dated submission record changes that conversation.**"
+model Methodology {
+  id     String @id @default(cuid())
+  /// AIESMTH-{YY}{####}, seeded since module 00.
+  number String
+
+  projectId String?
+  ticketId  String?
+
+  title    String
+  /// R0, R1, … A rejection by the client creates the next one; see `parentMethodologyId`.
+  revision Int    @default(0)
+
+  /// The root of the revision chain, null on R0 — the same shape as Quotation's, and for the same
+  /// reason: §6.2 calls the chain "the evidence of what was agreed", and a linked list makes
+  /// "show me every revision" a recursive walk.
+  parentMethodologyId String?
+
+  scopeSummary   String
+  /// [{ step, description, durationHours, crew }] — §6.2's "ordered steps with duration and crew".
+  sequenceOfWork Json   @default("[]")
+  /// [{ role, count, notes }].
+  manpowerPlan   Json   @default("[]")
+
+  /// §6.2: these two "**pre-populate the material request** in §7. Nobody should type the same list
+  /// twice." §7 does not exist yet; the shapes are chosen so it can read them without a migration.
+  toolsRequired     String[] @default([])
+  /// [{ description, quantity, unit }].
+  materialsRequired Json     @default("[]")
+
+  safetyPlan String?
+  /// The job safety analysis, as an uploaded FileObject.
+  jsaFileId  String?
+
+  permitsRequired             String[] @default([])
+  environmentalConsiderations String?
+
+  durationDays       Int?
+  mobilizationPlan   String?
+  demobilizationPlan String?
+  contingencyPlan    String?
+
+  /// draft | internal_review | approved | submitted_to_client | client_approved | client_rejected |
+  /// superseded (§6.2).
+  status String @default("draft")
+
+  preparedById String
+  reviewedById String?
+  approvedById String?
+  approvedAt   DateTime?
+
+  /// §6.2's turnaround, and the whole point of dating it: the gap between these two is the
+  /// customer's, and without a record of it the delay is remembered as AIES's.
+  submittedToClientAt  DateTime?
+  clientApprovedAt     DateTime?
+  /// The client's own signed approval. §6.2 gates mobilization on this **as well as** the status —
+  /// a status somebody set and a document the client signed are not the same claim.
+  clientApprovalFileId String?
+  clientRejectionNotes String?
+
+  /// §6.2: "defaults to `true` and the flag exists only so a rare exception can be recorded, not as
+  /// a routine setting." Turning it off is an act with a reason attached, not a checkbox.
+  clientApprovalRequired Boolean @default(true)
+  /// Why the exception was made, when it was. Null whenever `clientApprovalRequired` is true.
+  clientApprovalWaiver   String?
+
+  /// Module 07's controlled document. Null until module 07 exists.
+  documentId String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  project Project? @relation(fields: [projectId], references: [id])
+  ticket  Ticket?  @relation(fields: [ticketId], references: [id])
+
+  parent   Methodology?  @relation("MethodologyRevisions", fields: [parentMethodologyId], references: [id])
+  children Methodology[] @relation("MethodologyRevisions")
+
+  /// One row per revision of a number, exactly like Quotation's.
+  @@unique([number, revision])
+  @@index([projectId, status])
+  @@index([ticketId])
+  @@index([status, submittedToClientAt])
 }

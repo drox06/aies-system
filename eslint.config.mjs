@@ -42,6 +42,7 @@ const UI_SAFE_SERVER_MODULES = [
   "@/server/core/operations/ticket-rules",
   "@/server/core/operations/cash-advance-rules",
   "@/server/core/operations/site-inspection-rules",
+  "@/server/core/operations/methodology-rules",
   "@/server/core/order/po-verification",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime

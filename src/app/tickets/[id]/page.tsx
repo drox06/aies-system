@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
 import { CashAdvancePanel } from "./CashAdvancePanel";
 import { InspectionPanel } from "./InspectionPanel";
+import { MethodologyPanel } from "./MethodologyPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -165,6 +166,12 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             siteId={data.site?.id ?? null}
           />
 
+          <MethodologyPanel
+            ticketId={data.id}
+            ticketTitle={data.title}
+            projectId={data.project?.id ?? null}
+          />
+
           <CashAdvancePanel ticketId={data.id} />
 
           <Card className="p-4">
@@ -177,7 +184,8 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
               <li>
                 <span className="font-medium text-text">Material request</span> — §1&rsquo;s second
                 gate. Currently{" "}
-                <span className="capitalize">{human(data.materialRequestStatus)}</span>.
+                <span className="capitalize">{human(data.materialRequestStatus)}</span>. It will
+                start from the tools and materials on the method statement rather than a blank list.
               </li>
               <li>
                 <span className="font-medium text-text">Mobilisation, QA and close-out</span> —

@@ -5,9 +5,9 @@ import { defineManifest } from "@/server/core/module-registry";
  *
  * The largest module in the build: four gates, a delivery lane, an offline-first field application,
  * digital checklists and dispatch scheduling. Three sessions are in: §4's ticket and proposal, §5's
- * cash advance gate, and §6.1's site inspection.
+ * cash advance gate, §6.1's site inspection and §6.2's methodology.
  *
- * §19 lists thirty permissions for the finished module; nine are here, because nine gate something.
+ * §19 lists thirty permissions for the finished module; thirteen are here, because nine gate something.
  * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
  * by tests/server/core/modules/permissions-are-used.test.ts. A permission declared ahead of its gate
  * sits in the admin role screen granting access to nothing; somebody assigns it and wonders why
@@ -28,6 +28,7 @@ export const operationsManifest = defineManifest({
     "CashAdvance",
     "CashAdvanceLiquidation",
     "SiteInspection",
+    "Methodology",
   ],
 
   permissions: [
@@ -150,6 +151,35 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "methodology.prepare",
+      label: "Write and revise method statements",
+      group: "Operations",
+      // §19. The people who plan the work; technicians included, because the team leader who will
+      // run the job is usually the one who knows how it is actually done.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "technician",
+        "admin_manager",
+      ],
+    },
+    {
+      key: "methodology.approve",
+      label: "Approve a method statement internally, before the client sees it",
+      group: "Operations",
+      // §6.2's internal sign-off. Deliberately not the technician who wrote it — the whole value of
+      // a review is that somebody else read it.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
+      key: "operations.override_methodology_gate",
+      label: "Mobilize before the client has approved the method statement",
+      group: "Operations",
+      // §6.2: "president and VP only", and logged with a reason.
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
       key: "operations.override_ca_gate",
       label: "Mobilize a crew before the cash advance is released",
       group: "Operations",
@@ -160,7 +190,7 @@ export const operationsManifest = defineManifest({
   ],
 
   /**
-   * §18 lists twenty-eight events. Six are emitted today.
+   * §18 lists twenty-eight events. Seven are emitted today.
    *
    * The registry rejects a subscription to an event nothing emits, so declaring the rest now would
    * let a later module subscribe to something that never fires — which fails silently, and is worse
@@ -173,6 +203,7 @@ export const operationsManifest = defineManifest({
     "cash_advance.liquidation_overdue",
     "site_inspection.completed",
     "scope_change.identified",
+    "methodology.approved",
   ],
 
   /**
@@ -243,6 +274,15 @@ export const operationsManifest = defineManifest({
       icon: "clipboard-check",
       permission: "ticket.execute",
       order: 42,
+    },
+    {
+      label: "Method statements",
+      href: "/methodologies",
+      icon: "file-text",
+      // §6.2's "with the client" view is the one that earns the nav entry — it is what somebody
+      // reads before a progress meeting to see whose delay a wait actually was.
+      permission: "methodology.prepare",
+      order: 43,
     },
   ],
 });

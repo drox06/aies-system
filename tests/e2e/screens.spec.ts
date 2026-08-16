@@ -45,6 +45,7 @@ const SCREENS = [
   { path: "/tickets", heading: "Tickets" },
   { path: "/cash-advances", heading: "Cash advances" },
   { path: "/inspections", heading: "Site inspections" },
+  { path: "/methodologies", heading: "Method statements" },
   { path: "/quotations/approvals", heading: "Awaiting approval" },
   { path: "/notifications", heading: "Notification" },
   { path: "/admin/users", heading: "Users" },

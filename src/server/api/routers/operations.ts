@@ -19,6 +19,20 @@ import {
 } from "@/server/core/operations/cash-advance-rules";
 import { listInspectionAssigneesService } from "@/server/core/crm/inspection-service";
 import {
+  approveMethodologyService,
+  createMethodologyService,
+  getMethodologyService,
+  listMethodologiesService,
+  listReusableMethodologiesService,
+  methodologyGateForTicket,
+  overrideMethodologyGateService,
+  recordClientDecisionService,
+  saveMethodologyService,
+  submitForInternalReviewService,
+  submitToClientService,
+  waiveClientApprovalService,
+} from "@/server/core/operations/methodology-service";
+import {
   approveInspectionService,
   completeInspectionService,
   getInspectionService,
@@ -377,4 +391,129 @@ export const operationsRouter = router({
   getInspection: p("ticket.view")
     .input(z.object({ inspectionId: z.string() }))
     .query(({ ctx, input }) => getInspectionService(ctx.user, input.inspectionId)),
+
+  // ---- §6.2's method statement ------------------------------------------------------------------
+
+  createMethodology: p("methodology.prepare")
+    .input(
+      z.object({
+        projectId: z.string().nullish(),
+        ticketId: z.string().nullish(),
+        title: z.string().min(1).max(200),
+        cloneFromId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createMethodologyService(actorMeta(ctx), input)),
+
+  saveMethodology: p("methodology.prepare")
+    .input(
+      z.object({
+        methodologyId: z.string(),
+        title: z.string().min(1).max(200).optional(),
+        scopeSummary: z.string().max(20000).optional(),
+        sequenceOfWork: z
+          .array(
+            z.object({
+              step: z.number().int(),
+              description: z.string().max(1000),
+              durationHours: z.number().nonnegative(),
+              crew: z.string().max(200).default(""),
+            }),
+          )
+          .optional(),
+        manpowerPlan: z
+          .array(
+            z.object({
+              role: z.string().max(120),
+              count: z.number().int().nonnegative(),
+              notes: z.string().max(300).optional(),
+            }),
+          )
+          .optional(),
+        toolsRequired: z.array(z.string().max(200)).optional(),
+        materialsRequired: z
+          .array(
+            z.object({
+              description: z.string().max(300),
+              quantity: z.string().max(40),
+              unit: z.string().max(30),
+            }),
+          )
+          .optional(),
+        safetyPlan: z.string().max(20000).nullish(),
+        jsaFileId: z.string().nullish(),
+        permitsRequired: z.array(z.string().max(200)).optional(),
+        environmentalConsiderations: z.string().max(5000).nullish(),
+        durationDays: z.number().int().positive().nullish(),
+        mobilizationPlan: z.string().max(5000).nullish(),
+        demobilizationPlan: z.string().max(5000).nullish(),
+        contingencyPlan: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveMethodologyService(actorMeta(ctx), input)),
+
+  submitMethodologyForReview: p("methodology.prepare")
+    .input(z.object({ methodologyId: z.string() }))
+    .mutation(({ ctx, input }) =>
+      submitForInternalReviewService(actorMeta(ctx), input.methodologyId),
+    ),
+
+  /** §6.2's internal sign-off, before the client ever sees it. */
+  approveMethodology: p("methodology.approve")
+    .input(
+      z.object({
+        methodologyId: z.string(),
+        decision: z.enum(["approved", "rejected"]),
+        comment: z.string().max(2000).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => approveMethodologyService(actorMeta(ctx), input)),
+
+  /** Starts §6.2's clock. The date is written by the act of sending, never typed in later. */
+  submitMethodologyToClient: p("methodology.prepare")
+    .input(z.object({ methodologyId: z.string() }))
+    .mutation(({ ctx, input }) => submitToClientService(actorMeta(ctx), input.methodologyId)),
+
+  recordClientDecision: p("methodology.prepare")
+    .input(
+      z.object({
+        methodologyId: z.string(),
+        decision: z.enum(["approved", "rejected"]),
+        approvalFileId: z.string().nullish(),
+        notes: z.string().max(5000).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordClientDecisionService(actorMeta(ctx), input)),
+
+  /** §6.2's rare exception, with a mandatory reason — not a checkbox. */
+  waiveClientApproval: p("methodology.approve")
+    .input(z.object({ methodologyId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => waiveClientApprovalService(actorMeta(ctx), input)),
+
+  methodologyGate: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => methodologyGateForTicket(input.ticketId)),
+
+  overrideMethodologyGate: p("operations.override_methodology_gate")
+    .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => overrideMethodologyGateService(actorMeta(ctx), input)),
+
+  listMethodologies: p("ticket.view")
+    .input(
+      z
+        .object({
+          projectId: z.string().optional(),
+          ticketId: z.string().optional(),
+          status: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => listMethodologiesService(input ?? {})),
+
+  /** §6.2's institutional library — only ones a client actually approved. */
+  reusableMethodologies: p("methodology.prepare").query(() => listReusableMethodologiesService()),
+
+  getMethodology: p("ticket.view")
+    .input(z.object({ methodologyId: z.string() }))
+    .query(({ ctx, input }) => getMethodologyService(ctx.user, input.methodologyId)),
 });

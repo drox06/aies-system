@@ -2250,3 +2250,47 @@ The liquidation form carries a bordered notice that the paper must be submitted 
 deliberately the loudest thing in that card: a technician who files in the app and keeps the receipts
 in a folder in their truck has not done the thing the status now waits for, and the only moment they
 can be told is while they are typing.
+
+---
+
+## #64 — A test that reads a shared queue must say so, not hope
+
+specs/00-foundation.md §6's job queue; found by module 04 session 4's full suite run, 2026-08-17.
+
+`drain()` claims the oldest pending jobs in the table — `ORDER BY "runAt" ASC LIMIT batchSize` — and
+that is exactly what a worker should do. It also makes every test that calls it implicitly dependent
+on the contents of a table every other test writes to.
+
+`queue.test.ts` enqueued a job, called `drain({ batchSize: 10 })`, and asserted its job had
+succeeded. On 2026-08-17 the database held **exactly ten** pending jobs left over from other files:
+other tests emit domain events, `relay.test.ts` turns every unrelayed outbox row into a job, and
+nothing drains those. The batch was consumed before the test's own job was reached, and five
+assertions read "expected 'pending' to be 'succeeded'".
+
+### It failed because the suite grew, not because anything changed
+
+This is the part worth remembering. Sessions 2, 3 and 4 added event-emitting tests until the backlog
+crossed the batch size. Nothing in that diff touched the queue. A test that breaks from unrelated
+growth is the hardest kind to place, because the change that triggers it is innocent and the failure
+points somewhere else entirely.
+
+It also looked like flake — two runs failed eleven and then five assertions — which sent the first
+diagnosis toward timeouts under connection-pool contention. That guess was wrong and would have been
+"fixed" by raising the global timeout, burying a real coupling behind a slower suite. The differing
+counts were the backlog shifting, not nondeterminism.
+
+### The fix, and the general rule
+
+Both files now clear pending jobs in `beforeAll`. Pending jobs on a test database are detritus by
+definition — nothing asserts on another file's unprocessed work — so this is safe, and it converts
+an accidental precondition into a stated one.
+
+The rule it stands for: **when a test exercises something that reads global state, it establishes
+that state rather than inheriting it.** The alternative is a test that passes for a year and then
+fails for a reason unrelated to anything anybody edited.
+
+### A note on reading test output
+
+The first two diagnoses of this were slowed by piping vitest through `tail`, which discards the
+failure detail and leaves only the summary. A green summary read that way is still trustworthy; a red
+one is useless. Capture the whole run.
