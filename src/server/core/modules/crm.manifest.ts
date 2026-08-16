@@ -67,20 +67,8 @@ export const crmManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
-      key: "crm.export",
-      label: "Export CRM data",
-      group: "CRM",
-      defaultRoles: ["president", "vice_president", "marketing_manager"],
-    },
-    {
       key: "inquiry.assign",
       label: "Assign inquiries to an owner",
-      group: "CRM",
-      defaultRoles: ["president", "vice_president", "marketing_manager"],
-    },
-    {
-      key: "inquiry.disqualify",
-      label: "Disqualify an inquiry",
       group: "CRM",
       defaultRoles: ["president", "vice_president", "marketing_manager"],
     },

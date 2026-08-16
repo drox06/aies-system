@@ -7,12 +7,11 @@ import { defineManifest } from "@/server/core/module-registry";
  * digital checklists and dispatch scheduling. This manifest declares **session 1 only** — the ticket
  * itself and §4's proposal.
  *
- * §19 lists thirty permissions for the finished module and they are deliberately *not* all here.
- * That is the opposite of the choice module 03 made, and for a reason: module 03's later sessions
- * were days away and a permission appearing later means a role assignment that has to be redone.
- * Module 04's gates are whole sessions each, several of them, and declaring `cash_advance.approve`
- * now would put a permission in every role screen that grants access to nothing at all for weeks.
- * Somebody would assign it, and then wonder why it did nothing.
+ * §19 lists thirty permissions for the finished module; four are here, because four gate something.
+ * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
+ * by tests/server/core/modules/permissions-are-used.test.ts. `cash_advance.approve` declared now
+ * would sit in the admin role screen granting access to nothing for weeks; somebody would assign it
+ * and wonder why nothing happened. docs/DECISIONS.md #52.
  */
 export const operationsManifest = defineManifest({
   key: "operations",
@@ -59,32 +58,6 @@ export const operationsManifest = defineManifest({
       group: "Operations",
       // §4: "Operations confirms or edits the proposed set before generation." DJ's job, and the
       // two officers as always.
-      defaultRoles: ["president", "vice_president", "operations_manager"],
-    },
-    {
-      key: "ticket.cancel",
-      label: "Cancel a ticket",
-      group: "Operations",
-      defaultRoles: ["president", "vice_president", "operations_manager"],
-    },
-    {
-      key: "project.view",
-      label: "View projects",
-      group: "Operations",
-      defaultRoles: [
-        "president",
-        "vice_president",
-        "operations_manager",
-        "admin_manager",
-        "sales",
-        "finance_officer",
-        "technician",
-      ],
-    },
-    {
-      key: "project.manage",
-      label: "Manage a project's schedule, team and scope",
-      group: "Operations",
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {

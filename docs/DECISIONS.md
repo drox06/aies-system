@@ -1808,3 +1808,64 @@ that exists and does nothing teaches people that permissions do not mean anythin
 So the rule is not "declare early" or "declare late" — it is **declare when the gap is short enough
 that nobody can act on the permission in between**. Both manifests carry a test pinning what they
 hold back and why.
+
+## 52. A permission is declared in the change that gates something with it
+
+**Module:** cross-cutting. **Asked for by:** the company — "what do we do on the deliberate
+inconsistency? if this will cause problems later on, we better fix this now rather than later."
+
+docs/DECISIONS.md #51 recorded module 03 and module 04 declaring permissions on opposite principles
+and argued both were defensible. Checking the question properly showed that **neither was right as
+stated**, and that eleven permissions across four modules were already granting access to nothing.
+
+**Module 03's justification does not survive inspection.** It declared all of §10 up front so that
+"a permission that appears later means a role assignment that has to be redone". But
+`prisma/seed.ts` upserts a permission *and* its `defaultRoles` on every run — a permission added in
+a later session is granted to its default roles automatically at the next seed. There was no re-work
+to avoid. What the early declaration did produce was `sales_order.edit`, `.close` and `.cancel`
+sitting in the admin role screen with nothing behind them.
+
+**Module 04 stated the right principle and did not follow it either**, declaring `ticket.cancel`,
+`project.view` and `project.manage` in the same session that gated none of them.
+
+### The rule
+
+**Declare a permission in the change that uses it** — the same rule `emits` already follows, and for
+the same reason. `tests/server/core/modules/permissions-are-used.test.ts` scans `src/` for every
+`p("x")` gate, `permissions.has("x")` check and hoisted constant, and fails on any manifest
+permission nothing consults. An exception needs an entry in `DECLARED_WITHOUT_A_GATE` with a reason;
+"we will need it soon" is not one, since that is the argument the test exists to refuse.
+
+The test also asserts that its own scan finds known permissions, because an "assert nothing is wrong"
+test whose matcher silently stops matching passes vacuously forever.
+
+### Why a dead permission is not harmless
+
+It appears in the admin role screen. Somebody grants it, expects a delete button or an approval
+queue, and finds nothing. The lesson learned is that the permissions in this system do not mean
+anything — and that is expensive to unteach, because the next permission they are told is load-
+bearing gets the same shrug.
+
+### The eleven, and one real defect among them
+
+`crm.export`, `inquiry.disqualify`, `quotation.cancel`, `approval.act_as_fallback`,
+`sales_order.edit`, `.close`, `.cancel`, `ticket.cancel`, `project.view`, `project.manage` — all
+removed. Two are worth naming:
+
+- **`approval.act_as_fallback`** could never have gated anything. Spec.md §4.4's fallback is resolved
+  from `ApprovalRule.fallbackApproverRole`, so the rule row already names who may act; a second
+  answer to the same question is only a way for the two to disagree.
+- **`quotation.override_margin_floor`** was worse than dead. The margin panel told the user "sending
+  it needs `quotation.override_margin_floor`, which only the president and vice-president hold", and
+  the costing sheet PDF said the same — **and nothing anywhere enforced it**. §4 asks only for "a
+  warning when any line is below the configured floor", which is what the code does. So the screen
+  was describing a financial control the system does not have, on the document where somebody
+  decides whether a thin margin is acceptable. Both texts now say what is true: it is a warning, and
+  the Vice President's approval is the control.
+
+### The seed now prunes
+
+Adding-only is how eleven accumulated unnoticed. `seedRolesAndPermissions` deletes any `Permission`
+row no manifest declares, so the manifests are the source of truth in both directions. Safe by
+construction: a permission nothing gates cannot be protecting anything, and its `RolePermission`
+rows cascade.

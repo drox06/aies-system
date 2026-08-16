@@ -64,12 +64,6 @@ export const quotationManifest = defineManifest({
       defaultRoles: QUOTING_ROLES(),
     },
     {
-      key: "quotation.cancel",
-      label: "Cancel a quotation",
-      group: "Quotation",
-      defaultRoles: ["president", "vice_president"],
-    },
-    {
       key: "quotation.delete",
       label: "Delete a quotation",
       group: "Quotation",
@@ -89,13 +83,6 @@ export const quotationManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
-      key: "quotation.override_margin_floor",
-      label: "Send a quotation with a line below the margin floor",
-      group: "Quotation",
-      // §4's floor is a warning to the preparer and a decision for the people who carry the P&L.
-      defaultRoles: ["president", "vice_president"],
-    },
-    {
       key: "supplier_rfq.manage",
       label: "Raise and record supplier price requests",
       group: "Quotation",
@@ -108,14 +95,10 @@ export const quotationManifest = defineManifest({
       group: "Quotation",
       defaultRoles: ["president", "vice_president", "marketing_manager", "admin_manager"],
     },
-    {
-      key: "approval.act_as_fallback",
-      label: "Act on an approval as the fallback approver",
-      group: "Approvals",
-      // Spec.md §4.4: "The President can always act immediately, without waiting for the window."
-      // The resolver already implements the window; this is the permission that names who may.
-      defaultRoles: ["president"],
-    },
+    // `approval.act_as_fallback` was declared here and removed on 2026-08-16. It never gated
+    // anything, and it could not have: Spec.md §4.4's fallback is resolved from
+    // `ApprovalRule.fallbackApproverRole`, so the rule row already names who may act and a second
+    // answer to the same question is a way for the two to disagree.
   ],
 
   // specs/02-quotation.md §10.

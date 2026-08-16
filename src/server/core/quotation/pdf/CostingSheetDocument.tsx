@@ -184,9 +184,10 @@ export function CostingSheetDocument(props: CostingSheetPdfProps) {
 
         {props.marginFloorPct !== null && props.lines.some((line) => line.belowFloor) && (
           <Text style={[s.small, { color: PDF_COLORS.danger, marginTop: 8 }]}>
-            One or more lines fall below the {props.marginFloorPct}% margin floor. Issuing this
-            quotation requires quotation.override_margin_floor, held by the president and
-            vice-president only.
+            {/* A warning, which is exactly what §4 asks for. It previously said issuing required
+                `quotation.override_margin_floor` — a permission nothing in the build enforced. */}
+            One or more lines fall below the {props.marginFloorPct}% margin floor. This is the
+            number to weigh before approving it.
           </Text>
         )}
 

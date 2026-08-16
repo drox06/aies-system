@@ -191,6 +191,26 @@ async function seedRolesAndPermissions() {
     }
   }
 
+  // Permissions the manifests no longer declare.
+  //
+  // The seed adds and updates but never removed, so a permission dropped from a manifest stayed in
+  // the database and in the admin role screen forever — which is how eleven of them accumulated
+  // across four modules, each granting access to nothing. Pruning here closes that: the manifests
+  // are the source of truth, and the database follows them in both directions.
+  //
+  // Safe because a permission nothing gates cannot be protecting anything. `RolePermission` rows
+  // cascade with it.
+  const declared = new Set(allPermissions().map((p) => p.key));
+  const orphaned = (await db.permission.findMany({ select: { key: true } }))
+    .map((p) => p.key)
+    .filter((key) => !declared.has(key));
+  if (orphaned.length > 0) {
+    await db.permission.deleteMany({ where: { key: { in: orphaned } } });
+    console.log(
+      `Removed ${orphaned.length} permission(s) no manifest declares: ${orphaned.join(", ")}.`,
+    );
+  }
+
   console.log(
     `Seeded ${ROLES.length} roles and ${allPermissions().length} permissions ` +
       `(${PERMISSIONS.length} foundation + ${registry.permissions.length} from module manifests).`,

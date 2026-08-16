@@ -22,9 +22,6 @@ describe("order manifest", () => {
       "sales_order.view",
       "sales_order.view_all",
       "sales_order.create",
-      "sales_order.edit",
-      "sales_order.close",
-      "sales_order.cancel",
       "supplier_po.create",
       "supplier_po.approve",
       "procurement.override_downpayment_gate",
@@ -32,6 +29,21 @@ describe("order manifest", () => {
       "goods_receipt.inspect",
     ]) {
       expect(declared, `§10 requires ${key}`).toContain(key);
+    }
+  });
+
+  it("does not declare §10's permissions whose sessions have not been built", () => {
+    // `sales_order.edit`, `.close` and `.cancel` were declared here in session 1 on the reasoning
+    // that "a permission that appears later means a role assignment that has to be redone". That
+    // reasoning did not survive checking: prisma/seed.ts upserts a permission *and* its default
+    // roles on every run, so a permission added later is granted automatically. What the early
+    // declaration did produce was three entries in the admin role screen that granted access to
+    // nothing. Removed 2026-08-16 — docs/DECISIONS.md #52.
+    const declared = new Set(orderManifest.permissions.map((p) => p.key));
+    for (const key of ["sales_order.edit", "sales_order.close", "sales_order.cancel"]) {
+      expect(declared, `${key} belongs to the session that gates something with it`).not.toContain(
+        key,
+      );
     }
   });
 

@@ -61,9 +61,15 @@ export function MarginPanel({
       </dl>
 
       {pct !== null && pct < 15 && (
-        <p className="mt-2 rounded border border-border bg-surface-2 p-2 text-xs">
-          Below the 15% floor. Sending it needs <code>quotation.override_margin_floor</code>, which
-          only the president and vice-president hold.
+        // §4 asks for "a **warning** when any line is below the configured floor" — a warning, and
+        // not a block. This used to claim that sending required `quotation.override_margin_floor`;
+        // nothing enforced that, and the permission gated nothing anywhere in the build. A screen
+        // that describes a financial control the system does not have is worse than one that says
+        // nothing: somebody relies on it. The Vice President's approval is the control that is
+        // actually here, and every quotation passes through it.
+        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+          Below the 15% floor. Nothing stops this being sent — the Vice President&rsquo;s approval
+          is the check, and this number is what they should be looking at.
         </p>
       )}
 

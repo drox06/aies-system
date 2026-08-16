@@ -14,15 +14,7 @@ import { visibleNavFor } from "@/server/core/nav";
 describe("operations manifest", () => {
   it("declares the permissions session 1 actually uses", () => {
     const declared = new Set(operationsManifest.permissions.map((p) => p.key));
-    for (const key of [
-      "ticket.view",
-      "ticket.view_all",
-      "ticket.generate",
-      "ticket.cancel",
-      "project.view",
-      "project.manage",
-      "project.view_cost",
-    ]) {
+    for (const key of ["ticket.view", "ticket.view_all", "ticket.generate", "project.view_cost"]) {
       expect(declared, `session 1 needs ${key}`).toContain(key);
     }
   });
@@ -40,6 +32,10 @@ describe("operations manifest", () => {
       "methodology.approve",
       "qa.record",
       "delivery.execute",
+      // Declared in session 1 and removed the same day: they gated nothing either.
+      "ticket.cancel",
+      "project.view",
+      "project.manage",
     ]) {
       expect(declared, `${key} belongs to the session that builds its gate`).not.toContain(key);
     }

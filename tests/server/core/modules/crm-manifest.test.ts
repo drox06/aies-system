@@ -22,15 +22,24 @@ describe("crm manifest", () => {
       "crm.edit",
       "crm.delete",
       "crm.merge",
-      "crm.export",
       "inquiry.assign",
-      "inquiry.disqualify",
       "inspection.request",
       "accreditation.manage",
       "principal_prospect.manage",
     ]) {
       expect(declared, `§9 requires ${key}`).toContain(key);
     }
+  });
+
+  it("does not declare §9's permissions that nothing gates", () => {
+    // `crm.export` and `inquiry.disqualify` are in §9's list and were declared from the start, with
+    // nothing behind either. §7's CSV export goes through the shared DataTable and is gated by being
+    // able to see the rows at all; disqualifying is a status transition under `crm.edit`. Both
+    // removed 2026-08-16 — a permission in the role screen that grants access to nothing teaches
+    // people that permissions here do not mean anything. docs/DECISIONS.md #52.
+    const declared = new Set(crmManifest.permissions.map((p) => p.key));
+    expect(declared).not.toContain("crm.export");
+    expect(declared).not.toContain("inquiry.disqualify");
   });
 
   it("declares every event specs/01-crm-inquiry.md §8 says it emits", () => {

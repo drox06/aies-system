@@ -8,10 +8,14 @@ import { defineManifest } from "@/server/core/module-registry";
  * obligation", with three fan-outs that run in parallel — finance may want a downpayment,
  * procurement places the supplier order, operations generates tickets.
  *
- * **Session 1 builds the spine:** the supplier directory, the sales order, and §3's verification.
- * Supplier PO, goods receipt and delivery are sessions 2 and 3; their permissions are declared here
- * anyway, because §10 lists them and a permission that appears later means a role assignment that
- * has to be redone. The ones with nothing behind them yet are marked.
+ * **Permissions are declared in the change that gates something with them** — the same rule `emits`
+ * follows, and enforced by tests/server/core/modules/permissions-are-used.test.ts.
+ *
+ * This manifest originally declared all of §10 up front, on the reasoning that "a permission that
+ * appears later means a role assignment that has to be redone". That reasoning did not survive being
+ * checked: prisma/seed.ts upserts a permission *and* its `defaultRoles` on every run, so one added
+ * in a later session is granted automatically. What the early declaration did produce was three
+ * entries in the admin role screen granting access to nothing. docs/DECISIONS.md #52.
  */
 export const orderManifest = defineManifest({
   key: "order",
@@ -99,24 +103,6 @@ export const orderManifest = defineManifest({
       label: "Raise a sales order from a verified customer PO",
       group: "Orders",
       defaultRoles: ["president", "vice_president", "marketing_manager", "sales", "admin_manager"],
-    },
-    {
-      key: "sales_order.edit",
-      label: "Edit a sales order",
-      group: "Orders",
-      defaultRoles: ["president", "vice_president", "marketing_manager", "sales", "admin_manager"],
-    },
-    {
-      key: "sales_order.close",
-      label: "Close a completed sales order",
-      group: "Orders",
-      defaultRoles: ["president", "vice_president"],
-    },
-    {
-      key: "sales_order.cancel",
-      label: "Cancel a sales order",
-      group: "Orders",
-      defaultRoles: ["president", "vice_president"],
     },
     // ---- §5's procurement permissions ----------------------------------------------------------
     {
