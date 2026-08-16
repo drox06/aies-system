@@ -42,6 +42,12 @@ export default function ProcurementPage() {
     openOnly: openOnly || undefined,
     search: search || undefined,
   });
+  const awaiting = trpc.order.listGoodsReceipts.useQuery(
+    { awaitingInspection: true },
+    // `goods_receipt.create` gates it; the block disappears for a buyer who cannot receive rather
+    // than erroring the whole screen.
+    { retry: false },
+  );
 
   const rows = list.data ?? [];
   const late = rows.filter((po) => (po.daysLate ?? 0) > 0);
@@ -72,6 +78,47 @@ export default function ProcurementPage() {
           <StatusBadge tone="pending">{undated.length} with no arrival date</StatusBadge>
         )}
       </div>
+
+      {/*
+        Goods that are in the building and not yet verified, across every order at once.
+        Reachable only from their own supplier PO, a delivery booked in on Friday and never
+        inspected stays invisible until somebody happens to reopen that order — which is how
+        unchecked goods reach a customer. So it sits at the top of the procurement screen, not
+        buried on a record.
+      */}
+      {(awaiting.data ?? []).length > 0 && (
+        <Card className="mb-4 border-amber-300 bg-amber-50 p-4">
+          <h2 className="text-sm font-semibold text-amber-900">Goods received, not yet accepted</h2>
+          <p className="mt-1 text-xs text-amber-900">
+            These are in the building and unverified. ISO 9001 clause 8.4.2 wants an incoming
+            inspection before they go anywhere.
+          </p>
+          <ul className="mt-2 divide-y divide-amber-200">
+            {(awaiting.data ?? []).map((receipt) => (
+              <li key={receipt.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                <Link
+                  href={`/procurement/receipts/${receipt.id}`}
+                  className="tabular font-medium text-blue-700 underline underline-offset-2"
+                >
+                  {receipt.number}
+                </Link>
+                <span className="text-xs text-amber-900">
+                  <DateCell value={receipt.receivedAt} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs text-amber-900">
+                  {receipt.supplierPO.supplier.name} · {receipt.supplierPO.number}
+                  {receipt.supplierPO.salesOrder
+                    ? ` · for ${receipt.supplierPO.salesOrder.account.name}`
+                    : ""}
+                </span>
+                <StatusBadge tone="failed">
+                  {receipt.gate.complete ? "Awaiting acceptance" : "Inspection outstanding"}
+                </StatusBadge>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {list.isPending && <p className="text-sm text-text-muted">Loading…</p>}
 

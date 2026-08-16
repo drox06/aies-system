@@ -80,6 +80,10 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
   const data = po.data;
   const gate = gates.data;
   const charges = Number(data.freight) + Number(data.duties) + Number(data.otherCharges);
+  /** Once an order is out with a supplier, receiving is the only thing left to do on this screen. */
+  const receiving = ["sent", "acknowledged", "partially_received", "received"].includes(
+    data.status,
+  );
 
   async function run(action: () => Promise<unknown>, message: string) {
     try {
@@ -224,6 +228,16 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
               </table>
             </div>
           </Card>
+
+          {/*
+            §6, directly under the lines it is about — and above the gate and approval blocks,
+            because by the time an order is out with a supplier those two are history and receiving
+            is the only thing anybody still does on this screen. It sat below them at first and was
+            missed by the first person to look for it.
+          */}
+          {receiving && (
+            <ReceiveGoods supplierPOId={data.id} poStatus={data.status} onReceived={refresh} />
+          )}
 
           {/* ---- the gates ---------------------------------------------------------------- */}
           {gate && data.status !== "cancelled" && (
@@ -444,19 +458,14 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
-            {(data.status === "acknowledged" ||
-              data.status === "partially_received" ||
-              data.status === "received") && (
+            {receiving && (
               <p className="mt-2 text-xs text-text-muted">
                 {data.status === "received"
                   ? "Everything on this order has arrived and been accepted."
-                  : "Book deliveries in below as they arrive. Each one needs its own incoming inspection."}
+                  : "Waiting on the supplier. Book each delivery in as it arrives — the panel above."}
               </p>
             )}
           </Card>
-
-          {/* §6, next to the order it answers rather than on a screen somebody has to remember. */}
-          <ReceiveGoods supplierPOId={data.id} poStatus={data.status} onReceived={refresh} />
 
           {(data.downpaymentOverrideReason ?? data.unapprovedSupplierOverrideReason) && (
             <Card className="p-4">

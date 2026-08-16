@@ -84,7 +84,7 @@ afterAll(async () => {
 describe("the §3 lifecycle, persisted", () => {
   it("gives a new inquiry a number and starts it unacknowledged", async () => {
     const inquiry = await makeInquiry();
-    expect(inquiry.number).toMatch(/^INQ-\d{4}-\d{4}$/);
+    expect(inquiry.number).toMatch(/^AIESINQ-\d{6}$/);
     expect(inquiry.status).toBe("new");
     expect(inquiry.acknowledgedAt).toBeNull();
   });

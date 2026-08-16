@@ -142,11 +142,11 @@ describe("navigation integrity", () => {
 });
 
 describe("seeded numbering", () => {
-  it("has an account format, since §2 requires ACC-{####}", async () => {
+  it("has an account format — §2's ACC-{####}, now under the house prefix", async () => {
     const format = await db.numberingFormat.findUnique({ where: { documentType: "account" } });
     expect(format, "run `npm run seed`").not.toBeNull();
     // No year segment: an account code identifies a customer relationship permanently, so the
     // counter must never reset the way a dated document's does.
-    expect(format?.format).toBe("ACC-{####}");
+    expect(format?.format).toBe("AIESACC-{####}");
   });
 });

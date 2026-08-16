@@ -145,7 +145,7 @@ describe("raising a request", () => {
 
     const rfq = await raise(quotation.id, supplier.id, [2, 3]);
 
-    expect(rfq.number).toMatch(/^RFQ-\d{2}-\d{4}$/);
+    expect(rfq.number).toMatch(/^AIESRFQ-\d{6}$/);
     expect(rfq.status).toBe("draft");
     expect(rfq.lines).toHaveLength(2);
     // RFQ lines are numbered 1..n; the mapping back to quotation lines 2 and 3 is what makes §3.5

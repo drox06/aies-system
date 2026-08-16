@@ -423,6 +423,12 @@ export const orderRouter = router({
     .query(({ input }) => getGoodsReceiptService(input.goodsReceiptId)),
 
   listGoodsReceipts: p("goods_receipt.create")
-    .input(z.object({ supplierPOId: z.string().optional(), status: z.string().optional() }))
+    .input(
+      z.object({
+        supplierPOId: z.string().optional(),
+        status: z.string().optional(),
+        awaitingInspection: z.boolean().optional(),
+      }),
+    )
     .query(({ input }) => listGoodsReceiptsService(input)),
 });

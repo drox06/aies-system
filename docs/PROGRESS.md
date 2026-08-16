@@ -203,9 +203,10 @@ principal pipeline, kanban/My Day/Account 360, and a merge tool):
       collision validation, and still never reach the database, leaving every procedure gated on
       it permanently 403 with nothing visibly wrong. The seed now unions foundation permissions
       with manifest ones: **20 seeded (8 foundation + 12 CRM)**, verified against the database.
-- [x] `account` numbering format `ACC-{####}` (§2). No year segment, unlike every other document
-      type — an account code identifies a customer relationship permanently, so its counter must
-      never reset.
+- [x] `account` numbering format (§2). No year segment, unlike every other document type — an
+      account code identifies a customer relationship permanently, so its counter must never reset.
+      *Renamed `ACC-{####}` → `AIESACC-{####}` on 2026-08-16 with the house-format change; still
+      yearless, and the digits of existing codes were kept. docs/DECISIONS.md #47.*
 - [x] Sidebar icons for the four CRM nav entries.
 - [x] 9 tests covering the manifest↔seed join, §9's role assignments, and that `crm.view_all` is
       kept off the default sales grant so §10's record-scoping test can mean something.
@@ -1424,7 +1425,15 @@ Notes for whoever picks this up:
     concluding that work was lost. Treat `.husky/` as reviewable code: it is one line today, and a
     hook is arbitrary code running with your permissions and access to `.env`.
   - **Run nothing else against the dev database while the suite runs** — no dev server, and no
-    second `vitest` invocation. It is now *safe* rather than merely discouraged: `relayOutboxToJobs`
+    second `vitest` invocation. If the app has to stay up, start it with **`DISABLE_DEV_DRAIN=1`**:
+    the dev drainer polls `/api/cron/drain` every five seconds, and during one 28-minute suite run it
+    fired 897 times, claimed a job `queue.test.ts` was about to claim, and failed it. It also
+    processed `principal.appointed` events emitted by tests, converting test prospects into **real**
+    supplier records that outlived the fixtures that made them.
+  - **Reset the numbering counters last**, after the final suite run, before the company looks at the
+    app. Tests allocate real numbers from the live counters, so every run drags them up; a reset is a
+    hand-over step, not a stable state. `npx tsx scripts/purge-leaked-test-records.ts --apply` then
+    `npx tsx scripts/reset-numbering-counters.ts --apply`. It is now *safe* rather than merely discouraged: `relayOutboxToJobs`
     skips a row that vanishes mid-pass instead of throwing (2026-08-15), so the dev drainer no
     longer 500s when a test deletes an outbox row underneath it. The rule stands anyway, because
     test data still lands in whatever screen you have open. Both have produced a red run that
@@ -1451,7 +1460,7 @@ obligation". This session builds that spine and nothing downstream of it.
 
 - [x] **§2's `Supplier`, and the RFQ cutover it unblocked.** `SupplierQuoteRequest.supplierId` and
       `PrincipalProspect.supplierId` were plain ids waiting for this model; both are foreign keys
-      now, the two existing prospects were backfilled into SUP-0001 and SUP-0002, and
+      now, the two existing prospects were backfilled into what are now AIESSUP-0001 and -0002, and
       `rfq-service.ts` reads real suppliers rather than appointed principals. The RFQ flow no longer
       pretends a prospect is a vendor.
 - [x] **§5c's conversion, finally wired.** Module 01 has emitted `principal.appointed` with a
@@ -1560,7 +1569,7 @@ gate is built, tested and inert; it starts working the day a term carries a perc
       something was rejected, and carries what module 08's NCR will need.
 - [x] **Screens**: a receiving panel on the supplier PO, and `/procurement/receipts/[id]` for the
       inspection itself.
-- [x] Numbering: `GRN-{YY}-{#####}`.
+- [x] Numbering: `AIESGRN-{YY}{####}`.
 
 **Migration** `20260816010411_module_03_goods_receipt`.
 
@@ -1579,6 +1588,28 @@ not in the schema and its events are not declared. docs/DECISIONS.md #46.
 job, and the thing that would make it decidable is exactly what §7 gates on module 04. What is ready
 for that day: `qtyDelivered` exists, the receipt arithmetic and `procurementStatusFrom` are pure and
 tested, and §8's inventory posture needs no further schema.
+
+### From the first pass over the screens
+
+The company walked the whole module 03 flow — check, verify, sales order, supplier PO, approve,
+send, acknowledge, receive — and the first thing they hit was not being able to find the receiving
+panel. Two real problems behind that:
+
+- [x] **Receiving was below the fold, under a card that had nothing in it.** On an order that is out
+      with a supplier, booking deliveries in is the *only* thing anybody still does on that screen,
+      and it sat beneath the gate block, the approval block and a "Next step" card whose entire
+      content was one sentence. It now sits directly under the lines it is about, whenever the PO is
+      `sent` or later.
+- [x] **A goods receipt was reachable only through the exact supplier PO it belonged to.** No list,
+      no nav entry, nothing anywhere else. A delivery booked in on Friday and never inspected would
+      have been invisible until somebody happened to reopen that order — which is precisely how
+      unchecked goods reach a customer, the thing clause 8.4.2 exists to prevent. `/procurement` now
+      leads with every unaccepted receipt across all orders, with its supplier, PO and customer.
+
+Neither was a broken service: permissions were seeded, the queries returned 200, the panel rendered.
+Both were routes between working halves — the same class of defect as the three the company found in
+module 01, and the reason the e2e sweep exists. Neither is caught by it, because reaching those
+screens needs a quotation with a recorded PO and the suite must not create one.
 
 ### Next concrete step
 
@@ -1629,6 +1660,17 @@ FX rate, so a foreign-currency line can only be costed through the RFQ flow toda
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #48: the counter now records the format that produced it, so a format's *shape*
+  changing refuses to issue rather than silently restarting at zero — while a genuine January
+  rollover still works, which is the half a careless guard would break. `reset-numbering-counters.ts`
+  also throws on a document type it has no rule for, instead of the `default: return 0` that twice
+  offered to reset a live counter.
+- docs/DECISIONS.md #47: the house numbering format `AIES{CODE}-{YY}{####}`, adopted 2026-08-16.
+  Quotations keep `AIESLQ`/`AIESIQ`; account and supplier codes keep their yearless counters because
+  they identify a relationship rather than a dated document. Live records were renumbered from 1 and
+  the counters reset — and the reset script is now scope-aware, because dropping the month from the
+  inquiry format moved its counter to a scope with no row, which would have handed the next inquiry
+  a number that already existed.
 - docs/DECISIONS.md #45-#46: module 03 session 3 (booking goods in and certifying them are two acts
   under two permissions, all four clause 8.4.2 checks with no partial credit, and photographs counted
   from the stored files rather than claimed on a form; §7's delivery is not built because §7 itself

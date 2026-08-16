@@ -21,5 +21,25 @@ model DocumentSequence {
   counter      Int      @default(0)
   updatedAt    DateTime @updatedAt
 
+  /// The format string this counter was last advanced under.
+  ///
+  /// **This column exists to make one specific silent corruption impossible.** A counter's identity
+  /// is `(documentType, scopeKey)`, and `scopeKey` is *derived from the format* — so changing a
+  /// format's shape mints a new counter that starts at zero. On 2026-08-16 the inquiry format lost
+  /// its `{MM}`, moving its counter from scope `26:08` to `26`; the next inquiry would have been
+  /// issued `AIESINQ-260001`, a number already on a record, and the unique index would have thrown
+  /// in a salesperson's face while they were logging a customer's call.
+  ///
+  /// From the allocator's point of view a brand-new scope is indistinguishable from a legitimate
+  /// January rollover — *unless* it can see that the format itself changed. That is exactly what
+  /// this records. `allocateNumber` refuses to issue when a sibling row for the same document type
+  /// carries a different format, because that means the shape moved and nothing has reconciled the
+  /// counters yet.
+  ///
+  /// Nullable only for rows written before the column existed; the migration backfills every one
+  /// from the live `NumberingFormat`.
+  format       String?
+
   @@unique([documentType, scopeKey])
+  @@index([documentType])
 }

@@ -629,16 +629,36 @@ export async function getGoodsReceiptService(goodsReceiptId: string) {
   };
 }
 
-export async function listGoodsReceiptsService(params: { supplierPOId?: string; status?: string }) {
+export async function listGoodsReceiptsService(params: {
+  supplierPOId?: string;
+  status?: string;
+  /**
+   * Only receipts nobody has accepted yet.
+   *
+   * The state worth surfacing across every order at once: goods are in the building and unverified.
+   * Reachable only from their own supplier PO, a delivery booked in on Friday and never inspected is
+   * invisible until somebody happens to open that order again — which is exactly how unchecked goods
+   * reach a customer.
+   */
+  awaitingInspection?: boolean;
+}) {
   const receipts = await db.goodsReceipt.findMany({
     where: {
       deletedAt: null,
       ...(params.supplierPOId ? { supplierPOId: params.supplierPOId } : {}),
       ...(params.status ? { status: params.status } : {}),
+      ...(params.awaitingInspection ? { status: { in: ["draft", "inspected"] } } : {}),
     },
     orderBy: { receivedAt: "desc" },
     include: {
-      supplierPO: { select: { id: true, number: true, supplier: { select: { name: true } } } },
+      supplierPO: {
+        select: {
+          id: true,
+          number: true,
+          supplier: { select: { name: true } },
+          salesOrder: { select: { id: true, number: true, account: { select: { name: true } } } },
+        },
+      },
       _count: { select: { lines: true } },
     },
   });

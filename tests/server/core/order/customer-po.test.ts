@@ -64,6 +64,19 @@ async function makeQuotedInquiry() {
     bySystem: true,
   });
 
+  // Moving to `quoting` makes module 02 raise a **real** draft quotation, with a real number from
+  // the live counter. Nothing here asked for it, so nothing here was tracking it either — and every
+  // run of this file left one behind. Five "PO test" quotations were sitting in the company's
+  // database before anybody noticed, and the quotation counter had been dragged up with them.
+  //
+  // Collected by inquiry rather than returned, so a future test that walks the lifecycle a
+  // different way still gets cleaned up.
+  const raised = await db.quotation.findMany({
+    where: { inquiryId: inquiry.id },
+    select: { id: true },
+  });
+  quotationIds.push(...raised.map((quotation) => quotation.id));
+
   return { inquiry, account };
 }
 

@@ -103,7 +103,7 @@ export async function createAccountService(actor: ActorMeta, input: CreateAccoun
     throw new TRPCError({ code: "BAD_REQUEST", message: "An account needs a name." });
   }
 
-  // ACC-{####}, allocated on its own connection *before* the transaction opens, because
+  // AIESACC-{####}, allocated on its own connection *before* the transaction opens, because
   // allocateNumber takes no transaction client. That is deliberate in module 00, whose contract
   // states "numbers are never reused or reordered; gaps (e.g. from a rolled-back transaction) are
   // permitted" — so a failure below burns a code. Acceptable here: an account code is an internal

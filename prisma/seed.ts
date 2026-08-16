@@ -262,17 +262,37 @@ interface NumberingFormatSeed {
   label: string;
 }
 
-// Spec.md §5. Quotation's `R{n}` revision suffix is appended by the quotation module (02) on top
-// of this base number, not part of the counter format itself.
+/**
+ * Spec.md §5, as the company settled it on 2026-08-16.
+ *
+ * **One house template: `AIES{CODE}-{YY}{####}`.** Every transaction document carries the company's
+ * initials, its own code, the two-digit year and a four-digit counter that restarts each January —
+ * `AIESRFQ-260001`, `AIESPO-260001`. Before this each series had picked up its own shape
+ * (`RFQ-{YY}-{####}`, `SO-{YY}-{#####}`, `INQ-{YY}{MM}-{####}`), which meant a number told you
+ * nothing about whose document it was and the widths disagreed for no reason.
+ *
+ * Three deliberate exceptions:
+ *
+ * - **`quotation_local` and `quotation_indent` keep `AIESLQ{YY}{####}` / `AIESIQ{YY}{####}`**, with
+ *   no hyphen. They are the company's long-standing convention, they are already on documents sent
+ *   to customers, and the company asked explicitly for them to be left alone.
+ * - **`account` and `supplier` stay yearless.** They identify a *relationship*, not a dated
+ *   document, so their counter must never reset — a customer keeps one code forever rather than
+ *   collecting a new one each January. They take the `AIES` prefix and nothing else.
+ * - **`controlled_doc` keeps its own shape**, because module 07's ISO document control numbers its
+ *   documents by department and type rather than by date.
+ *
+ * The quotation's `R{n}` revision suffix is appended by module 02 on top of the base number, not
+ * part of the counter format.
+ */
 const NUMBERING_FORMATS: NumberingFormatSeed[] = [
-  // specs/01-crm-inquiry.md §2: "New accounts get a code from the numbering service: ACC-{####}."
-  // No year segment, unlike the document types below — an account code is a permanent identifier
-  // for a customer relationship, not a dated document, so the counter never resets.
-  { documentType: "account", format: "ACC-{####}", label: "Account code" },
-  { documentType: "inquiry", format: "INQ-{YY}{MM}-{####}", label: "Inquiry" },
-  // The company's own convention, replacing Spec.md §5's QTN-{YY}{MM}-{####} placeholder. Two
-  // independent series so a local quote and an indent quote never share a counter; each restarts
-  // in January because the scope key comes from the format's own {YY}. docs/DECISIONS.md #25.
+  // specs/01-crm-inquiry.md §2's account code, now prefixed. Still no year segment — see above.
+  { documentType: "account", format: "AIESACC-{####}", label: "Account code" },
+  // The month segment is gone with the rename: the house template is year and counter, and a
+  // month in the middle made two documents raised in the same year look unrelated.
+  { documentType: "inquiry", format: "AIESINQ-{YY}{####}", label: "Inquiry" },
+  // Left alone at the company's request — already on documents that went to customers.
+  // docs/DECISIONS.md #25.
   { documentType: "quotation_local", format: "AIESLQ{YY}{####}", label: "Quotation (local)" },
   {
     documentType: "quotation_indent",
@@ -281,26 +301,25 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   },
   // specs/02-quotation.md §3's supplier price request. Its own series: an RFQ is a document AIES
   // sends to a principal and refers to by number in the follow-up email.
-  { documentType: "supplier_rfq", format: "RFQ-{YY}-{####}", label: "Supplier RFQ" },
-  // specs/03-order-procurement.md §2's supplier directory. No year segment, like `account`: a
-  // supplier relationship is a permanent identifier, not a dated document.
-  { documentType: "supplier", format: "SUP-{####}", label: "Supplier code" },
-  { documentType: "sales_order", format: "SO-{YY}-{#####}", label: "Sales Order" },
-  { documentType: "supplier_po", format: "PO-{YY}-{#####}", label: "Supplier PO" },
+  { documentType: "supplier_rfq", format: "AIESRFQ-{YY}{####}", label: "Supplier RFQ" },
+  // specs/03-order-procurement.md §2's supplier directory. Yearless, like `account`.
+  { documentType: "supplier", format: "AIESSUP-{####}", label: "Supplier code" },
+  { documentType: "sales_order", format: "AIESSO-{YY}{####}", label: "Sales Order" },
+  { documentType: "supplier_po", format: "AIESPO-{YY}{####}", label: "Supplier PO" },
   // specs/03-order-procurement.md §6. "GRN" rather than "GR": goods received note is what the
   // warehouse calls the piece of paper, and a document type nobody recognises by its prefix is one
   // people write the wrong number on.
-  { documentType: "goods_receipt", format: "GRN-{YY}-{#####}", label: "Goods Receipt" },
-  { documentType: "ticket", format: "TKT-{YY}-{#####}", label: "Ticket" },
-  { documentType: "cash_advance", format: "CA-{YY}-{#####}", label: "Cash Advance" },
-  { documentType: "material_request", format: "MR-{YY}-{#####}", label: "Material Request" },
-  { documentType: "methodology", format: "MTH-{YY}-{###}", label: "Methodology" },
-  { documentType: "delivery_receipt", format: "DR-{YY}-{#####}", label: "Delivery Receipt" },
-  { documentType: "service_report", format: "SR-{YY}-{#####}", label: "Service Report" },
-  { documentType: "billing_statement", format: "BS-{YY}-{#####}", label: "Billing Statement" },
-  { documentType: "service_invoice", format: "SI-{YY}-{#####}", label: "Service Invoice" },
-  { documentType: "calibration_job", format: "CAL-{YY}-{####}", label: "Calibration Job" },
-  { documentType: "ncr", format: "NCR-{YY}-{###}", label: "NCR" },
+  { documentType: "goods_receipt", format: "AIESGRN-{YY}{####}", label: "Goods Receipt" },
+  { documentType: "ticket", format: "AIESTKT-{YY}{####}", label: "Ticket" },
+  { documentType: "cash_advance", format: "AIESCA-{YY}{####}", label: "Cash Advance" },
+  { documentType: "material_request", format: "AIESMR-{YY}{####}", label: "Material Request" },
+  { documentType: "methodology", format: "AIESMTH-{YY}{####}", label: "Methodology" },
+  { documentType: "delivery_receipt", format: "AIESDR-{YY}{####}", label: "Delivery Receipt" },
+  { documentType: "service_report", format: "AIESSR-{YY}{####}", label: "Service Report" },
+  { documentType: "billing_statement", format: "AIESBS-{YY}{####}", label: "Billing Statement" },
+  { documentType: "service_invoice", format: "AIESSI-{YY}{####}", label: "Service Invoice" },
+  { documentType: "calibration_job", format: "AIESCAL-{YY}{####}", label: "Calibration Job" },
+  { documentType: "ncr", format: "AIESNCR-{YY}{####}", label: "NCR" },
   {
     documentType: "controlled_doc",
     format: "AIES-{DEPT}-{TYPE}-{###}",

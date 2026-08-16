@@ -95,7 +95,7 @@ test("a customer record offers the controls that had no route for weeks", async 
   // Wait for real rows. The table renders a "Loading..." row first, and clicking that navigates
   // nowhere — which is exactly how this test failed the first two times it was written.
   await expect(page.getByText(/^Loading/).first()).toBeHidden({ timeout: 15_000 });
-  await expect(page.getByText(/^ACC-\d+/).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/^AIESACC-\d+/).first()).toBeVisible({ timeout: 15_000 });
 
   // The first *data* cell, not the row: a row's centre can land in the actions column, whose
   // controls stop the click from reaching the row handler.

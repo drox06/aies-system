@@ -153,13 +153,13 @@ describe("seeded numbering for module 03", () => {
     expect(format, "run `npm run seed`").not.toBeNull();
     // A supplier relationship is a permanent identifier, not a dated document, so the counter must
     // never reset the way a quotation's does.
-    expect(format?.format).toBe("SUP-{####}");
+    expect(format?.format).toBe("AIESSUP-{####}");
   });
 
   it("has a sales order series", async () => {
     const format = await db.numberingFormat.findUnique({ where: { documentType: "sales_order" } });
     expect(format, "run `npm run seed`").not.toBeNull();
-    expect(format?.format).toBe("SO-{YY}-{#####}");
+    expect(format?.format).toBe("AIESSO-{YY}{####}");
   });
 
   it("has a goods receipt series the warehouse will recognise", async () => {
@@ -169,6 +169,6 @@ describe("seeded numbering for module 03", () => {
     expect(format, "run `npm run seed`").not.toBeNull();
     // "GRN" and not "GR": goods received note is what the piece of paper is called, and a prefix
     // nobody recognises is one people write the wrong number on.
-    expect(format?.format).toBe("GRN-{YY}-{#####}");
+    expect(format?.format).toBe("AIESGRN-{YY}{####}");
   });
 });

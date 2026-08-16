@@ -1617,3 +1617,113 @@ What *is* built and stays built: `SalesOrderLine.qtyDelivered` exists, `procurem
 the receipt arithmetic are pure and tested, and §8's inventory posture ("track quantities on hand
 only as `qtyReceived − qtyDelivered` per sales order line") needs no further schema — so when module
 04's delivery lane lands, this half is waiting for it rather than needing rework.
+
+## 47. One house numbering format, and the two series that keep their own
+
+**Module:** cross-cutting. **Asked for by:** the company, 2026-08-16 — "except AIESLQ and AIESIQ,
+rename document codes… make it follow this template `AIES[document code]-[current year][number
+series]`".
+
+Every series had drifted into its own shape: `RFQ-{YY}-{####}`, `SO-{YY}-{#####}`,
+`INQ-{YY}{MM}-{####}`, `ACC-{####}`. Widths disagreed for no reason, some carried a month and most
+did not, and nothing on the number said whose document it was. The house template settles all of it:
+
+> `AIES{CODE}-{YY}{####}` — `AIESRFQ-260001`, `AIESPO-260001`, `AIESGRN-260001`.
+
+The company's template and their second example disagreed about the hyphen (`AIESRFQ-260001` versus
+`AIESPO260001`); they confirmed the hyphen. Four digits everywhere, from their example — 9,999
+documents per series per year, which is far beyond AIES's volume.
+
+**Three deliberate exceptions:**
+
+- **`quotation_local` and `quotation_indent`** keep `AIESLQ{YY}{####}` and `AIESIQ{YY}{####}`, with
+  no hyphen. They are the company's own long-standing convention and are already on documents that
+  went to customers. Excluded by name in the request.
+- **`account` and `supplier` stay yearless** — `AIESACC-0001`, `AIESSUP-0001`. They identify a
+  *relationship*, not a dated document, so their counter must never reset; a customer keeps one code
+  forever rather than collecting a new one each January. Confirmed with the company rather than
+  assumed, because applying the template literally would have changed what those codes mean.
+- **`controlled_doc`** keeps `AIES-{DEPT}-{TYPE}-{###}`: module 07 numbers ISO documents by
+  department and type, not by date.
+
+**The counters were reset and the live records renumbered.** Roughly 180 numbers in each module 03
+series had been burned by tests that then deleted their own records, so the first real sales order
+would have been `SO-26-00189` and the first supplier PO `PO-26-00150`. Spec.md §5 permits gaps, but
+a company's first purchase order going out numbered 00150 invites a question nobody should have to
+answer. `scripts/renumber-to-house-format.ts` did the rename; every renumbered record got a **new**
+audit row explaining the discontinuity, and old rows were left quoting the old number — an audit log
+that edits itself is worth nothing.
+
+### The trap this exposed, worth more than the rename
+
+`reset-numbering-counters.ts` fixed the counter rows that **already existed**. The inquiry format
+dropped its month, which moved its counter from scope key `26:08` to `26` — and a scope with no row
+starts at zero. The next inquiry would have been handed `AIESINQ-260001`, a number already on a
+record, and the unique index would have rejected it at the moment somebody was trying to log a
+customer's call.
+
+The script is now **scope-aware**: it computes the scope key today's format would produce, and seeds
+a row at the floor for any that has none. A format's *shape* changing is rarer than its prefix
+changing, and correspondingly easier to miss — the prefix change is visible in every number, the
+scope change is visible nowhere until a collision.
+
+## 48. The numbering counter records the format that produced it
+
+**Module:** 00. **Asked for by:** the company — "what can be done about the trap, so that it is
+eliminated?"
+
+docs/DECISIONS.md #47 describes a near-miss: the inquiry format lost its `{MM}`, its counter's scope
+key moved from `26:08` to `26`, the new scope had no row, and the next inquiry would have been issued
+a number already on a record. That was *repaired* by hand. The repair left the trap in place — change
+a format's shape, deploy, and the next allocation collides again, with nothing in the system to stop
+it.
+
+### Why it can happen at all
+
+A counter's identity is `(documentType, scopeKey)`, and **`scopeKey` is derived from the format**. So
+a format's shape is not metadata about the counter; it is part of the counter's *name*. Change the
+shape and you have not edited a counter, you have addressed a different one — which, being new,
+starts at zero.
+
+### Why the obvious guards do not work
+
+- *Compare the format on the row.* The dangerous case is precisely the one where **the row does not
+  exist yet**, so there is nothing to compare.
+- *Refuse any scope the allocator has not seen.* That is January. A guard that fires on 2 January
+  with a customer waiting is a guard somebody deletes, and then there is no guard at all.
+
+The two cases are identical from the allocator's position — a scope key it has never seen — and the
+only thing that separates them is whether the *format* changed. So the format has to be recorded
+where the allocator can see it.
+
+### What was built
+
+`DocumentSequence.format` stores the format each counter was last advanced under, stamped on every
+allocation. Before issuing, `allocateNumber` checks the **sibling** scopes of the same document type:
+
+- All on today's format → a new scope is a new period. Issue from 1. January works.
+- Any on a different format → the shape moved and nothing has reconciled. **Refuse**, naming the
+  document type, the stale format, the affected scopes, and the command that fixes it.
+
+A refusal costs one command. A duplicate number costs a document, and surfaces as a unique-constraint
+error in a salesperson's face mid-task. The migration backfills every existing row, because a guard
+that is inert on exactly the installations that already have live counters is not a guard.
+
+`reset-numbering-counters.ts` stamps the new format as it reconciles, which is what clears the
+refusal — so the fix is the same command whoever hits the error is already being told to run.
+
+### The second trap, in the same script
+
+`highestInUse` ended in `default: return 0`, and "this series has no records" is indistinguishable
+from "this switch has never been taught about this series". It silently offered to reset a live
+counter to zero **twice** — once for `supplier_rfq` while `RFQ-26-0001` existed, and again for module
+03's three series. It now throws on an unknown document type, and the types that genuinely issue
+nothing yet are listed by name in `NOT_YET_ISSUED`. A forgotten case fails loudly; an empty series is
+a decision somebody wrote down.
+
+### What is still not eliminated
+
+Counters climb every time the suite runs, because tests allocate against the development database and
+there is no separate test database (that was tried in module 02 and reverted). So a reset is a
+*hand-over step*, not a stable state — it has to be the last thing done before the company looks at
+the app. The real fix is a separate test database, and it stays deferred.

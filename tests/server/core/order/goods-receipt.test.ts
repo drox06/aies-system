@@ -247,7 +247,7 @@ describe("booking a delivery in", () => {
     });
     receiptIds.push(receipt.id);
 
-    expect(receipt.number).toMatch(/^GRN-\d{2}-\d{5}$/);
+    expect(receipt.number).toMatch(/^AIESGRN-\d{6}$/);
     expect(receipt.status).toBe("draft");
     // Nothing has moved yet — a draft is bookkeeping about a delivery, not fulfilment.
     const poLine = await db.supplierPOLine.findUniqueOrThrow({ where: { id: poLines[0]!.id } });
