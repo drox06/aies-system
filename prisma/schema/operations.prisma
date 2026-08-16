@@ -86,12 +86,13 @@ model Ticket {
   deletedAt DateTime?
   deletedBy String?
 
-  account    CustomerAccount        @relation(fields: [accountId], references: [id])
-  site       Site?                  @relation(fields: [siteId], references: [id])
-  salesOrder SalesOrder?            @relation(fields: [salesOrderId], references: [id])
-  customerPO CustomerPO?            @relation(fields: [customerPOId], references: [id])
-  project    Project?               @relation(fields: [projectId], references: [id])
-  lines      TicketSalesOrderLine[]
+  account      CustomerAccount        @relation(fields: [accountId], references: [id])
+  site         Site?                  @relation(fields: [siteId], references: [id])
+  salesOrder   SalesOrder?            @relation(fields: [salesOrderId], references: [id])
+  customerPO   CustomerPO?            @relation(fields: [customerPOId], references: [id])
+  project      Project?               @relation(fields: [projectId], references: [id])
+  lines        TicketSalesOrderLine[]
+  cashAdvances CashAdvance[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -182,10 +183,136 @@ model Project {
   deletedAt DateTime?
   deletedBy String?
 
-  account CustomerAccount @relation(fields: [accountId], references: [id])
-  site    Site?           @relation(fields: [siteId], references: [id])
-  tickets Ticket[]
+  account      CustomerAccount @relation(fields: [accountId], references: [id])
+  site         Site?           @relation(fields: [siteId], references: [id])
+  tickets      Ticket[]
+  cashAdvances CashAdvance[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
+}
+
+/// §5's Gate 1 — the cash advance that stands between a ticket and a crew leaving the yard.
+///
+/// §5 opens by naming why it is modelled at all: "This is a real constraint in the flowchart and is
+/// **currently invisible to everyone until a technician can't board a bus**. Make it a blocking,
+/// tracked step."
+///
+/// So the money, the approval, the release and the liquidation are one record with one status, and
+/// the ticket's `cashAdvanceRequired` flag is what turns it into a gate.
+model CashAdvance {
+  id     String @id @default(cuid())
+  /// AIESCA-{YY}{####}, seeded since module 00.
+  number String @unique
+
+  /// One of the two, usually the ticket. §5 allows a project-level advance for work that spans
+  /// several tickets — "covering the whole crew on one advance".
+  ticketId  String?
+  projectId String?
+
+  requestedById String
+  /// The crew this covers. §5: "The request comes from the assigned team leader or the Operations
+  /// Manager, **covering the whole crew on one advance**" — so five technicians on one job produce
+  /// one advance, not five, and the liquidation that follows is one reconciliation.
+  requestedFor  String[] @default([])
+
+  purpose   String
+  /// [{ category, description, amount }] — §5's eight categories, in a shape the screen edits as a
+  /// table. Json rather than a line model because nothing queries across a breakdown line: it is
+  /// read whole with its advance, and the liquidation is what gets reconciled against it.
+  breakdown Json   @default("[]")
+
+  amountRequested Decimal  @db.Decimal(14, 2)
+  amountApproved  Decimal? @db.Decimal(14, 2)
+  currency        String   @default("PHP")
+
+  /// When the crew needs the money in hand — not when they leave. §5's whole point is that the two
+  /// are different and nobody currently sees the gap.
+  neededBy DateTime
+
+  /// draft | pending_approval | approved | rejected | released | liquidated |
+  /// partially_liquidated | overdue_liquidation | extended (§5).
+  status String @default("draft")
+
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+
+  /// [{ requestedAt, requestedById, reason, newDueAt, approvedById, approvedAt }] (§5).
+  ///
+  /// An **append-only log**, never a silent edit of `liquidationDueAt`. §5 is explicit about why:
+  /// "an indefinitely extendable deadline becomes no deadline unless the extension itself is
+  /// visible and counted." The register reads this to tell *formally extended, and why* apart from
+  /// *simply late*.
+  extensions Json @default("[]")
+
+  releasedById  String?
+  releasedAt    DateTime?
+  /// cash | bank_transfer | gcash | petty_cash (§5).
+  releaseMethod String?
+
+  /// §5: "Liquidation is due **3 working days after demobilization**, counted on the working
+  /// calendar." Demobilization is §8's and does not exist, so this is set at release from the
+  /// ticket's required-by date — see `liquidationDueFrom` in cash-advance-rules.ts, which §8 will
+  /// call again with the real date.
+  liquidationDueAt DateTime?
+  liquidatedAt     DateTime?
+
+  amountLiquidated Decimal? @db.Decimal(14, 2)
+  amountReturned   Decimal? @db.Decimal(14, 2)
+  amountReimbursed Decimal? @db.Decimal(14, 2)
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket       Ticket?                  @relation(fields: [ticketId], references: [id])
+  project      Project?                 @relation(fields: [projectId], references: [id])
+  liquidations CashAdvanceLiquidation[]
+
+  @@index([status, liquidationDueAt])
+  @@index([ticketId])
+  @@index([requestedById, status])
+}
+
+/// The reconciliation of an advance (§5).
+///
+/// Its own model rather than columns on `CashAdvance` because §5 gives it a review cycle of its own
+/// — submitted, under review, approved or rejected — and a rejected liquidation is resubmitted
+/// rather than overwritten. Two attempts at reconciling one advance are two records, and the
+/// register needs to be able to show both.
+model CashAdvanceLiquidation {
+  id            String   @id @default(cuid())
+  cashAdvanceId String
+  submittedById String
+  submittedAt   DateTime @default(now())
+
+  /// [{ date, category, description, amount, receiptFileId, hasOfficialReceipt }] (§5).
+  ///
+  /// `hasOfficialReceipt` is separate from having *a* receipt on purpose: a BIR official receipt is
+  /// what makes a cost deductible, and a bus ticket is not one. Module 05 needs to tell them apart
+  /// when these post as project costs.
+  lines Json @default("[]")
+
+  totalSpent          Decimal @default(0) @db.Decimal(14, 2)
+  balanceReturned     Decimal @default(0) @db.Decimal(14, 2)
+  balanceReimbursable Decimal @default(0) @db.Decimal(14, 2)
+
+  /// draft | submitted | under_review | approved | rejected (§5).
+  status String @default("submitted")
+
+  reviewedById String?
+  reviewedAt   DateTime?
+  remarks      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cashAdvance CashAdvance @relation(fields: [cashAdvanceId], references: [id], onDelete: Cascade)
+
+  @@index([cashAdvanceId, submittedAt])
+  @@index([status])
 }

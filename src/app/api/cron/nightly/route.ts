@@ -9,6 +9,7 @@ import { sweepQuotationExpiries } from "@/server/core/quotation/expiry-service";
 import { sweepQuotationsToArchive } from "@/server/core/quotation/archive-service";
 import { sweepOverdueRfqs } from "@/server/core/quotation/rfq-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
+import { sweepOverdueLiquidationsService } from "@/server/core/operations/cash-advance-service";
 import {
   sweepDormantAccounts,
   sweepFollowUps,
@@ -131,6 +132,17 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] quotation archive sweep failed:", error);
     results.archivedQuotations = { error: String(error) };
+  }
+
+  // specs/04-operations-projects.md §5: "Overdue liquidation blocks that person from requesting a
+  // new advance." The block reads a status, so something has to write it — this is that something.
+  // Quiet on repeat: an advance already marked overdue produces no second event and no second
+  // notification, so a fortnight of lateness is not a fortnight of identical messages.
+  try {
+    results.overdueLiquidations = await sweepOverdueLiquidationsService();
+  } catch (error) {
+    console.error("[cron/nightly] overdue liquidation sweep failed:", error);
+    results.overdueLiquidations = { error: String(error) };
   }
 
   return NextResponse.json(results);

@@ -31,7 +31,6 @@ import { parseFormat } from "../src/server/core/numbering/format";
  * makes that impossible to forget.
  */
 const NOT_YET_ISSUED = new Set([
-  "cash_advance",
   "material_request",
   "methodology",
   "delivery_receipt",
@@ -132,6 +131,15 @@ async function highestInUse(documentType: string): Promise<number> {
         select: { code: true },
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.code) || 0), 0);
+    }
+    // Moved out of NOT_YET_ISSUED by module 04 session 2 — §5's advances now issue AIESCA numbers,
+    // so the series has rows to protect and a case has to read them.
+    case "cash_advance": {
+      const rows = await db.cashAdvance.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
     }
     default:
       // Never `return 0`. See NOT_YET_ISSUED — a forgotten case and an empty series look identical

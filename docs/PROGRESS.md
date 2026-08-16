@@ -1761,10 +1761,67 @@ trouble later. It already had: **eleven permissions across four modules granted 
       were describing a financial control the system does not have, on the document where somebody
       weighs a thin margin. Both now say what is true.
 
-**Still to build in module 04:** §5's cash advance gate, §6's site inspection and methodology, §7's
-material request gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's
-testing and commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery
-lane, §14's offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
+### Session 2 — §5's cash advance, the first of §1's four gates
+
+§5 states the problem before it states the requirement, and the sentence shaped every choice here:
+the constraint is "**currently invisible to everyone until a technician can't board a bus**".
+
+- [x] **`CashAdvance` and `CashAdvanceLiquidation`**, with §5's eight categories as a closed list —
+      "fuel" and "gas" as two spellings of one thing is how a cost report stops being addable.
+- [x] **The gate blocks on `released`, not on `approved`.** An approved advance the finance officer
+      has not handed over is money the technician does not have, and that gap is the whole thing §5
+      is about. Approving and releasing are separate acts, held by **different permissions** —
+      `cash_advance.approve` (the VP) and `cash_advance.release` (finance and PD) — so nobody can
+      close the gap by hiding it. A manifest test pins the two apart.
+- [x] **The shortest approval window in the build.** §5: "automatic fallback to the President after
+      **4 working hours** — the shortest window of any approval type, because a crew is standing
+      by." The rule was already seeded at 4 by module 00; this session is what makes it bite, and a
+      test asserts the number rather than trusting it.
+- [x] **Liquidation due 3 working days after demobilisation**, on the Philippine working calendar
+      via `addBusinessDays`. Demobilisation is §8's and does not exist, so release derives a
+      provisional deadline from the ticket's required-by date through the **same function** §8 will
+      call with the real timestamp — one definition of "3 working days", two callers.
+- [x] **§5's three-way register: *outstanding*, *formally extended and why*, *simply late*.**
+      Extensions are an append-only request → approve log, never an edit of the deadline, and an
+      **unapproved row moves nothing** — otherwise anybody could extend their own deadline by filing
+      a form. Tested in both directions.
+- [x] **Overdue liquidation blocks the next request**, with no override — deliberately. Every other
+      gate in this build can be overridden by somebody accountable; this one is a matter of the
+      requester's own paperwork, and an override would be the same person routing around themselves.
+      A formally granted extension lifts the block, which is what makes granting one mean anything.
+- [x] **§19's `operations.override_ca_gate`**, president and vice-president only, refusing a reason
+      under ten characters and writing the reason to the audit log. §20 asks for "override is
+      logged" by name.
+- [x] The nightly sweep marks overdue advances and emits `cash_advance.liquidation_overdue`, quietly
+      on repeat — a fortnight of lateness is not a fortnight of identical notifications.
+- [x] Screens: `/cash-advances` (the register), `/cash-advances/[id]`, and a real panel on the
+      ticket replacing session 1's "not built yet" note. The release card is deliberately its own
+      block, so an approved-but-unreleased advance is the loudest thing on the page.
+- [x] Numbering: `AIESCA-{YY}{####}` was already seeded; `cash_advance` moved out of the reset
+      script's `NOT_YET_ISSUED` set and given a case, since the series now has rows to protect.
+
+**Migration** `20260816081705_cash_advance`.
+
+**State at this stop.** **879 tests** across 90 files pass with the dev server stopped; typecheck,
+lint and `build:check` clean. The counters were reset last, so the next documents are
+`AIESCA-260001`, `AIESTKT-260001`, `AIESPRJ-260001`, `AIESSO-260002`, `AIESPO-260002`.
+
+*Two things caught during the session, both by tests written for this build rather than by review:*
+
+- **The liquidation maths was wrong on the first pass.** It computed the balance to return as
+  `released − spent` and called the advance settled on that basis — which treats money still in a
+  technician's pocket as though it were back in the drawer, settles every advance on the first
+  receipt, and leaves §5's `partially_liquidated` unreachable. Cash handed back is a **fact somebody
+  records**, not a subtraction. `reconcile()` now takes it as an input and reports what is
+  `unaccounted`, which is the number finance is actually chasing.
+- **`cash_advance.view_register` gated only a menu item.** `permissions-are-used.test.ts` failed on
+  it, which is exactly what docs/DECISIONS.md #52 built the test for: hiding a nav entry is not a
+  control, because the URL is still there to type. It now gates the register *and* the record.
+
+**Still to build in module 04:** §6's site inspection and methodology, §7's material request gate,
+§8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and commissioning,
+§11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's offline PWA,
+§15's checklists, §16's time and installed base, §17's scheduling.
 
 **What it unblocks when §13 lands:** module 03's §7 delivery receipt, and with it
 `sales_order.goods_delivered`, `delivery.dr_signed` and `po_received → won`.
@@ -1796,6 +1853,11 @@ lane, §14's offline PWA, §15's checklists, §16's time and installed base, §1
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #53-#55: module 04 session 2 (an advance settles on cash *recorded*, never on
+  `released − spent`, which made every advance settle on its first receipt; approving and releasing
+  are different permissions so the gap §5 exists to surface stays representable; the block on a new
+  advance has no override, because the blocked act and the blocking condition belong to the same
+  person and an extension is the sanctioned way out).
 - docs/DECISIONS.md #52: one rule for declaring permissions — in the change that gates something
   with them, enforced by a test that scans the source, with the seed pruning any the manifests no
   longer declare. Supersedes #51, which argued that modules 03 and 04 were each right in their own

@@ -17,7 +17,7 @@ export const operationsManifest = defineManifest({
   key: "operations",
   name: "Operations",
   version: "0.1.0",
-  models: ["Ticket", "TicketSalesOrderLine", "Project"],
+  models: ["Ticket", "TicketSalesOrderLine", "Project", "CashAdvance", "CashAdvanceLiquidation"],
 
   permissions: [
     {
@@ -68,16 +68,68 @@ export const operationsManifest = defineManifest({
       // **never contract value or margin**". This is the permission that enforces that sentence.
       defaultRoles: ["president", "vice_president", "finance_officer"],
     },
+    {
+      key: "cash_advance.request",
+      label: "Request a cash advance",
+      group: "Operations",
+      // §5: "The request comes from the assigned team leader or the Operations Manager." Technicians
+      // hold it because a team leader is a technician — §19 scopes what they can *see* to their own
+      // advances, which is record scoping on top of this rather than a narrower grant.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "technician",
+        "admin_manager",
+      ],
+    },
+    {
+      key: "cash_advance.release",
+      label: "Hand over the money for an approved cash advance",
+      group: "Finance",
+      // Deliberately **not** the same people who approve. §5 makes release a separate act from
+      // approval because the gap between the two is the thing nobody could see; giving one person
+      // both would close the gap by hiding it. This is the finance officer's, and PD's, since she
+      // runs petty cash.
+      defaultRoles: ["president", "finance_officer", "admin_manager"],
+    },
+    {
+      key: "cash_advance.view_register",
+      label: "See every cash advance and what is outstanding",
+      group: "Finance",
+      // The register is who is holding company money right now. Management and finance; a
+      // technician sees their own without this.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "finance_officer",
+        "admin_manager",
+        "operations_manager",
+      ],
+    },
+    {
+      key: "operations.override_ca_gate",
+      label: "Mobilize a crew before the cash advance is released",
+      group: "Operations",
+      // §5 allows the override "with a log". The two officers only — this is a decision to send
+      // people to site on their own money, and it should sit with somebody who can answer for it.
+      defaultRoles: ["president", "vice_president"],
+    },
   ],
 
   /**
-   * §18 lists twenty-eight events. One is emitted today.
+   * §18 lists twenty-eight events. Four are emitted today.
    *
    * The registry rejects a subscription to an event nothing emits, so declaring the rest now would
    * let a later module subscribe to something that never fires — which fails silently, and is worse
    * than a boot error. Each is declared in the change that emits it.
    */
-  emits: ["ticket.generated"],
+  emits: [
+    "ticket.generated",
+    "cash_advance.requested",
+    "cash_advance.released",
+    "cash_advance.liquidation_overdue",
+  ],
 
   /**
    * Nothing yet, and that is §4's rule rather than an omission.
@@ -99,6 +151,16 @@ export const operationsManifest = defineManifest({
       permission: "ticket.view",
       // After procurement (29) and suppliers (30): a ticket is what a delivered order becomes work.
       order: 40,
+    },
+    {
+      label: "Cash advances",
+      href: "/cash-advances",
+      icon: "wallet",
+      // §5's register. Gated on the register permission rather than `cash_advance.request`, so a
+      // technician is not given a menu item that shows them one row — their own advances are on
+      // their ticket, where they are looking anyway.
+      permission: "cash_advance.view_register",
+      order: 41,
     },
   ],
 });

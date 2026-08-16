@@ -43,6 +43,7 @@ const SCREENS = [
   { path: "/sales-orders", heading: "Sales orders" },
   { path: "/procurement", heading: "Procurement" },
   { path: "/tickets", heading: "Tickets" },
+  { path: "/cash-advances", heading: "Cash advances" },
   { path: "/quotations/approvals", heading: "Awaiting approval" },
   { path: "/notifications", heading: "Notification" },
   { path: "/admin/users", heading: "Users" },

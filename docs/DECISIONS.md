@@ -1869,3 +1869,87 @@ Adding-only is how eleven accumulated unnoticed. `seedRolesAndPermissions` delet
 row no manifest declares, so the manifests are the source of truth in both directions. Safe by
 construction: a permission nothing gates cannot be protecting anything, and its `RolePermission`
 rows cascade.
+
+---
+
+## #53 — A cash advance settles on cash recorded, not on arithmetic
+
+specs/04-operations-projects.md §5, module 04 session 2.
+
+The first version of the liquidation reconciled an advance like this: the balance to return is
+`released − spent`, and once you know that, the advance is settled. It is the obvious reading, and
+it is wrong in a way that would not have shown up until somebody asked why nothing was ever
+outstanding.
+
+`isFullySettled` asked whether `spent + balanceReturned >= released`. With `balanceReturned` derived
+as `released − spent`, that expression is **true for every input**. Every advance would have settled
+on its first receipt, §5's `partially_liquidated` would have been unreachable, and the register —
+the entire point of §5 — would have shown an empty outstanding list on a day when five technicians
+were holding company money.
+
+The mistake is treating a fact as a calculation. Money the technician has not handed back is still
+in their pocket; the system cannot infer its return from a subtraction. So `reconcile()` takes
+`amountReturned` as a **recorded input** alongside cumulative spend, and reports:
+
+- `unaccounted` — released, minus receipts, minus cash actually back. The number finance chases.
+- `balanceReimbursable` — measured against the release alone, because returned cash cannot both come
+  back and be owed out again.
+- `settled` — only when nothing is unaccounted for.
+
+The two balances stay separate fields rather than one signed number, as §5 words them ("balance to
+return" **or** "reimbursement due"). They are different transactions handled by different people —
+cash coming in, and a payment going out — and a signed column makes "how much is sitting in
+technicians' pockets" depend on a sign test somebody eventually gets backwards.
+
+### Why this was caught
+
+Not by review. `cash-advance-rules.test.ts` asserts that filing ₱2,000 of receipts against a ₱5,000
+advance leaves it **unsettled** with ₱3,000 unaccounted — a test written from §5's sentence about
+`partially_liquidated` rather than from the implementation. A test that only exercised the happy
+total would have passed against the broken version.
+
+---
+
+## #54 — Approving an advance and releasing the money are different permissions
+
+specs/04-operations-projects.md §5, module 04 session 2.
+
+§5's complaint is not that advances are unapproved. It is that the gap between a decision and cash in
+a pocket is invisible: "currently invisible to everyone until a technician can't board a bus."
+
+So the gate blocks on **`released`**, never on `approved`, and the two acts carry different
+permissions — `cash_advance.approve` (Vice President, seeded by module 00) and
+`cash_advance.release` (finance officer, Admin Manager, President). The Vice President deliberately
+does **not** hold release.
+
+This is not separation of duties for its own sake. If one person held both, the natural interface
+would be a single Approve-and-release button, the gap would close in the UI, and the state §5 exists
+to surface — *approved, but the crew still has nothing* — would become unrepresentable. The
+permission split is what keeps that state on the screen. `operations-manifest.test.ts` pins it.
+
+The same reasoning shapes the record page: the release card is its own block rather than a field in
+the approval card, and it is shown to people who cannot action it, because a coordinator who cannot
+release money still needs to know the crew has none.
+
+---
+
+## #55 — The block on a new advance has no override, and that is the point
+
+specs/04-operations-projects.md §5, module 04 session 2.
+
+§5: "Overdue liquidation blocks that person from requesting a new advance."
+
+Every other gate in this build is overridable by somebody accountable, with a reason — the
+downpayment gate, clause 8.4, the cash advance gate itself. The pattern is deliberate and stated in
+docs/DECISIONS.md #45: a system that cannot represent the urgent Friday exception is a system people
+work around.
+
+This one is different, and `canRequestAdvance` has no override parameter. An unliquidated advance is
+money already gone; the next advance is the only leverage the company has left. And unlike the other
+gates, the blocked act and the blocking condition belong to the **same person** — an override here
+would be the requester routing around their own paperwork, which is not an exception, just an
+absence of a rule.
+
+The sanctioned way out is the one §5 already provides: ask the Vice President for an extension. That
+is why *formally extended* does not block while *late* does — if an approved extension left the
+block in place, granting one would mean nothing.

@@ -3,6 +3,7 @@
 import { use } from "react";
 import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
+import { CashAdvancePanel } from "./CashAdvancePanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -13,9 +14,10 @@ import { trpc } from "@/lib/trpc/client";
 /**
  * One ticket (specs/04-operations-projects.md §3).
  *
- * Read-only in session 1, and honestly so: every action a ticket has — the cash advance, the
- * material request, mobilization, QA, the service report — is a gate that does not exist yet. A
- * screen with buttons that error is worse than one that says what is coming.
+ * Session 1 was read-only, and said so. Session 2 adds §1's first gate — the cash advance — so the
+ * panel below is real: it requests, it shows the verdict, and it overrides with a reason. The
+ * remaining gates are still described rather than offered, for the same reason as before: a button
+ * that errors teaches people to distrust the ones that work.
  *
  * The site block is here because §19 says a technician "sees scope, site data, and their own cash
  * advances" — access notes and an address are the two things somebody driving there actually needs.
@@ -155,22 +157,19 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             )}
           </Card>
 
+          <CashAdvancePanel ticketId={data.id} />
+
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>
             {/*
-              Honest rather than decorative. §1's four gates — cash advance, material request, QA,
-              warranty — are whole sessions each and none exists yet. Buttons that error would teach
-              people to distrust the ones that work, so this says what is coming instead.
+              Honest rather than decorative. The cash advance is built (session 2, above); the other
+              three of §1's gates are whole sessions each and are described rather than offered.
             */}
             <ul className="mt-2 space-y-1.5 text-sm text-text-muted">
               <li>
-                <span className="font-medium text-text">Cash advance</span> — §1&rsquo;s first gate,
-                asked of every ticket type before anybody mobilises.{" "}
-                {data.cashAdvanceRequired ? "Marked as required." : "Not yet decided."}
-              </li>
-              <li>
-                <span className="font-medium text-text">Material request</span> — the second gate.
-                Currently <span className="capitalize">{human(data.materialRequestStatus)}</span>.
+                <span className="font-medium text-text">Material request</span> — §1&rsquo;s second
+                gate. Currently{" "}
+                <span className="capitalize">{human(data.materialRequestStatus)}</span>.
               </li>
               <li>
                 <span className="font-medium text-text">Mobilisation, QA and close-out</span> —
@@ -178,8 +177,8 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
               </li>
             </ul>
             <p className="mt-2 text-xs text-text-muted">
-              None of these is built yet. A crew that mobilises without cash or materials is a
-              wasted day, which is exactly why the gates come before the buttons.
+              Neither is built yet. A crew that mobilises without materials is a wasted day, which
+              is exactly why the gates come before the buttons.
             </p>
           </Card>
 

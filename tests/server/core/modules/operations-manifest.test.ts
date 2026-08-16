@@ -53,8 +53,38 @@ describe("operations manifest", () => {
     expect(roles("project.view_cost")).not.toContain("operations_manager");
   });
 
-  it("emits ticket.generated and nothing else yet", () => {
-    expect(operationsManifest.emits).toEqual(["ticket.generated"]);
+  /**
+   * Pinned rather than merely "contains", so adding an event forces a look at this list.
+   *
+   * §18 names twenty-eight; four are emitted. The registry rejects a subscription to an event
+   * nothing emits, so an early declaration lets a later module subscribe to something that never
+   * fires — a silent failure, worse than a boot error.
+   */
+  it("emits only what session 1 and session 2 actually emit", () => {
+    expect(operationsManifest.emits).toEqual([
+      "ticket.generated",
+      "cash_advance.requested",
+      "cash_advance.released",
+      "cash_advance.liquidation_overdue",
+    ]);
+  });
+
+  /** §5's four-working-hour window is the shortest in the build, "because a crew is standing by". */
+  it("leaves cash_advance.approve to module 00, which seeded the rule with its 4-hour window", () => {
+    const keys = operationsManifest.permissions.map((p) => p.key);
+    expect(keys).not.toContain("cash_advance.approve");
+    expect(keys).not.toContain("cash_advance.approve_extension");
+  });
+
+  /**
+   * §5 makes release a separate act from approval because the gap between them is the thing nobody
+   * could see. Granting one person both would close the gap by hiding it.
+   */
+  it("keeps approving an advance and releasing the money in different hands", () => {
+    const roles = (key: string) =>
+      operationsManifest.permissions.find((p) => p.key === key)?.defaultRoles ?? [];
+    expect(roles("cash_advance.release")).not.toContain("vice_president");
+    expect(roles("operations.override_ca_gate")).toEqual(["president", "vice_president"]);
   });
 
   it("subscribes to nothing, which is §4's rule rather than an omission", () => {
