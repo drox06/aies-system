@@ -2011,6 +2011,17 @@ docs/DECISIONS.md #64.
 **Migrations** `20260816212313_material_request_and_stock` and
 `20260816213721_ticket_materials_undecided`.
 
+**State at this stop.** **988 tests** across 98 files and **23 Playwright tests** pass with the dev
+server stopped; typecheck, lint and `build:check` clean. Counters were reset last, so the next
+documents are `AIESMR-260001`, `AIESMTH-260001`, `AIESTKT-260001`, `AIESSIR-260001`,
+`AIESCA-260001`. Both gates before mobilisation — §5's cash advance and §7's materials — are built,
+along with §6's two new-project prerequisites.
+
+*Left for §8, deliberately:* `MaterialRequest.returnDueAt` is set from the ticket's required-by date
+at issue time, because demobilisation does not exist yet. §8 corrects it to the real one — the same
+interim arrangement as §5's liquidation deadline, and the reason both were written to take a date
+rather than read one.
+
 **Still to build in module 04:** §8's mobilisation, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
