@@ -107,6 +107,7 @@ model Ticket {
   methodologies    Methodology[]
   materialRequests MaterialRequest[]
   mobilizations    Mobilization[]
+  dailyProgresses  DailyProgress[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -205,6 +206,7 @@ model Project {
   methodologies    Methodology[]
   materialRequests MaterialRequest[]
   mobilizations    Mobilization[]
+  dailyProgresses  DailyProgress[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -759,4 +761,66 @@ model Mobilization {
 
   @@index([ticketId, type])
   @@index([status, plannedAt])
+}
+
+/// §8's daily progress log — what actually happened on site, one row per day.
+///
+/// §8 asks for "daily progress logging against the methodology's sequence of work — steps completed,
+/// percent complete, manpower on site, weather and standby time, issues raised, photos."
+///
+/// There is no model for it in §8's sketch, which lists only `Mobilization`. This is the shape those
+/// words require, and the one field that is not obvious from them is `stepsCompleted` — it holds the
+/// **step numbers from the method statement**, not free text, because §8 says "against the
+/// methodology's sequence of work" and a percentage nobody can trace back to a step is a number
+/// somebody made up.
+model DailyProgress {
+  id        String  @id @default(cuid())
+  ticketId  String
+  projectId String?
+
+  /// One row per day per ticket — see the unique index. A second entry for the same day is an edit
+  /// of the first, not another log: two contradictory accounts of one day help nobody.
+  logDate DateTime @db.Date
+
+  /// Step numbers from `Methodology.sequenceOfWork` that were finished on this day.
+  stepsCompleted  Int[] @default([])
+  /// 0–100. Cumulative, not daily: the question anybody asks is how far along the job is.
+  percentComplete Int   @default(0)
+
+  manpowerOnSite Int     @default(0)
+  /// Hours the crew was actually working. Standby is tracked separately below and deliberately not
+  /// netted off — a day of eight worked and four standing is not the same as a twelve-hour day.
+  hoursWorked    Decimal @default(0) @db.Decimal(6, 2)
+
+  weather String?
+
+  /// §8's standby, and the reason it is modelled at all: "This is the evidence base for a variation
+  /// claim, and **today it exists only in people's memory**."
+  standbyHours Decimal @default(0) @db.Decimal(6, 2)
+  /// One of §8's six: client_not_ready | permit_delay | weather | material_shortage |
+  /// equipment_failure | access_denied. Null when there was no standby.
+  standbyCause String?
+  standbyNotes String?
+
+  issuesRaised String?
+  notes        String?
+
+  photoFileIds String[] @default([])
+
+  loggedById String
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket   @relation(fields: [ticketId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  /// One log per day per ticket. The edit path updates; there is no way to file two.
+  @@unique([ticketId, logDate])
+  @@index([ticketId, logDate])
+  @@index([standbyCause])
 }

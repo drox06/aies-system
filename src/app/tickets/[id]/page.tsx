@@ -8,6 +8,7 @@ import { InspectionPanel } from "./InspectionPanel";
 import { MaterialPanel } from "./MaterialPanel";
 import { MethodologyPanel } from "./MethodologyPanel";
 import { MobilizationPanel } from "./MobilizationPanel";
+import { ProgressPanel } from "./ProgressPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -185,25 +186,26 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
           {/* Last, because it reads all three gates above rather than asking again. */}
           <MobilizationPanel ticketId={data.id} />
 
+          <ProgressPanel ticketId={data.id} />
+
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>
             {/*
-              Honest rather than decorative. The cash advance is built (session 2, above); the other
-              three of §1's gates are whole sessions each and are described rather than offered.
+              Honest rather than decorative, and kept in step as sessions land: everything above this
+              card is built and offered, everything in this list is described because it is not.
             */}
             <ul className="mt-2 space-y-1.5 text-sm text-text-muted">
               <li>
-                <span className="font-medium text-text">Daily progress and standby</span> —
-                §8&rsquo;s execution half: steps completed against the method statement, and delay
-                cause codes.
+                <span className="font-medium text-text">QA</span> — §9&rsquo;s gate, which the
+                client performs rather than AIES, with a rework loop.
               </li>
               <li>
-                <span className="font-medium text-text">QA, testing and close-out</span> — §9 to
-                §12.
+                <span className="font-medium text-text">Testing, warranty and close-out</span> — §10
+                to §12.
               </li>
             </ul>
             <p className="mt-2 text-xs text-text-muted">
-              Neither is built yet. Everything up to the crew arriving on site is.
+              Not built yet. Everything from generating the ticket to the crew coming home is.
             </p>
           </Card>
 

@@ -20,6 +20,13 @@ import {
 import { listInspectionAssigneesService } from "@/server/core/crm/inspection-service";
 import { ITEM_TYPES, SOURCES } from "@/server/core/operations/material-request-rules";
 import { CLEARANCE_STATES, MOBILIZATION_TYPES } from "@/server/core/operations/mobilization-rules";
+import { STANDBY_CAUSES } from "@/server/core/operations/daily-progress-rules";
+import {
+  listProgressService,
+  logDayService,
+  standbyEvidenceService,
+  stepsForTicketService,
+} from "@/server/core/operations/daily-progress-service";
 import {
   demobilizeService,
   departService,
@@ -746,6 +753,46 @@ export const operationsRouter = router({
   listMobilizations: p("ticket.view")
     .input(z.object({ ticketId: z.string().optional(), status: z.string().optional() }).optional())
     .query(({ input }) => listMobilizationsService(input ?? {})),
+
+  // ---- §8's execution half ------------------------------------------------------------------------
+
+  /**
+   * One day on site. Upserts on (ticket, date): a second log for one day is a correction of the
+   * first, never a second account of it.
+   */
+  logDay: p("ticket.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        logDate: z.coerce.date(),
+        stepsCompleted: z.array(z.number().int().positive()).optional(),
+        percentComplete: z.number().int().min(0).max(100),
+        manpowerOnSite: z.number().int().nonnegative(),
+        hoursWorked: z.number().nonnegative(),
+        weather: z.string().max(120).nullish(),
+        standbyHours: z.number().nonnegative().optional(),
+        standbyCause: z.enum(STANDBY_CAUSES).nullish(),
+        standbyNotes: z.string().max(2000).nullish(),
+        issuesRaised: z.string().max(5000).nullish(),
+        notes: z.string().max(5000).nullish(),
+        photoFileIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => logDayService(actorMeta(ctx), input)),
+
+  /** The method statement's steps, so progress is logged against the sequence rather than guessed. */
+  progressSteps: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => stepsForTicketService(input.ticketId)),
+
+  listProgress: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => listProgressService(input.ticketId)),
+
+  /** §8: "the evidence base for a variation claim, and today it exists only in people's memory". */
+  standbyEvidence: p("ticket.view")
+    .input(z.object({ ticketId: z.string().optional(), projectId: z.string().optional() }))
+    .query(({ input }) => standbyEvidenceService(input)),
 
   getMobilization: p("ticket.view")
     .input(z.object({ mobilizationId: z.string() }))

@@ -2060,7 +2060,46 @@ which the individual gate overrides already cover.
 **State at this stop.** **1010 tests** across 100 files and **23 Playwright tests** pass with the dev
 server stopped; typecheck, lint and `build:check` clean. Counters reset last.
 
-**Still to build in module 04:** §8's execution half, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
+### Session 7 — §8's execution half: the daily log and the standby claim
+
+- [x] **`DailyProgress`, one row per day per ticket**, enforced by a unique index and upserted by the
+      service. Two accounts of one day — written by whoever was nearest the phone — disagree, and the
+      claim built on them is worthless. Saving the same date again is a correction, and the audit
+      trail keeps both.
+- [x] **Progress is logged against the method statement's steps**, not free text. §8 says "against
+      the methodology's sequence of work", and a percentage nobody can trace back to a step is a
+      number somebody made up. Where a ticket has no method statement — an after-sales callout
+      usually does not — the screen says so rather than showing an empty box.
+- [x] **§8's six standby cause codes, as a closed list.** "Client not ready" written six ways across
+      four months is not evidence; six rows carrying the same code are. The whole value of the data
+      is that it can be counted.
+- [x] **Each cause is attributed to whoever caused it**, which is the judgement that makes the log
+      worth keeping: a variation claim rests on the customer's delays, and one that quietly folds in
+      AIES's own equipment failures is one the customer takes apart. Weather is attributed to
+      **neither** — it is nobody's fault, and claiming it would be the overreach that loses the
+      argument about the rest.
+- [x] **The summary reports our delays beside theirs** rather than hiding them, because the person
+      preparing a claim needs both halves before deciding what to ask for.
+- [x] **One hard rule, everything else warns.** Standby hours without a cause are refused; progress
+      going backwards, standby with nobody on site, and a day with no steps ticked are warnings. A
+      site day is messy, and a form that refuses a messy day gets filled in with fiction — which is
+      worse than a gap, since the fiction is what the claim later rests on.
+- [x] Screens: the log and the standby summary on the ticket, with the standby question asked **every
+      day** rather than only on bad ones — a field somebody has to go looking for is one they fill in
+      after the argument has started.
+
+**Migration** `20260817001225_daily_progress`.
+
+**Not built from §8:** the daily progress PDF. §8 asks for one "where the customer requires them",
+and it is a document rather than a rule — the same shape as the supplier PO and quotation PDFs, and
+better done in one pass with §12's service report than bolted on here.
+
+**State at this stop.** **1037 tests** across 101 files and **23 Playwright tests** pass with the dev
+server stopped; typecheck, lint and `build:check` clean. Counters reset last. The ticket record now
+carries six panels in the order a job moves through — inspection, method statement, cash advance,
+materials, mobilisation, daily progress.
+
+**Still to build in module 04:** §9's QA gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
 

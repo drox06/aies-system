@@ -6,7 +6,7 @@ import { defineManifest } from "@/server/core/module-registry";
  * The largest module in the build: four gates, a delivery lane, an offline-first field application,
  * digital checklists and dispatch scheduling. Three sessions are in: §4's ticket and proposal, §5's
  * cash advance gate, §6.1's site inspection, §6.2's methodology, §7's material request and
- * §8's mobilisation.
+ * §8's mobilisation and execution.
  *
  * §19 lists thirty permissions for the finished module; seventeen are here, because nine gate something.
  * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
@@ -35,6 +35,7 @@ export const operationsManifest = defineManifest({
     "StockItem",
     "StockMovement",
     "Mobilization",
+    "DailyProgress",
   ],
 
   permissions: [
