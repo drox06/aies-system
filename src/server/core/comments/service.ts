@@ -8,7 +8,22 @@ import { registerNotificationType } from "@/server/core/notify/registry";
 registerNotificationType({
   key: "comment.mentioned",
   label: "You were mentioned in a comment",
-  defaultChannels: { inApp: true, email: true, digest: false },
+  /**
+   * `email: false` until something consumes the queue.
+   *
+   * `notify_email` has no handler by design — docs/DECISIONS.md #10 — and every other module sets
+   * this false for that reason. This one did not, so in production each @mention would enqueue a job
+   * that dies. Found on 2026-08-18: the first drain on the live deployment picked up exactly such a
+   * job and dead-lettered it with "No handler registered".
+   *
+   * The cost is not the wasted row. It is that dead jobs are the pile you look at when something is
+   * wrong, and filling it with failures you expect is how a real one goes unnoticed — the same
+   * reasoning as DECISIONS #70's warning that always fires.
+   *
+   * **Turn this back to true when module 10 registers an email handler.** A user who has explicitly
+   * chosen email in their preferences still overrides this; only the default changes.
+   */
+  defaultChannels: { inApp: true, email: false, digest: false },
   coalesceWindowMs: 5 * 60_000,
 });
 
