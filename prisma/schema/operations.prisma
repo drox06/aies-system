@@ -96,19 +96,20 @@ model Ticket {
   deletedAt DateTime?
   deletedBy String?
 
-  account          CustomerAccount        @relation(fields: [accountId], references: [id])
-  site             Site?                  @relation(fields: [siteId], references: [id])
-  salesOrder       SalesOrder?            @relation(fields: [salesOrderId], references: [id])
-  customerPO       CustomerPO?            @relation(fields: [customerPOId], references: [id])
-  project          Project?               @relation(fields: [projectId], references: [id])
-  lines            TicketSalesOrderLine[]
-  cashAdvances     CashAdvance[]
-  inspections      SiteInspection[]
-  methodologies    Methodology[]
-  materialRequests MaterialRequest[]
-  mobilizations    Mobilization[]
-  dailyProgress    DailyProgress[]
-  qaApprovals      QAApproval[]
+  account               CustomerAccount        @relation(fields: [accountId], references: [id])
+  site                  Site?                  @relation(fields: [siteId], references: [id])
+  salesOrder            SalesOrder?            @relation(fields: [salesOrderId], references: [id])
+  customerPO            CustomerPO?            @relation(fields: [customerPOId], references: [id])
+  project               Project?               @relation(fields: [projectId], references: [id])
+  lines                 TicketSalesOrderLine[]
+  cashAdvances          CashAdvance[]
+  inspections           SiteInspection[]
+  methodologies         Methodology[]
+  materialRequests      MaterialRequest[]
+  mobilizations         Mobilization[]
+  dailyProgress         DailyProgress[]
+  qaApprovals           QAApproval[]
+  testingCommissionings TestingCommissioning[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -199,16 +200,17 @@ model Project {
   deletedAt DateTime?
   deletedBy String?
 
-  account          CustomerAccount   @relation(fields: [accountId], references: [id])
-  site             Site?             @relation(fields: [siteId], references: [id])
-  tickets          Ticket[]
-  cashAdvances     CashAdvance[]
-  inspections      SiteInspection[]
-  methodologies    Methodology[]
-  materialRequests MaterialRequest[]
-  mobilizations    Mobilization[]
-  dailyProgress    DailyProgress[]
-  qaApprovals      QAApproval[]
+  account               CustomerAccount        @relation(fields: [accountId], references: [id])
+  site                  Site?                  @relation(fields: [siteId], references: [id])
+  tickets               Ticket[]
+  cashAdvances          CashAdvance[]
+  inspections           SiteInspection[]
+  methodologies         Methodology[]
+  materialRequests      MaterialRequest[]
+  mobilizations         Mobilization[]
+  dailyProgress         DailyProgress[]
+  qaApprovals           QAApproval[]
+  testingCommissionings TestingCommissioning[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -897,4 +899,83 @@ model QAApproval {
 
   @@index([ticketId, reworkRound])
   @@index([approved, recordedAt])
+}
+
+/// Testing and commissioning (specs/04-operations-projects.md §10).
+///
+/// The stage a ticket lands in when the client's QA passes. §10 calls the certificate it produces
+/// "a primary billing trigger document", which sets the standard of proof for everything here.
+model TestingCommissioning {
+  id     String @id @default(cuid())
+  /// AIESTC-{YY}{####}.
+  number String @unique
+
+  ticketId  String
+  projectId String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  /// [{ tagNumber, loopId, result, remarks }] (§10).
+  loopChecks Json @default("[]")
+
+  /// [{ test, criterion, criterionSource, quotationLineId, promiseText, criterionSetAt,
+  ///    criterionSetById, measured, unit, measuredAt, measuredById, verdict, remarks }].
+  ///
+  /// §10: results are compared "against the **specification from the accepted quotation**, not
+  /// against a value typed in by the technician". Module 02 stores what was promised as prose, so
+  /// there is no number to read automatically — see docs/DECISIONS.md #69. What is enforced instead
+  /// is provenance: every criterion says where it came from and when it was fixed, and a criterion
+  /// fixed in the same act as its own measurement is marked as such.
+  functionalTests Json @default("[]")
+
+  /// Against the quoted performance, same shape and same provenance rules as functionalTests.
+  performanceVerification Json @default("[]")
+
+  /// §10: instruments used, for module 08 traceability. §7 already refuses to issue an instrument
+  /// whose calibration is overdue; this is the record of which one actually took the reading.
+  calibrationAssetsUsed String[] @default([])
+
+  witnessedByCustomer     Boolean @default(true)
+  customerWitnessName     String?
+  customerWitnessPosition String?
+
+  /// [{ description, severity, ownerId, dueAt, status, raisedAt }] (§10).
+  ///
+  /// §10: "Critical punch items block project close-out." §12 reads these rather than keeping its
+  /// own copy.
+  punchItems Json @default("[]")
+
+  /// accepted | accepted_with_punch | rejected. Null until somebody decides — an undecided
+  /// commissioning must not read as a passed one (§7's recorded N/A, DECISIONS #65).
+  result String?
+
+  /// [{ topic, attendees, durationHours, materialsFileId }] (§10).
+  trainingDelivered Json @default("[]")
+
+  certificateFileId String?
+
+  recordedById String
+
+  /// The sign-off is the billing trigger, so it carries the customer's signature rather than AIES's
+  /// assertion that they were happy — the same standard §5's receipts, §6.2's approval document and
+  /// §9's evidence are held to.
+  signedOffById           String?
+  customerSignatureFileId String?
+  signedAt                DateTime?
+  /// Why there is no customer signature, when there is none. Required to sign off without one.
+  signOffRemarks          String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket   @relation(fields: [ticketId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([ticketId, startedAt])
+  @@index([result, completedAt])
 }

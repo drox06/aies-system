@@ -37,6 +37,7 @@ export const operationsManifest = defineManifest({
     "Mobilization",
     "DailyProgress",
     "QAApproval",
+    "TestingCommissioning",
   ],
 
   permissions: [
@@ -217,6 +218,15 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "tc.signoff",
+      label: "Sign off testing and commissioning",
+      group: "Operations",
+      // §19 names it on its own rather than folding it into `ticket.execute`, and §10 explains why:
+      // the certificate this produces is "a primary billing trigger document". Signing it is a
+      // commercial act, not a step in doing the work.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
       key: "ticket.dispatch",
       label: "Send a crew to site, and record their return",
       group: "Operations",
@@ -264,6 +274,8 @@ export const operationsManifest = defineManifest({
     "ticket.demobilized",
     "qa.passed",
     "qa.failed",
+    "tc.completed",
+    "punch_item.raised",
   ],
 
   /**

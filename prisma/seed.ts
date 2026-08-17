@@ -348,6 +348,11 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // reason §9 gives: the client's approval is "the release authorisation under clause 8.6, and the
   // best support the company will ever have for the final bill" — a document that gets referenced.
   { documentType: "qa_approval", format: "AIESQA-{YY}{####}", label: "QA Approval" },
+  {
+    documentType: "testing_commissioning",
+    format: "AIESTC-{YY}{####}",
+    label: "Testing & Commissioning",
+  },
   { documentType: "material_request", format: "AIESMR-{YY}{####}", label: "Material Request" },
   { documentType: "methodology", format: "AIESMTH-{YY}{####}", label: "Methodology" },
   { documentType: "delivery_receipt", format: "AIESDR-{YY}{####}", label: "Delivery Receipt" },

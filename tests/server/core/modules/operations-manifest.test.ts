@@ -76,6 +76,8 @@ describe("operations manifest", () => {
       "ticket.demobilized",
       "qa.passed",
       "qa.failed",
+      "tc.completed",
+      "punch_item.raised",
     ]);
   });
 

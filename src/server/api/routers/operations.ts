@@ -28,6 +28,19 @@ import {
   recordQaService,
 } from "@/server/core/operations/qa-service";
 import {
+  CRITERION_SOURCES,
+  LOOP_RESULTS,
+  PUNCH_SEVERITIES,
+  TC_RESULTS,
+} from "@/server/core/operations/tc-rules";
+import {
+  beginTcService,
+  completeTcService,
+  listTcForTicketService,
+  promisedLinesForTicketService,
+  saveTcService,
+} from "@/server/core/operations/tc-service";
+import {
   listProgressService,
   logDayService,
   standbyEvidenceService,
@@ -848,6 +861,143 @@ export const operationsRouter = router({
   getMobilization: p("ticket.view")
     .input(z.object({ mobilizationId: z.string() }))
     .query(({ input }) => getMobilizationService(input.mobilizationId)),
+
+  /**
+   * §10's commissioning record.
+   *
+   * `criterionSetAt` and `measuredAt` are deliberately **not** accepted from the client — the
+   * service stamps both. A provenance field the caller can write is decoration, and provenance is
+   * the whole of what makes §10's out-of-spec flag mean anything. docs/DECISIONS.md #69.
+   */
+  beginTc: p("ticket.execute")
+    .input(z.object({ ticketId: z.string() }))
+    .mutation(({ ctx, input }) => beginTcService(actorMeta(ctx), input)),
+
+  saveTc: p("ticket.execute")
+    .input(
+      z.object({
+        id: z.string(),
+        functionalTests: z
+          .array(
+            z.object({
+              test: z.string().min(1).max(300),
+              criterion: z
+                .discriminatedUnion("kind", [
+                  z.object({ kind: z.literal("min"), min: z.number() }),
+                  z.object({ kind: z.literal("max"), max: z.number() }),
+                  z.object({ kind: z.literal("range"), min: z.number(), max: z.number() }),
+                  z.object({
+                    kind: z.literal("nominal"),
+                    nominal: z.number(),
+                    tolerance: z.number(),
+                    toleranceKind: z.enum(["absolute", "percent"]),
+                  }),
+                  z.object({
+                    kind: z.literal("qualitative"),
+                    expected: z.string().min(1).max(500),
+                  }),
+                ])
+                .nullish(),
+              criterionSource: z.enum(CRITERION_SOURCES).optional(),
+              quotationLineId: z.string().nullish(),
+              promiseText: z.string().max(2000).nullish(),
+              measured: z.union([z.string().max(200), z.number()]).nullish(),
+              unit: z.string().max(40).nullish(),
+              remarks: z.string().max(2000).nullish(),
+            }),
+          )
+          .optional(),
+        performanceVerification: z
+          .array(
+            z.object({
+              test: z.string().min(1).max(300),
+              criterion: z
+                .discriminatedUnion("kind", [
+                  z.object({ kind: z.literal("min"), min: z.number() }),
+                  z.object({ kind: z.literal("max"), max: z.number() }),
+                  z.object({ kind: z.literal("range"), min: z.number(), max: z.number() }),
+                  z.object({
+                    kind: z.literal("nominal"),
+                    nominal: z.number(),
+                    tolerance: z.number(),
+                    toleranceKind: z.enum(["absolute", "percent"]),
+                  }),
+                  z.object({
+                    kind: z.literal("qualitative"),
+                    expected: z.string().min(1).max(500),
+                  }),
+                ])
+                .nullish(),
+              criterionSource: z.enum(CRITERION_SOURCES).optional(),
+              quotationLineId: z.string().nullish(),
+              promiseText: z.string().max(2000).nullish(),
+              measured: z.union([z.string().max(200), z.number()]).nullish(),
+              unit: z.string().max(40).nullish(),
+              remarks: z.string().max(2000).nullish(),
+            }),
+          )
+          .optional(),
+        loopChecks: z
+          .array(
+            z.object({
+              tagNumber: z.string().min(1).max(120),
+              loopId: z.string().max(120).nullish(),
+              result: z.enum(LOOP_RESULTS),
+              remarks: z.string().max(2000).nullish(),
+            }),
+          )
+          .optional(),
+        punchItems: z
+          .array(
+            z.object({
+              description: z.string().min(1).max(1000),
+              severity: z.enum(PUNCH_SEVERITIES),
+              ownerId: z.string().nullish(),
+              dueAt: z.string().nullish(),
+              status: z.string().max(40).optional(),
+            }),
+          )
+          .optional(),
+        calibrationAssetsUsed: z.array(z.string()).optional(),
+        trainingDelivered: z
+          .array(
+            z.object({
+              topic: z.string().min(1).max(300),
+              attendees: z.array(z.string()).optional(),
+              durationHours: z.number().nonnegative().optional(),
+              materialsFileId: z.string().nullish(),
+            }),
+          )
+          .optional(),
+        witnessedByCustomer: z.boolean().optional(),
+        customerWitnessName: z.string().max(200).nullish(),
+        customerWitnessPosition: z.string().max(200).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveTcService(actorMeta(ctx), input)),
+
+  /** §19 gives sign-off its own permission: §10's certificate is a billing trigger. */
+  completeTc: p("tc.signoff")
+    .input(
+      z.object({
+        id: z.string(),
+        result: z.enum(TC_RESULTS),
+        remarks: z.string().max(5000).nullish(),
+        customerSignatureFileId: z.string().nullish(),
+        signOffRemarks: z.string().max(5000).nullish(),
+        certificateFileId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => completeTcService(actorMeta(ctx), input)),
+
+  listTc: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => listTcForTicketService(input.ticketId)),
+
+  /** What the accepted quotation promised, so a criterion can cite a line rather than be invented. */
+  promisedLines: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => promisedLinesForTicketService(input.ticketId)),
 
   adjustStock: p("material_request.issue")
     .input(

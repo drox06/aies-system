@@ -44,6 +44,7 @@ import "@/server/core/operations/daily-progress-service";
 import "@/server/core/operations/methodology-service";
 import "@/server/core/operations/qa-service";
 import "@/server/core/operations/site-inspection-service";
+import "@/server/core/operations/tc-service";
 import "@/server/core/order/customer-po-service";
 import "@/server/core/order/goods-receipt-service";
 import "@/server/core/order/supplier-po-service";

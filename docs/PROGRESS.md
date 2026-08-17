@@ -2157,6 +2157,72 @@ installed base, §17's scheduling.
 
 **What it unblocks when module 08 lands:** the NCR, which `qa.failed` already carries the defects for.
 
+### Session 9 — §10's testing and commissioning, and what its central rule actually rests on
+
+- [x] **`TestingCommissioning`**, the stage a ticket lands in when client QA passes — and the first
+      thing that moves it out again, which nothing did before this session.
+- [x] **§10's comparison, built honestly.** The section says results are compared "against the
+      specification from the accepted quotation, not against a value typed in by the technician".
+      Module 02 stores what was promised as prose, so there is no number to read. The obvious build —
+      technician types the criterion, then the reading, software flags the mismatch — is theatre: the
+      person being judged supplies both halves, and it produces an automatic-looking verdict a reader
+      would believe. docs/DECISIONS.md #69.
+- [x] **What is enforced instead is provenance.** Every criterion is either pinned to a promised line
+      — walking ticket → sales order line → quotation line, with the promise text copied at citation
+      time so a later revision cannot rewrite it — or marked `stated` and counted. The record reports
+      how many of each, because §10's automatic flag is worth exactly what its criteria are worth.
+- [x] **The timestamps are stamped by the server, never accepted from the caller.** A provenance
+      field the client can write is decoration. A criterion fixed in the same act as the reading it
+      judges is flagged: legal, sometimes unavoidable, worth less than one written first.
+- [x] **A criterion parser that refuses a bare number.** "230" does not say whether 229.8 passes.
+      Reading it as exact equality fails nearly every real measurement; reading it as "about 230"
+      passes nearly all of them. Either way the certificate would not mean what its reader thinks, so
+      it asks for a tolerance instead.
+- [x] **Three verdicts, not two.** An unmeasured test, a non-numeric reading against a numeric limit,
+      and an ambiguous qualitative answer are all **indeterminate** — never a pass. The same
+      distinction §7's undecided material gate and §9's waived client inspection turn on.
+- [x] **A clean acceptance is refused while anything is out of spec or unresolved.** A flag somebody
+      can accept over without saying so is a flag that does nothing. Accepting real work with a real
+      exception is legitimate — that is `accepted_with_punch`, and it carries the exception onto a
+      list somebody owns.
+- [x] **Critical punch items block close-out** (§10), reported as the items rather than a boolean so
+      the person who is blocked knows by what, and raised as `punch_item.raised` so §12 and module 08
+      do not have to re-read this record.
+- [x] **The sign-off carries the customer's signature**, or a written reason there is none — §10
+      makes the certificate a billing trigger, and this is the fourth time the same principle has
+      decided a design in this module (§5's receipts, §6.2's approval document, §9's evidence).
+- [x] **A rejection loops back to `in_progress`**, as §9's does and as the flowchart draws.
+- [x] Screens: the worksheet shows each test's verdict live as it is typed, names the criterion's
+      source, and says the record will note a limit written alongside its own reading — visible while
+      it is still cheap to fix, rather than after, when the only options are to leave it or lie.
+
+**Migration** `20260817025758_testing_commissioning`.
+
+**A defect the tests caught that would have left everything green.** Postgres `jsonb` reorders object
+keys, so comparing a stored criterion against an identical incoming one by `JSON.stringify` reported
+"changed" every time. Nothing would have crashed — but `criterionSetAt` would have been re-stamped on
+every save, so every test would have looked like its limit was written after its own reading, so the
+warning saying exactly that would have fired on every record ever produced. A warning that always
+fires is one people learn to click past within a week, which would have cost precisely the signal the
+session was built to protect. docs/DECISIONS.md #70, which also names the other Json columns carrying
+the same trap.
+
+**State at this stop.** **1115 tests** across 106 files pass with the dev server stopped; typecheck,
+lint, Prettier and `build:check` clean.
+
+**Not built from §10: the T&C certificate PDF.** §10 calls it "a primary billing trigger document".
+The panel currently expects the signed certificate to be uploaded rather than having AIES generate it
+for signature, which works but is not what §10 asks for. Deferred to be built with §12's service
+report, as §8's daily progress PDF was — flagged rather than quietly dropped, because unlike the
+daily progress PDF this one is load-bearing for billing.
+
+**Still to build in module 04:** §11's warranty gate, §12's service report and close-out, §13's
+delivery lane, §14's offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
+
+**Where §11 goes.** The warranty diamond belongs between commissioning and the service report.
+Acceptance currently moves the ticket straight to `for_closeout`; §11 inserts itself on that
+transition rather than changing where commissioning leaves the ticket.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
@@ -2184,6 +2250,12 @@ installed base, §17's scheduling.
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #69-#70: session 9 (§10 asks for test results compared against the quoted
+  specification, but module 02 stores specifications as prose — so what is enforced is provenance:
+  where each criterion came from, and whether it was fixed before the reading it judges, stamped by
+  the server rather than accepted from the caller; and `jsonb` reorders object keys, so comparing
+  two values that have been through a Json column by stringifying them is wrong in a way that leaves
+  every check green).
 - docs/DECISIONS.md #67-#68: session 8 (first-time-right counts approved records only, because a
   metric that moves backwards while the crew fixes the problem is one people argue with rather than
   act on — and a rate over zero jobs is `null`, not a flattering 100%; a scripted edit that misses

@@ -2422,3 +2422,73 @@ is evidence about code that may not be the code that was meant to exist.
 
 The related habit, from the same cause: run Prettier **before** the suite rather than after, so a
 formatting pass cannot reflow a file out from under an edit that has already been verified.
+
+## #69 — Provenance, because the specification §10 wants to compare against is prose
+
+§10 is unambiguous: "Test results are compared against the **specification from the accepted
+quotation**, not against a value typed in by the technician. Out-of-spec results are flagged
+automatically."
+
+Module 02 does not store a specification anybody can compare against. `QuotationLine` carries
+`description`, `longDescription`, `manufacturer`, `modelNumber`, `partNumber` — prose, written to be
+read by a customer. The only structured `specifications Json` in the schema belongs to `InquiryItem`,
+and that one is deliberately the *customer's* words rather than AIES's, kept separate so the company
+can still answer "is what we quoted actually what they asked for?".
+
+So the sentence cannot be implemented as written. The question is what to build instead.
+
+### What was rejected
+
+A comparison engine where the technician types the criterion and then the measurement, and the
+software flags the mismatch. This is the obvious build and it is theatre: the person whose work is
+being judged supplies both halves of the judgement. It would produce a certificate carrying an
+automatic-looking verdict that means nothing, which is worse than no verdict, because a reader
+believes it.
+
+### What was built
+
+Provenance. Every criterion records where it came from and when it was fixed:
+
+- **`criterionSource`** is `quotation` — pinned to a specific promised line, carrying that line's
+  text copied at citation time so a later revision cannot quietly rewrite it — or `stated`, meaning
+  nobody could point at a promised line. Stated criteria are allowed, counted, and reported on the
+  record, because refusing them would only push people into citing a line that does not say what they
+  claim.
+- **`criterionSetAt` and `measuredAt` are stamped by the server**, never accepted from the caller. A
+  provenance field the client can write is decoration. A criterion fixed in the same act as the
+  reading it judges is flagged: legal, sometimes unavoidable, and worth less than one written first.
+
+The walk to the promised line is ticket → sales order line → quotation line, which module 03 already
+describes as the answer to "what did we actually promise?" once a quotation has been superseded.
+
+The honest summary the record now carries: §10's automatic flag is worth exactly what its criteria
+are worth, and the record says what they are worth.
+
+### What would close the gap properly
+
+A structured `specifications Json` on `QuotationLine`, populated when a quotation is built, so a
+criterion could be *read* rather than cited. That is a module 02 change, nothing in module 02
+populates it today, and inventing the shape here would guess at what module 02 will need. Recorded
+rather than done — and the citation link means the day it exists, the criteria already point at the
+right lines.
+
+## #70 — `jsonb` does not preserve key order, so never compare JSON by stringifying it
+
+Caught by a test that expected a criterion's timestamp to survive a save that only added a
+measurement. It did not.
+
+`saveTcService` decides whether a criterion changed by comparing it against the stored one. The first
+implementation used `JSON.stringify(a) === JSON.stringify(b)`. Postgres `jsonb` **reorders object
+keys** on the way in, so `{kind, min, max}` comes back as `{max, min, kind}` — a different string for
+an identical object. Every save therefore looked like a change.
+
+The consequence was not a crash. It was that `criterionSetAt` would be re-stamped on every save, so
+every test would appear to have had its limit written after its own reading, so the warning that says
+exactly that would fire on every record ever produced. A warning that always fires is one people
+learn to click past within a week — and the signal it carries is the entire point of DECISIONS #69.
+A defect that degrades a signal to noise leaves everything green.
+
+The fix is a canonical serialiser that sorts keys before comparing. **Anywhere in this codebase that
+compares two values that have been through a `Json` column, sort the keys first** — there are Json
+columns on defects, punch items, loop checks, training records and custom fields, and the same
+comparison written the obvious way would be wrong in the same silent way.
