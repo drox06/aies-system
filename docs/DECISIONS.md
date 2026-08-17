@@ -2827,3 +2827,55 @@ change at all.
 dangerous state is a live rule with a dead reason attached. When a premise changes, go and find what
 was argued from it. `grep DS220` took ten seconds and found the one file that would have misled the
 next reader.
+
+## #81 — Three bugs that only a live deployment could show
+
+The app went to Vercel on 2026-08-18, before §13 rather than after module 04. Within an hour it
+surfaced three defects that 1211 tests, a Playwright pass over every screen, typecheck, lint and
+eleven sessions of review had all missed. Each is worth recording for what made it invisible.
+
+### The crons had never run, and looked like they were
+
+`vercel.json` scheduled `/api/cron/drain` every minute. The dashboard showed both crons registered on
+the right schedules. Nothing ran.
+
+**Vercel Cron invokes a path with a `GET`. Both routes exported only `POST`.** Every minute the drain
+fired, received 405, and did nothing.
+
+Nothing already in the repo could have caught it. The tests call the handler directly; the local
+verification used `curl -X POST`; typecheck and lint see a valid route. **None of them knows which
+verb the scheduler uses**, and that fact lives entirely outside the codebase. The symptom was a job
+sitting `pending` with `attempts: 0` — due, and never once claimed.
+
+This is the strongest argument for the deployment order that was chosen. §14's offline PWA is next
+after §13, and it depends on the same class of environment-specific behaviour.
+
+### Re-attaching a removed file silently did nothing
+
+Uploads deduplicate on `entityType + entityId + sha256` so the same bytes are not stored twice. The
+lookup ignored `deletedAt`, so a file that had been removed and was re-attached found **its own
+tombstone** and returned it as a successful upload. Every list filters removed rows, so the file
+existed and was invisible.
+
+The worst shape a bug can take: the interface reported success. Reviving the row is the fix rather
+than inserting a second one, because removal is deliberately soft — the bytes never left the bucket.
+
+Missed because **no test had ever removed a file and re-attached it.** Individually the operations
+were covered; the sequence was not.
+
+### The dead-letter pile was about to become meaningless
+
+The first successful drain dead-lettered a `notify_email` job: no handler registered. That queue has
+no handler by design (#10), and every module sets `email: false` for that reason — except
+`comment.mentioned`, which did not. In production every @mention would have created a job that dies.
+
+The cost is not the wasted row. **Dead jobs are the pile you look at when something is wrong**, and
+filling it with failures you expect is how a real one goes unnoticed. Same reasoning as #70's warning
+that always fires.
+
+### What connects them
+
+None was a logic error. Each was a **boundary** — between the scheduler and the app, between two
+operations that were individually correct, between a queue and a consumer that does not exist. Test
+suites are good at logic and blind to boundaries, and the only cure found so far is to put the thing
+in the place where the boundary is real.

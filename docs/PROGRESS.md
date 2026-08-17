@@ -2422,6 +2422,48 @@ lint, Prettier and `build:check` clean. Counters reset last.
 
 **Owed to the company, unchanged:** the phone pass over every screen once the app is on Vercel.
 
+### Deployed to Vercel (2026-08-18)
+
+Live at `aies-system.vercel.app`, pointed at the existing Supabase project — the company builds and
+tests on one database until go-live, then creates a second and migrates across.
+
+- [x] **Nine environment variables**, and a correction found while preparing them: `CRON_SECRET` was
+      commented out in `.env.example`, and the cron guard only ran *when the variable was set*. So a
+      deployment without it would have left both cron endpoints accepting unauthenticated POSTs from
+      anyone. They now refuse with 503 in production when it is absent — a control that fails closed.
+- [x] **Verified from outside:** `/` redirects to login with the right domain, `/login` renders, and
+      both cron endpoints return 401 to an unauthenticated POST — which proves the secret landed and
+      the guard rejects strangers.
+- [x] **DECISIONS #60 confirmed in the only place it could be.** A file uploaded by EA opens inline
+      and downloads for a different signed-in user. That bug made every file readable solely by its
+      uploader, and it existed *only* on Vercel, because each route bundles separately.
+
+**Three bugs surfaced within the hour, none of which the suite could have caught.** docs/DECISIONS.md
+#81 covers why each was invisible.
+
+- [x] **The crons had never run and looked like they had.** Vercel Cron sends `GET`; both routes
+      exported only `POST`, so every minute the drain fired, took a 405, and did nothing. The
+      dashboard showed both registered on the right schedules. Found from a job sitting `pending` with
+      `attempts: 0`.
+- [x] **Re-attaching a removed file silently did nothing.** Upload dedupe matched on sha256 without
+      regard to `deletedAt`, so the second upload found its own tombstone and returned it as success —
+      the file existed and was invisible. Now revived rather than duplicated, since removal is soft
+      and the bytes never left the bucket. Regression test added; no test had ever removed a file and
+      re-attached it.
+- [x] **`comment.mentioned` was the last notification type defaulting to email**, and that queue has
+      no handler by design, so every @mention would have created a dead job. Dead jobs are the pile
+      you check when something is wrong.
+
+**Also changed at the company's request:** signing in lands on My day rather than `/`. A `callbackUrl`
+from middleware is still honoured, but `/` is treated as *no destination* — typing the bare domain is
+what most people do, and honouring it literally would have defeated the change.
+
+**Verification state.** The last full suite — 1211 tests across 112 files — predates today's four
+production fixes. Their targeted tests pass (storage 7/7, comments and notify 18/18) and `build:check`
+is clean; the next session's full run covers them properly.
+
+**Owed:** the phone pass, which is now possible for the first time — there is a URL.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
@@ -2449,6 +2491,10 @@ lint, Prettier and `build:check` clean. Counters reset last.
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #81: deploying to Vercel before §13 rather than after module 04 (three bugs in
+  the first hour, none of them logic errors — a scheduler verb, a sequence of two individually
+  correct operations, and a queue with no consumer; test suites are good at logic and blind to
+  boundaries).
 - docs/DECISIONS.md #78-#80: Home and the NAS (a page with no nav entry is the right answer when it is
   the seed of one of module 09's five dashboards; a rename is not local, and a substring-matching test
   locator is a latent failure waiting for an unrelated label to grow; and when the reason for a rule
