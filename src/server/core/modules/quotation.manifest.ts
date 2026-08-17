@@ -198,7 +198,7 @@ export const quotationManifest = defineManifest({
       order: 12,
     },
     {
-      label: "Awaiting approval",
+      label: "Quotations for Approval",
       href: "/quotations/approvals",
       icon: "check-circle",
       // §6's queue is the VP's screen (and the President's, once §4.4's window elapses). Gated on

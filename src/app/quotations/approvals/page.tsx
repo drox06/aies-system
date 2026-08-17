@@ -42,7 +42,7 @@ export default function ApprovalQueuePage() {
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader
-        title="Awaiting approval"
+        title="Quotations for Approval"
         description="Every quotation waiting on you. Nothing here can be issued to a customer until it is approved."
       />
 

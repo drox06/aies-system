@@ -253,7 +253,7 @@ export const orderManifest = defineManifest({
       // After the quotation block (20-21), because a supplier is who you buy from once a quotation
       // has been won.
       group: "Orders",
-      order: 32,
+      order: 33,
     },
   ],
 });

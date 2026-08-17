@@ -225,8 +225,10 @@ export const crmManifest = defineManifest({
       href: "/crm/principals",
       icon: "handshake",
       permission: "principal_prospect.manage",
-      group: "Customers",
-      order: 22,
+      group: "Orders",
+      // Moved out of Customers on 2026-08-17 at the company's request: a principal is who
+      // AIES buys from, so it belongs beside Suppliers rather than beside the customers it sells to.
+      order: 32,
     },
   ],
 });
