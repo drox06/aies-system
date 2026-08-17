@@ -6,13 +6,18 @@ import { AuditTrail } from "@/components/AuditTrail";
 import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
-import { Input, Label, Textarea } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
+  ATTENDEE_PARTIES,
+  ATTENDEE_PARTY_LABELS,
   SITE_INSPECTION_ENTITY_TYPE,
   UTILITIES,
   UTILITY_LABELS,
+  attendeesNeedingNames,
+  type Attendee,
+  type AttendeeParty,
   type Utility,
 } from "@/server/core/operations/site-inspection-rules";
 import { trpc } from "@/lib/trpc/client";
@@ -181,6 +186,7 @@ function InspectionForm({
     findings: string | null;
     inspectedAt: Date | string | null;
     inspectedByIds: string[];
+    attendees: Attendee[];
     accessConstraints: string | null;
     tagNumbers: string[];
     hazards: string[];
@@ -193,8 +199,7 @@ function InspectionForm({
   onSaved: () => void;
 }) {
   const [findings, setFindings] = useState(initial.findings ?? "");
-  const [attendees, setAttendees] = useState<string[]>(initial.inspectedByIds);
-  const people = trpc.operations.inspectionAttendees.useQuery();
+  const [attendees, setAttendees] = useState<Attendee[]>(initial.attendees);
   const [inspectedAt, setInspectedAt] = useState(
     initial.inspectedAt ? new Date(initial.inspectedAt).toISOString().slice(0, 10) : "",
   );
@@ -269,31 +274,85 @@ function InspectionForm({
           made completion impossible through the UI: the server asked for attendees and no screen
           could supply them. The server rule was right; the form was the half that was never built.
         */}
+        {/*
+          Departments for AIES's own people, names for everybody else. Asked for on 2026-08-17,
+          replacing a checkbox list of every internal user: on a survey what matters is that sales and
+          technical were both there, and the people who are not AIES are exactly the ones whose names
+          nobody can look up later.
+        */}
         <fieldset className="mt-3">
           <legend className="text-xs text-text-muted">Who attended</legend>
-          {people.isPending && <p className="mt-1 text-sm text-text-muted">Loading people…</p>}
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5">
-            {(people.data ?? []).map((person) => (
-              <label key={person.id} className="flex items-center gap-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={attendees.includes(person.id)}
-                  onChange={(e) =>
-                    setAttendees(
-                      e.target.checked
-                        ? [...attendees, person.id]
-                        : attendees.filter((id) => id !== person.id),
-                    )
-                  }
-                />
-                {person.name}
-                {person.isTechnical && <span className="text-xs text-text-muted">(field)</span>}
-              </label>
+          <div className="mt-2 space-y-2">
+            {attendees.map((attendee, index) => (
+              <div key={index} className="flex flex-wrap items-end gap-2">
+                <div className="w-44">
+                  <Label htmlFor={`att-party-${index}`}>Who</Label>
+                  <Select
+                    id={`att-party-${index}`}
+                    value={attendee.party}
+                    onChange={(e) =>
+                      setAttendees(
+                        attendees.map((a, i) =>
+                          i === index ? { ...a, party: e.target.value as AttendeeParty } : a,
+                        ),
+                      )
+                    }
+                  >
+                    {ATTENDEE_PARTIES.map((party) => (
+                      <option key={party} value={party}>
+                        {ATTENDEE_PARTY_LABELS[party]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="grow">
+                  <Label htmlFor={`att-name-${index}`}>
+                    {attendee.party === "other" ? "Name (required)" : "Name (optional)"}
+                  </Label>
+                  <Input
+                    id={`att-name-${index}`}
+                    placeholder={
+                      attendee.party === "other"
+                        ? "Plant engineer, principal's representative"
+                        : "Who from that department"
+                    }
+                    value={attendee.name ?? ""}
+                    onChange={(e) =>
+                      setAttendees(
+                        attendees.map((a, i) => (i === index ? { ...a, name: e.target.value } : a)),
+                      )
+                    }
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAttendees(attendees.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </Button>
+              </div>
             ))}
           </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2"
+            onClick={() => setAttendees([...attendees, { party: "technical", name: "" }])}
+          >
+            Add an attendee
+          </Button>
+
           {attendees.length === 0 && (
             <p className="mt-1 text-xs text-amber-800">
-              At least one person, or the report cannot be completed.
+              At least one, or the report cannot be completed.
+            </p>
+          )}
+          {attendeesNeedingNames(attendees).length > 0 && (
+            <p className="mt-1 text-xs text-amber-800">
+              Name everybody recorded as &ldquo;others&rdquo; — the label on its own records
+              nothing.
             </p>
           )}
         </fieldset>
@@ -426,7 +485,7 @@ function InspectionForm({
             save.mutate({
               inspectionId,
               inspectedAt: inspectedAt ? new Date(inspectedAt) : null,
-              inspectedByIds: attendees,
+              attendees,
               findings,
               accessConstraints,
               tagNumbers: list(tagNumbers),

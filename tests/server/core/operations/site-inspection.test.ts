@@ -91,6 +91,11 @@ async function scheduleFor(actor: AuthedUser, ticketId: string) {
 
 const GOOD_FINDINGS = {
   inspectedAt: new Date("2026-08-20T02:00:00.000Z"),
+  /**
+   * Who turned up, by department — the shape the company asked for on 2026-08-17. Deliberately not
+   * the same as who was *assigned*: `inspectedByIds` is that, and the two disagree on a real survey.
+   */
+  attendees: [{ party: "sales" as const }, { party: "technical" as const, name: "DJ" }],
   findings: "Existing meter is a DN100, not the DN150 on the drawing.",
 };
 
@@ -171,11 +176,51 @@ describe("§6.1 — scheduling and recording", () => {
 
     await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
     await completeInspectionService(actorFor(tech), inspection.id);
-    await approveInspectionService(actorFor(manager), inspection.id);
+    await approveInspectionService(manager, actorFor(manager), inspection.id);
 
     await expect(
       saveInspectionService(actorFor(tech), { inspectionId: inspection.id, findings: "changed" }),
     ).rejects.toThrow(/signature/);
+  });
+
+  /**
+   * The company's instruction of 2026-08-17: "the personnel who assigned the site inspection during
+   * the quoting process should also be able to approve the site inspection report, this ensures that
+   * they have reviewed the site inspection report prior to continuing the quotation process."
+   *
+   * The better reason of the two. An officer approving a survey they did not ask for is a rubber
+   * stamp; the requester is the one whose quotation depends on what it says.
+   */
+  it("lets the person who asked for the survey approve the report", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    // `scheduleFor` records the scheduler as the requester, so `tech` is who asked for it.
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+
+    // No `project.manage`, and it still goes through — being the requester is enough.
+    await approveInspectionService(tech, actorFor(tech), inspection.id);
+
+    const after = await db.siteInspection.findUniqueOrThrow({ where: { id: inspection.id } });
+    expect(after.status).toBe("approved");
+    expect(after.approvedById).toBe(tech.id);
+  });
+
+  /** Enough is not the same as anybody. */
+  it("refuses a bystander with neither the permission nor the request behind them", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const bystander = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+
+    await expect(
+      approveInspectionService(bystander, actorFor(bystander), inspection.id),
+    ).rejects.toThrow(/the person who asked for this survey/);
   });
 
   it("refuses to approve an inspection nobody has completed", async () => {
@@ -184,9 +229,9 @@ describe("§6.1 — scheduling and recording", () => {
     const ticket = await makeTicket(tech);
     const inspection = await scheduleFor(tech, ticket.id);
 
-    await expect(approveInspectionService(actorFor(manager), inspection.id)).rejects.toThrow(
-      /Only a completed inspection/,
-    );
+    await expect(
+      approveInspectionService(manager, actorFor(manager), inspection.id),
+    ).rejects.toThrow(/Only a completed inspection/);
   });
 });
 

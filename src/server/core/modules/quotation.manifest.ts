@@ -194,7 +194,8 @@ export const quotationManifest = defineManifest({
       icon: "file-text",
       permission: "quotation.view",
       // After the CRM block (10-13), because a quotation follows an inquiry.
-      order: 20,
+      group: "Sales",
+      order: 12,
     },
     {
       label: "Awaiting approval",
@@ -206,7 +207,8 @@ export const quotationManifest = defineManifest({
       // more loosely and returns only what the caller is eligible to see, so the nav is a
       // convenience here, not the access control.
       permission: "quotation.approve",
-      order: 21,
+      group: "Sales",
+      order: 13,
     },
   ],
 });

@@ -15,8 +15,10 @@ import {
   SITE_INSPECTION_ENTITY_TYPE,
   inspectionCompleteness,
   isInspectionEditable,
+  readAttendees,
   readUtilities,
   scopeChangeVerdict,
+  type Attendee,
   type MeasurementRow,
 } from "./site-inspection-rules";
 
@@ -215,6 +217,7 @@ export interface SaveInspectionInput {
   inspectionId: string;
   inspectedAt?: Date | null;
   inspectedByIds?: string[];
+  attendees?: Attendee[];
   findings?: string | null;
   existingConditions?: Record<string, unknown>;
   measurements?: MeasurementRow[];
@@ -243,6 +246,7 @@ export async function saveInspectionService(actor: ActorMeta, input: SaveInspect
   const next = {
     inspectedAt: input.inspectedAt !== undefined ? input.inspectedAt : inspection.inspectedAt,
     inspectedByIds: input.inspectedByIds ?? inspection.inspectedByIds,
+    attendees: input.attendees ?? readAttendees(inspection.attendees),
     findings: input.findings !== undefined ? input.findings : inspection.findings,
     photoFileIds: input.photoFileIds ?? inspection.photoFileIds,
     scopeChangeIdentified: input.scopeChangeIdentified ?? inspection.scopeChangeIdentified,
@@ -262,6 +266,7 @@ export async function saveInspectionService(actor: ActorMeta, input: SaveInspect
       data: {
         inspectedAt: next.inspectedAt,
         inspectedByIds: next.inspectedByIds,
+        attendees: next.attendees as unknown as Prisma.InputJsonValue,
         findings: next.findings,
         ...(input.existingConditions !== undefined
           ? { existingConditions: input.existingConditions as Prisma.InputJsonValue }
@@ -408,12 +413,41 @@ export async function completeInspectionService(actor: ActorMeta, inspectionId: 
 }
 
 /** §6.1's third state: somebody accountable has read the report and accepted it. */
-export async function approveInspectionService(actor: ActorMeta, inspectionId: string) {
+/**
+ * Approves a completed survey report.
+ *
+ * Two kinds of person may sign it off, and the second was added on the company's instruction of
+ * 2026-08-17: "aside from EA and KJ, the personnel who assigned the site inspection during the
+ * quoting process should also be able to approve the site inspection report, this ensures that they
+ * have reviewed the site inspection report prior to continuing the quotation process."
+ *
+ * That is the better reason of the two. An officer approving on behalf of a survey they did not ask
+ * for is a rubber stamp; the person who requested it is the one whose quotation depends on what it
+ * says, and making them sign is what guarantees somebody read it before the quote went out.
+ *
+ * So the check lives here rather than in the router's permission: `project.manage` is sufficient, and
+ * being the requester is *also* sufficient. Neither is necessary on its own.
+ */
+export async function approveInspectionService(
+  user: AuthedUser,
+  actor: ActorMeta,
+  inspectionId: string,
+) {
   const inspection = await db.siteInspection.findFirst({
     where: { id: inspectionId, deletedAt: null },
   });
   if (!inspection) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That inspection no longer exists." });
+  }
+
+  const isRequester = inspection.requestedById === user.id;
+  if (!user.permissions.has("project.manage") && !isRequester) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Only an officer, or the person who asked for this survey, can approve the report. " +
+        "Whoever requested it is the one whose quotation depends on what it says.",
+    });
   }
   if (inspection.status !== "completed") {
     throw new TRPCError({
@@ -438,7 +472,9 @@ export async function approveInspectionService(actor: ActorMeta, inspectionId: s
       action: "approved",
       entityType: SITE_INSPECTION_ENTITY_TYPE,
       entityId: inspection.id,
-      summary: `Approved site inspection ${inspection.number}`,
+      summary:
+        `Approved site inspection ${inspection.number}` +
+        (isRequester ? " (by the person who requested it)" : " (by an officer)"),
       diff: { status: { from: "completed", to: "approved" } },
       ip: actor.ip,
       userAgent: actor.userAgent,
@@ -475,10 +511,17 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
 
   return {
     ...inspection,
+    /** Shaped, not raw Json — the screen and `inspectionCompleteness` read the same list. */
+    attendees: readAttendees(inspection.attendees),
     utilities: readUtilities(inspection.utilitiesAvailable),
     completeness: inspectionCompleteness(inspection),
     editable: isInspectionEditable(inspection.status),
-    canApprove: user.permissions.has(INSPECTION_APPROVE_PERMISSION),
+    /**
+     * §6.1's sign-off, as the company redrew it on 2026-08-17: an officer *or* the person who asked
+     * for the survey, because their quotation is what depends on what it says.
+     */
+    canApprove:
+      user.permissions.has(INSPECTION_APPROVE_PERMISSION) || inspection.requestedById === user.id,
   };
 }
 

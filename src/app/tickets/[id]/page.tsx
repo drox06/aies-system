@@ -11,6 +11,7 @@ import { MobilizationPanel } from "./MobilizationPanel";
 import { ProgressPanel } from "./ProgressPanel";
 import { QaPanel } from "./QaPanel";
 import { TcPanel } from "./TcPanel";
+import { ServiceReportPanel } from "./ServiceReportPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -192,6 +193,7 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
 
           <QaPanel ticketId={data.id} />
           <TcPanel ticketId={data.id} />
+          <ServiceReportPanel ticketId={data.id} />
 
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>

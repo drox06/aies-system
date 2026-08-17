@@ -2545,3 +2545,203 @@ check is the theatre #69 refused — so the model is built now with its §11 fie
 scheduling fields inert, exactly as §7 built a minimum-viable `StockItem` for the material gate. The
 alternative was deferring §11 until §16, which would have left the flowchart's warranty diamond
 undrawn for several more sessions.
+
+## #72 — Close-out blockers are computed from other sections' records, never ticked
+
+§12 makes project close-out the moment that "emits `project.closed` → module 05 releases final
+billing. **This is the explicit handover the brief describes.**"
+
+That sentence rules out the obvious implementation. A close-out checklist is normally a `Json` column
+of booleans a project manager ticks, and that design produces a document which says only that
+somebody clicked six times. It cannot be wrong, because it makes no claim about the world.
+
+So all six of §12's blockers are **derived**, each from the section that owns the underlying fact:
+
+| Blocker | Read from |
+| --- | --- |
+| Critical punch items | §10's `TestingCommissioning.punchItems`, through `closeoutBlockers` |
+| Unapproved service reports | §12's own `ServiceReport.status` |
+| Failed QA | §9's `QAApproval` — the **latest** verdict per ticket |
+| Unliquidated cash advances | §5's `CashAdvance.status` |
+| Unreturned tools | §7's `MaterialRequestLine`, through `outstandingCustody` |
+| Missing customer acceptance | §12's own record |
+
+`ProjectCloseOut.checklist` stores the last computed state so a screen can render without running six
+queries, but `closeOutProjectService` **recomputes before it closes anything**. A cached "yes" from
+last Tuesday is not a thing to bill a customer on.
+
+### Each one separately, on purpose
+
+§20 requires each blocker to hold close-out on its own and release on its own. The cheapest way to be
+sure of that is for no two of them to share a code path, so each is its own query and its own entry
+in the returned list — and there is a test per blocker in both directions.
+
+### The latest QA verdict, not any failed one
+
+§9 counts rework rounds, so a ticket that failed QA in March and passed in April is a job that went
+round the loop and came out. Counting *any* failed record would block close-out on history that has
+already been put right, and a blocker nobody can clear is one people learn to route around.
+
+### Cleared rows are returned too
+
+§12: "The blockers show as a checklist so the PM can see who owns each one." `closeOutChecklist`
+returns all six whether or not they block, each with its owner named. A list containing only problems
+makes "clear" indistinguishable from "nobody has checked" — and an empty list is the most ambiguous
+screen of all.
+
+### A default that holds rather than releases
+
+`customerAcceptanceRequired` defaults to `true`. DECISIONS #65 warned against defaults that assert a
+decision nobody made, and this is the case that shows where the line sits: the danger there was a
+default that let something through unnoticed. Here the default's effect is to **hold**, which is
+visible immediately and cannot quietly release a project. Waiving it stays a deliberate act with a
+reason, as §9's waived inspection and §10's absent witness are.
+
+## #73 — The close-out pack is an index, not a merged binder
+
+§12 asks for the close-out pack "generated as **one indexed PDF** and filed as a controlled
+document", then lists sixteen contents: methodology, inspection reports, delivery receipts, QA
+records, the T&C certificate, service reports, as-built drawings, and so on.
+
+The document this session generates is the **cover sheet, the index, and AIES's own summary
+sections**. It does not append the attached files themselves.
+
+### Why not
+
+Appending them means merging arbitrary uploaded bytes into one stream. That needs a PDF manipulation
+library — `@react-pdf/renderer` composes documents it authors and cannot embed an existing PDF — and
+even with one it only works for attachments that *are* PDFs. Real close-out attachments are
+photographs, scans, spreadsheets and whatever a customer emailed. A merger that silently dropped
+every non-PDF would produce a pack that looks complete and is not, which is the failure mode this
+module has refused everywhere else.
+
+### What the index does instead
+
+It answers all sixteen items, including the ones that are missing, and says why:
+
+- present, with the document number or count;
+- absent, stated plainly — "No inspection recorded";
+- **not built yet**, naming the section that owes it — as-built documentation and spare parts belong
+  to §16, delivery receipts to module 03 §7, which is itself blocked on §13.
+
+An index that omits what it cannot answer reads as a complete pack with fewer requirements. Naming
+the gap is what makes the document useful to the person who has to close it: "as-built documentation:
+not on file" tells a project manager what to go and get, and a missing section tells them nothing.
+
+### The banner
+
+A pack pulled while blockers are open prints "PROVISIONAL — this project is not closed". §12 calls
+close-out the handover that releases final billing, and a document that looks identical before and
+after that moment is one somebody will bill against early. Same reasoning as §10's certificate, which
+prints DRAFT until commissioning is actually complete.
+
+### When to revisit
+
+If the company needs a true single-file binder for a client or an auditor, the work is a PDF merge
+library plus a rasterising step for non-PDF attachments. That is a deliberate piece of work, not a
+line in this session — and the index makes it additive rather than a rewrite.
+
+## #74 — Who was sent and who turned up are two facts
+
+From the company's review of 2026-08-17: make "Who attended" on a site inspection a choice of Sales,
+Technical or Others-with-a-name, rather than a checkbox list of every internal user.
+
+Acting on that surfaced a defect underneath it. The form's "Who attended" wrote to
+`SiteInspection.inspectedByIds` — the field that means **who is assigned to go**, set when the survey
+is scheduled. One column, two meanings, and the completeness gate read it as attendance.
+
+The consequence is small until it is not. A survey is scheduled and DJ is assigned. On the day DJ is
+sick and somebody else goes. With one field there are two options: leave DJ recorded as having
+attended, which is false and is what the report will say; or overwrite him, which destroys the record
+of who was originally assigned and therefore of the fact that the plan changed. Neither is
+recoverable, and a survey report is a document that gets quoted back in a scope dispute.
+
+So `attendees Json` was added and `inspectedByIds` kept its original meaning:
+
+- **`inspectedByIds`** — who was assigned to go. Set at scheduling.
+- **`attendees`** — `[{ party, name }]`, who actually turned up. Set on the report.
+
+`inspectionCompleteness` reads `attendees`, because that is the one that is true.
+
+### Departments, not names, for AIES's own people
+
+What matters on a survey is that sales and technical were both there. A picker of every employee is a
+list people scroll past rather than read, and the names it captures are already recoverable from the
+assignment. Anybody who is *not* AIES — the client's engineer, a principal's representative — is the
+person whose name nobody can look up later, so `other` requires one. An `other` with no name is
+refused, the same rule §9's unexplained waiver and §10's absent witness are held to.
+
+## #75 — Sufficient is not the same as necessary: who may approve a survey
+
+The same review: "aside from EA and KJ, the personnel who assigned the site inspection during the
+quoting process should also be able to approve the site inspection report, this ensures that they have
+reviewed the site inspection report prior to continuing the quotation process."
+
+The company's reason is better than the one the code had. `approveInspection` was gated on
+`project.manage`, so an officer signed off surveys they had not asked for and whose quotation they
+were not writing — which is the definition of a rubber stamp. The person who requested the survey is
+the one whose quotation depends on what it says, and requiring their signature is what actually
+guarantees somebody read the report before the quote went out.
+
+`SiteInspection` already carried `requestedById`, so the change was where the check lives rather than
+what it knows. The router dropped to `ticket.execute` and the rule moved into the service:
+
+    project.manage  OR  being the requester
+
+**Neither is necessary; either is sufficient.** That is the shape a permission check takes when a
+relationship can substitute for a role, and it cannot be expressed in the router's single-permission
+gate at all — which is why the gate was wrong rather than merely narrow. A bystander with neither is
+still refused, and there is a test for that as well as for the requester path.
+
+## #76 — Demo accounts must be off by default, not deleted by hand
+
+The seed created four `demo-*@aies.local` accounts sharing one publicly-known password, so somebody
+could click around a role they are not.
+
+Deleting them never stuck. `prisma/seed.ts` runs again every time a numbering format is added — which
+happened in six of the last eleven sessions — and recreated all four each time. The deletion and the
+recreation were in different heads, so the accounts were permanent in practice and nobody noticed.
+
+They are now behind `SEED_DEMO_USERS=1`, off by default. The same shape as the e2e account's
+`ALLOW_E2E_USER` guard, for the same reason: an account with a known password is a way in that nobody
+owns, and the database this seeds is about to be the live one.
+
+**The general point:** a cleanup that something else undoes is not a cleanup. When deleting seeded
+data, change the seed in the same commit or the deletion is theatre.
+
+## #77 — A sales order belongs to the deal, not to the account
+
+The purge script's first run stopped half way through with a foreign key violation, and the reason is
+worth keeping.
+
+It scoped everything by **account**: resolve the accounts to keep, delete what belongs to the rest.
+That is the right instinct — deleting by name pattern breaks the day a real customer is called "SPO
+Corporation" — but it asked the wrong question of one table. `AIESSO-260157` sat on the real account
+while its quotation, `AIESLQ260524`, was a review-pass record. So the script kept the order and
+deleted the quotation and customer PO underneath it, and Postgres refused, correctly:
+`SalesOrder.customerPOId` is a required foreign key with no cascade.
+
+The database was right and the script was wrong. An order's account is *who it is for*; its quotation
+is *what it is*. Scope by the account and you keep orders whose subject matter has been deleted.
+
+Fixed by dooming a sales order when **either** its account or its quotation is doomed, and by
+releasing `SupplierPOLine.salesOrderLineId` — nullable, no cascade — before removing the lines it
+points at.
+
+### The failure was safe, and that is not luck
+
+Deepest dependants first, every step scoped to resolved ids, never a bare `deleteMany` on a business
+table. So the run that stopped had already cleared module 04 and the doomed sales orders and had
+touched nothing real; re-running after the fix was idempotent. **A destructive script should be
+restartable**, because the interesting ones stop halfway.
+
+### Two things the script got wrong about itself
+
+Both found by reading it against what it actually did:
+
+- Its comment said orphaned audit rows were cleared. The code never cleared them, and the code was
+  right — **a trail that a cleanup script edits is not a trail.** The comment was corrected to say so.
+- It emptied the search index and printed "re-index search from the app". There is no such button.
+  Ctrl+K finding nothing after a cleanup looks exactly like search being broken, so the script now
+  rebuilds the index for what survives. That incidentally closed a standing gap: `reindexAccount` has
+  existed since module 01 and nothing ever called it, so customer accounts were never searchable.

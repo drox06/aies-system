@@ -49,6 +49,15 @@ export function ProgressPanel({ ticketId }: { ticketId: string }) {
     <Card className="p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold">Daily progress</h2>
+        {/* §8's report, "where the customer requires them" — generated on demand, not stored. */}
+        <a
+          href={`/api/tickets/${ticketId}/progress-pdf`}
+          className="text-xs underline"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Download the progress report
+        </a>
         <StatusBadge tone={data.percentComplete >= 100 ? "approved" : "info"}>
           {data.percentComplete}% complete
         </StatusBadge>

@@ -4,6 +4,7 @@ import {
   inspectionCompleteness,
   inspectionRequiredForTicket,
   isInspectionEditable,
+  describeAttendees,
   readUtilities,
   scopeChangeVerdict,
 } from "@/server/core/operations/site-inspection-rules";
@@ -19,11 +20,59 @@ import {
 const BASE = {
   inspectedAt: new Date("2026-08-20T00:00:00.000Z"),
   inspectedByIds: ["tech-1"],
+  attendees: [{ party: "sales" }, { party: "technical" }],
   findings: "Existing flow meter is a DN100, not the DN150 on the drawing.",
   photoFileIds: ["file-1"],
   scopeChangeIdentified: false,
   scopeChangeNotes: null as string | null,
 };
+
+/**
+ * Who attended, as the company redrew it on 2026-08-17: departments for AIES's own people, names for
+ * everybody else. The rule that carries weight is the last one — "others" with nothing after it
+ * records nothing at all, the same failure §9's unexplained waiver and §10's absent witness are
+ * refused for.
+ */
+describe("§6.1's attendance", () => {
+  it("completes on a department alone", () => {
+    expect(inspectionCompleteness({ ...BASE, attendees: [{ party: "sales" }] }).complete).toBe(
+      true,
+    );
+  });
+
+  it("refuses an inspection nobody attended", () => {
+    const check = inspectionCompleteness({ ...BASE, attendees: [] });
+    expect(check.complete).toBe(false);
+    expect(check.missing.join(" ")).toMatch(/who attended/);
+  });
+
+  it("refuses an unnamed guest", () => {
+    const check = inspectionCompleteness({
+      ...BASE,
+      attendees: [{ party: "technical" }, { party: "other", name: "  " }],
+    });
+    expect(check.complete).toBe(false);
+    expect(check.missing.join(" ")).toMatch(/recorded as "others"/);
+  });
+
+  it("accepts a named guest", () => {
+    const check = inspectionCompleteness({
+      ...BASE,
+      attendees: [{ party: "other", name: "Plant engineer, ACME" }],
+    });
+    expect(check.complete).toBe(true);
+  });
+
+  it("says the attendance back in words", () => {
+    expect(
+      describeAttendees([
+        { party: "sales" },
+        { party: "technical", name: "DJ" },
+        { party: "other", name: "Plant engineer" },
+      ]),
+    ).toBe("Sales, Technical (DJ), Plant engineer");
+  });
+});
 
 describe("§6.1's completeness", () => {
   it("accepts a report with a date, an attendee and findings", () => {
@@ -35,6 +84,7 @@ describe("§6.1's completeness", () => {
       ...BASE,
       inspectedAt: null,
       inspectedByIds: [],
+      attendees: [],
       findings: "  ",
     });
     expect(check.complete).toBe(false);

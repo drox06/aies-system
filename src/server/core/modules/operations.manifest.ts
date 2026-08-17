@@ -40,6 +40,8 @@ export const operationsManifest = defineManifest({
     "TestingCommissioning",
     "Equipment",
     "WarrantyClaim",
+    "ServiceReport",
+    "ProjectCloseOut",
   ],
 
   permissions: [
@@ -220,6 +222,36 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "project.view",
+      label: "See projects and their close-out state",
+      group: "Operations",
+      // Held back since session 1 because nothing gated it. §12's checklist needs a screen — "so the
+      // PM can see who owns each one" — so it comes back now, which is the rule working as intended.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "admin_manager",
+        "technician",
+      ],
+    },
+    {
+      key: "service_report.approve",
+      label: "Approve a service report",
+      group: "Operations",
+      // §19. Separate from writing it: the customer signs what the technician wrote, and somebody
+      // at AIES then stands behind it. One click doing both would collapse two different claims.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
+      key: "project.close",
+      label: "Close a project, releasing final billing",
+      group: "Operations",
+      // §12: closing "emits `project.closed` → module 05 releases final billing. This is the
+      // explicit handover the brief describes." It asks a customer for money, so it sits high.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
       key: "warranty.determine",
       label: "Decide whether a warranty claim is covered, and who caused it",
       group: "Operations",
@@ -295,6 +327,8 @@ export const operationsManifest = defineManifest({
     "punch_item.raised",
     "warranty.claim_raised",
     "warranty.expiring",
+    "service_report.approved",
+    "project.closed",
   ],
 
   /**
@@ -347,7 +381,8 @@ export const operationsManifest = defineManifest({
       icon: "wrench",
       permission: "ticket.view",
       // After procurement (29) and suppliers (30): a ticket is what a delivered order becomes work.
-      order: 40,
+      group: "Operations",
+      order: 41,
     },
     {
       label: "Cash advances",
@@ -357,13 +392,15 @@ export const operationsManifest = defineManifest({
       // technician is not given a menu item that shows them one row — their own advances are on
       // their ticket, where they are looking anyway.
       permission: "cash_advance.view_register",
-      order: 41,
+      group: "Operations",
+      order: 44,
     },
     {
       label: "Site inspections",
       href: "/inspections",
       icon: "clipboard-check",
       permission: "ticket.execute",
+      group: "Operations",
       order: 42,
     },
     {
@@ -373,7 +410,8 @@ export const operationsManifest = defineManifest({
       // §7's minimum viable inventory, and the outstanding-custody list that is the reason it
       // exists — "tools disappear otherwise; this is universal".
       permission: "material_request.issue",
-      order: 44,
+      group: "Operations",
+      order: 45,
     },
     {
       label: "Method statements",
@@ -382,7 +420,18 @@ export const operationsManifest = defineManifest({
       // §6.2's "with the client" view is the one that earns the nav entry — it is what somebody
       // reads before a progress meeting to see whose delay a wait actually was.
       permission: "methodology.prepare",
+      group: "Operations",
       order: 43,
+    },
+    {
+      label: "Projects",
+      href: "/projects",
+      icon: "folder-kanban",
+      // §12's close-out checklist lives here. A project model has existed since session 1 with no
+      // screen at all — the blockers are the first thing that made one necessary.
+      permission: "project.view",
+      group: "Operations",
+      order: 40,
     },
     {
       label: "Warranty",
@@ -392,7 +441,8 @@ export const operationsManifest = defineManifest({
       // totals is warranty cost that never gets fixed" — a total nobody can reach is one nobody
       // totals, so it gets a nav entry rather than living inside a ticket.
       permission: "warranty.determine",
-      order: 45,
+      group: "Operations",
+      order: 46,
     },
   ],
 });

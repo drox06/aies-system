@@ -18,6 +18,49 @@ export const METHODOLOGY_APPROVE_PERMISSION = "methodology.approve";
 /** §6.2: "president and VP only", and logged with a reason. */
 export const METHODOLOGY_GATE_OVERRIDE_PERMISSION = "operations.override_methodology_gate";
 
+/**
+ * The tools a crew takes to almost every job.
+ *
+ * A closed list of tickboxes rather than a free-text field, because "adjustable wrench" written six
+ * ways is not something anybody can count, and the point of listing tools on a method statement is
+ * that the store can pick them and §7's material request can be seeded from them. Free text made the
+ * seeding guesswork.
+ *
+ * Deliberately **basic**. This is not an inventory — it is the list somebody ticks in thirty seconds
+ * before a job. Anything specialised goes in `Others`, which is why that field exists and why it
+ * takes as many lines as the job needs.
+ */
+export const BASIC_TOOLS = [
+  "Screwdriver set",
+  "Open wrench set",
+  "Closed wrench set",
+  "Adjustable wrench",
+  "Allen key set",
+  "Pliers",
+  "Hammer",
+  "Measuring tape",
+  "Spirit level",
+  "Torque wrench",
+  "Pipe wrench",
+  "Hacksaw",
+  "Electric drill",
+  "Angle grinder",
+  "Multimeter",
+  "Clamp meter",
+  "Insulation tester",
+  "Pressure gauge",
+  "Grease gun",
+  "Chain block",
+  "Extension cord",
+  "Work light",
+] as const;
+
+export type BasicTool = (typeof BASIC_TOOLS)[number];
+
+/** Whether a stored tool entry came from the tickable list or was typed as an "other". */
+export const isBasicTool = (tool: string): boolean =>
+  (BASIC_TOOLS as readonly string[]).includes(tool.trim());
+
 /** §6.2's status vocabulary, in the order one moves through it. */
 export const METHODOLOGY_STATUSES = [
   "draft",

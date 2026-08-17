@@ -8,6 +8,7 @@ import {
   Building2,
   ClipboardCheck,
   ShieldCheck,
+  FolderKanban,
   Columns3,
   FileText,
   Handshake,
@@ -279,6 +280,7 @@ const ICONS: Record<string, LucideIcon> = {
   wallet: Wallet,
   "clipboard-check": ClipboardCheck,
   "shield-check": ShieldCheck,
+  "folder-kanban": FolderKanban,
 };
 
 const ICON_SIZE = 20;

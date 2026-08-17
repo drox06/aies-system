@@ -30,6 +30,7 @@ import {
 import {
   acknowledgeSupplierPoService,
   cancelSupplierPoService,
+  deleteSupplierPoService,
   createSupplierPosFromSalesOrderService,
   getSupplierPoService,
   listStaleCostsForSalesOrderService,
@@ -356,6 +357,14 @@ export const orderRouter = router({
   cancelSupplierPo: p("supplier_po.create")
     .input(z.object({ supplierPOId: z.string(), reason: z.string().min(3) }))
     .mutation(({ ctx, input }) => cancelSupplierPoService(actorMeta(ctx), input)),
+
+  /**
+   * Deletes a duplicate. Separate from cancelling, and separately permissioned: a cancellation is a
+   * commitment withdrawn and stays on the record; a double entry was never a commitment at all.
+   */
+  deleteSupplierPo: p("supplier_po.delete")
+    .input(z.object({ supplierPOId: z.string(), reason: z.string().min(3).max(2000) }))
+    .mutation(({ ctx, input }) => deleteSupplierPoService(actorMeta(ctx), input)),
 
   /** §5's second artefact: the draft email a person pastes into their mail client. */
   supplierPoEmailText: p("supplier_po.create")

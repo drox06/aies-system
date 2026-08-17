@@ -246,13 +246,29 @@ async function seedUsers() {
   for (const u of NAMED_USERS) {
     await seedUser(u.email, u.name, u.roleKey, false);
   }
-  for (const roleKey of DEMO_ROLE_KEYS) {
-    await seedUser(`demo-${roleKey}@aies.local`, `Demo ${roleKey}`, roleKey, true);
+  /**
+   * Demo accounts are **off by default** as of 2026-08-17.
+   *
+   * They share one publicly-known password and exist only to click around a role you are not. On a
+   * database holding real work — and certainly on the live one — four such accounts are four ways in
+   * that nobody owns. The seed is run again every time a numbering format is added, so deleting them
+   * by hand never stuck; this is the half that makes the deletion permanent.
+   *
+   * Set `SEED_DEMO_USERS=1` for a throwaway database where they are genuinely useful.
+   */
+  const wantDemoUsers = process.env.SEED_DEMO_USERS === "1";
+  if (wantDemoUsers) {
+    for (const roleKey of DEMO_ROLE_KEYS) {
+      await seedUser(`demo-${roleKey}@aies.local`, `Demo ${roleKey}`, roleKey, true);
+    }
   }
 
   console.log(
-    `Seeded ${NAMED_USERS.length} named users and ${DEMO_ROLE_KEYS.length} demo users. ` +
-      `Default password: "${SEED_DEFAULT_PASSWORD}" (mustChangePassword is set; TOTP enrollment ` +
+    `Seeded ${NAMED_USERS.length} named users` +
+      (wantDemoUsers
+        ? ` and ${DEMO_ROLE_KEYS.length} demo users`
+        : " (demo users skipped — set SEED_DEMO_USERS=1 to include them)") +
+      `. Default password: "${SEED_DEFAULT_PASSWORD}" (mustChangePassword is set; TOTP enrollment ` +
       `is forced separately at first login).`,
   );
 }

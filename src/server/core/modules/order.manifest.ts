@@ -114,6 +114,16 @@ export const orderManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "admin_manager", "operations_manager"],
     },
     {
+      key: "supplier_po.delete",
+      label: "Delete a supplier purchase order raised in error",
+      group: "Orders",
+      // Asked for by the company on 2026-08-17: "there could be mistakes for double entries." EA, KJ
+      // and PD — president, vice-president and admin manager. Deliberately not procurement's own
+      // `supplier_po.create`: the person who typed the duplicate is not the person who should be able
+      // to make it disappear. The service refuses to delete anything already sent or received.
+      defaultRoles: ["president", "vice_president", "admin_manager"],
+    },
+    {
       key: "supplier_po.approve",
       label: "Approve a supplier purchase order",
       group: "Orders",
@@ -221,7 +231,8 @@ export const orderManifest = defineManifest({
       permission: "sales_order.view",
       // Immediately after the quotation block: a sales order is what a won quotation becomes, and
       // it is the screen procurement, finance and operations all start from.
-      order: 28,
+      group: "Orders",
+      order: 30,
     },
     {
       label: "Procurement",
@@ -231,7 +242,8 @@ export const orderManifest = defineManifest({
       // §5's expediting view. Its own entry rather than a tab on sales orders, because the question
       // it answers — "what is late, and whose delivery does it delay?" — is asked across every
       // order at once.
-      order: 29,
+      group: "Orders",
+      order: 31,
     },
     {
       label: "Suppliers",
@@ -240,7 +252,8 @@ export const orderManifest = defineManifest({
       permission: "supplier.manage",
       // After the quotation block (20-21), because a supplier is who you buy from once a quotation
       // has been won.
-      order: 30,
+      group: "Orders",
+      order: 32,
     },
   ],
 });

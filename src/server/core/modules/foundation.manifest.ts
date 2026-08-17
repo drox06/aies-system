@@ -24,7 +24,7 @@ export const foundationManifest = defineManifest({
     { label: "Home", href: "/", icon: "home", order: 0 },
     // Everyone can reach their own approval inbox; it is empty unless something is waiting on
     // them, so gating it on a permission would only hide it from the people who need it.
-    { label: "Approvals", href: "/approvals", icon: "check", order: 90 },
+    { label: "Approvals", href: "/approvals", icon: "check", order: 2 },
     {
       label: "Users",
       href: "/admin/users",

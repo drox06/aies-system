@@ -2279,6 +2279,117 @@ already moves the ticket to `for_closeout`, which is what "proceeds to Service R
 **Still to build in module 04:** §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base (the rest of it), §17's scheduling.
 
+### Session 11 — §12's service report and close-out, and module 04's three documents
+
+- [x] **`ServiceReport` and `ProjectCloseOut`**, and the six blockers §12 names.
+- [x] **The blockers are computed, never ticked.** A close-out checklist is normally a `Json` column
+      of booleans somebody ticks — a document saying only that a person clicked six times, which
+      cannot be wrong because it claims nothing about the world. §12 makes close-out the handover
+      that releases final billing, so all six are derived from the sections that own the facts:
+      punch items from §10, QA from §9, advances from §5, tools from §7. docs/DECISIONS.md #72.
+- [x] **The cached checklist is for rendering; closing recomputes.** A cached "yes" from last Tuesday
+      is not a thing to bill a customer on.
+- [x] **Only the latest QA verdict per ticket counts.** A ticket that failed in March and passed in
+      April went round §9's rework loop and came out — counting any historical failure would block
+      close-out on something already put right, and a blocker nobody can clear is one people learn to
+      route around.
+- [x] **Every blocker is its own query and its own row**, because §20 requires each to block alone
+      and release alone, and the cheapest way to be sure is for no two to share a code path. There is
+      a test per blocker in both directions, and four of the six are exercised through real records.
+- [x] **Cleared rows are returned too**, each with its owner named — §12 wants a checklist "so the PM
+      can see who owns each one", and a list containing only problems makes "clear" indistinguishable
+      from "nobody checked".
+- [x] **A service report AIES signed alone is AIES's account of its own work.** Signature and
+      approval stay two acts: the customer signs what the technician wrote, somebody at AIES then
+      stands behind it.
+- [x] **`/projects` and `/projects/[id]`, built because nothing existed.** `Project` has been a model
+      since session 1 with no screen at all; §12's checklist is the first thing that needed one. That
+      also brought `project.view` off the manifest's held-back list — the rule working exactly as its
+      comment describes: a permission returns the moment something gates it.
+
+**Module 04's three documents, all now built.**
+
+- [x] **§10's T&C certificate** — the billing trigger. Every test prints with the criterion it was
+      judged against *and where that criterion came from*, so a reader months later sees "12.0
+      against 4 to 20, from the accepted quotation" rather than "PASS". Criteria nobody could tie to
+      a quoted line print as stated on site; unresolved tests print unresolved rather than being
+      dropped. It prints DRAFT until commissioning is complete, so nothing is billed against a
+      half-finished record.
+- [x] **§8's daily progress report** — deferred since session 7, and the reason it was worth
+      deferring is what it now does: it totals AIES's own standby beside the customer's. A variation
+      claim that quietly omits our equipment failures is the one their engineer takes apart.
+- [x] **§12's close-out pack** — cover sheet, index and summary sections. It does **not** append the
+      attached files: merging arbitrary uploaded bytes needs a PDF manipulation library this project
+      does not carry, and cannot work at all for photographs and scans. A merger that silently
+      dropped every non-PDF would produce a pack that looks complete and is not. So the index answers
+      all sixteen items instead — present, absent, or *not built yet* naming the section that owes
+      it. docs/DECISIONS.md #73.
+- [x] All three render to real bytes in a test, not only correct props — a bad style throws inside
+      `@react-pdf` at render time and every props assertion would still pass.
+
+**Migration** `20260817…_service_report_closeout`.
+
+**State at this stop.** Typecheck, lint, Prettier and `build:check` clean.
+
+**Still to build in module 04:** §13's delivery lane, §14's offline PWA, §15's checklists, §16's time
+and installed base (the rest of it), §17's scheduling.
+
+**What §13 unblocks:** module 03's §7 delivery receipt, and with it `sales_order.goods_delivered`,
+`delivery.dr_signed` and `po_received → won`.
+
+### Review pass — the company's second walk through the screens (2026-08-17)
+
+Eight items from a desktop review of sessions 8-11, plus the clean-up before going live.
+
+- [x] **Site inspection attendance is Sales / Technical / Others-with-a-name**, and acting on it
+      surfaced a defect: the form's "Who attended" wrote to the field meaning *who was assigned to
+      go*. One column, two meanings, with the completeness gate reading it as attendance — so a survey
+      where the assigned person was replaced could never be recorded honestly. Now two fields.
+      docs/DECISIONS.md #74.
+- [x] **The person who requested a survey can approve its report.** The company's reason was better
+      than the code's: an officer signing off a survey they did not ask for is a rubber stamp. The
+      check moved into the service, because `project.manage` **or** being the requester is not
+      expressible in a single-permission router gate. docs/DECISIONS.md #75.
+- [x] **Survey photographs are mirrored, not asked for twice.** The inquiry panel had its own bucket
+      and the surveyor's report had another, so a photo had to be uploaded in both places to be
+      visible in both — meaning one was always stale. Same entity, same files, two screens.
+- [x] **Quotation line descriptions are a textarea**, because a line often carries several entries and
+      a field showing twelve characters is one people write badly in.
+- [x] **A drafted supplier PO can be deleted** by EA, KJ or PD — a double entry was never a
+      commitment. Refused once sent, because then it exists outside this system and the honest
+      correction is a cancellation the supplier can see. Soft-deleted, audited with a reason, number
+      never reused.
+- [x] **Tools required is a tickable card** of 22 basics plus Others with add/remove lines. Free text
+      could not be picked by the store or seed §7's material request; existing statements round-trip
+      into Others rather than vanishing.
+- [x] **The method statement names its reviewer.** The permission always included the Operations
+      Manager but the screen named nobody, so it went to whichever officer looked first.
+- [x] **The navigation is grouped** — Sales, Customers, Orders, Operations, Admin, with Home, My day
+      and Approvals ungrouped at the top. The shell has rendered group titles since session 5; the
+      manifests simply never set them.
+
+**Going live, prepared for.**
+
+- [x] **Demo accounts are off by default.** Four `demo-*@aies.local` logins shared one publicly-known
+      password, and deleting them never stuck because the seed recreated them every time a numbering
+      format was added. Now behind `SEED_DEMO_USERS=1`. docs/DECISIONS.md #76.
+- [x] **`scripts/demo-crm-data.ts` is guarded** by `ALLOW_DEMO_DATA=1`. Its header had said "do not
+      run against production" since it was written, and a comment is not a guard.
+- [x] **The database is clean.** `scripts/purge-test-data.ts`, dry-run by default. What survives:
+      A4One, Plotork, KJ Tech, Bestop, both real inquiries, both accepted quotations, and the five
+      named users. What went: 27 accounts and 27 suppliers left by one aborted vitest run, their 28
+      quotations and 28 sales orders, 13 test and demo logins, and every module 04 record from the
+      review pass. The audit log was kept deliberately. docs/DECISIONS.md #77.
+- [x] **Customer accounts are searchable at last.** `reindexAccount` has existed since module 01 and
+      nothing ever called it; the purge's rebuild step now does.
+
+**State at this stop.** **1204 tests** across 111 files pass; typecheck, lint, Prettier and
+`build:check` clean. Counters reset last — next quotation AIESLQ260003, next inquiry AIESINQ-260003.
+
+**Owed to the company:** the phone pass over every screen once the app is on Vercel. It matters more
+after today, because the attendee rows, the tools card and the wider line description are all new
+multi-column layouts.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
@@ -2306,6 +2417,15 @@ offline PWA, §15's checklists, §16's time and installed base (the rest of it),
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #74-#77: the 2026-08-17 review pass (who was sent and who turned up are two
+  facts; a relationship can substitute for a role, which a single-permission gate cannot express;
+  demo accounts must be off by default rather than deleted by hand, since the seed recreated them;
+  and a sales order belongs to the deal rather than the account, which is what stopped the purge
+  half way through).
+- docs/DECISIONS.md #72-#73: session 11 (§12's close-out blockers are computed from the records the
+  other sections own rather than ticked by hand, because a checklist somebody can tick past is not
+  the handover that releases final billing; and the close-out pack is an index rather than a merged
+  binder, naming what is missing instead of omitting it).
 - docs/DECISIONS.md #71: session 10 (§11's three outcomes are two questions — coverage and fault —
   because one field cannot express "our fault, out of warranty", which §11 makes non-billable and an
   NCR regardless of the window; and a missing warranty date is `unknown` rather than expired, since

@@ -9,7 +9,11 @@ import { DateCell } from "@/components/ui/cells";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
-import { METHODOLOGY_ENTITY_TYPE } from "@/server/core/operations/methodology-rules";
+import {
+  BASIC_TOOLS,
+  METHODOLOGY_ENTITY_TYPE,
+  isBasicTool,
+} from "@/server/core/operations/methodology-rules";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -241,7 +245,14 @@ function MethodologyForm({
   const [materials, setMaterials] = useState<Material[]>(
     Array.isArray(initial.materialsRequired) ? (initial.materialsRequired as Material[]) : [],
   );
-  const [tools, setTools] = useState(initial.toolsRequired.join(", "));
+  // Split on the way in so an existing statement round-trips: ticked basics stay ticked, and
+  // anything typed before this card existed lands in the Others lines rather than disappearing.
+  const [tickedTools, setTickedTools] = useState<string[]>(() =>
+    initial.toolsRequired.filter(isBasicTool),
+  );
+  const [otherTools, setOtherTools] = useState<string[]>(() =>
+    initial.toolsRequired.filter((tool) => !isBasicTool(tool)),
+  );
   const [permits, setPermits] = useState(initial.permitsRequired.join(", "));
   const [duration, setDuration] = useState(initial.durationDays?.toString() ?? "");
   const [mobilization, setMobilization] = useState(initial.mobilizationPlan ?? "");
@@ -433,16 +444,67 @@ function MethodologyForm({
         </Button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="m-tools">Tools required</Label>
-          <Input
-            id="m-tools"
-            placeholder="Torque wrench, gas detector"
-            value={tools}
-            onChange={(e) => setTools(e.target.value)}
-          />
+      {/*
+        A tickable card rather than a text field. "Adjustable wrench" written six ways is not
+        something the store can pick or §7's material request can be seeded from, which is what
+        listing tools on a method statement is for. Anything specialised goes in Others.
+      */}
+      <div className="mt-4 rounded-md border border-border p-3">
+        <Label>Tools required</Label>
+        <div className="mt-2 grid gap-x-4 gap-y-1.5 sm:grid-cols-3">
+          {BASIC_TOOLS.map((tool) => (
+            <label key={tool} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={tickedTools.includes(tool)}
+                onChange={(e) =>
+                  setTickedTools(
+                    e.target.checked
+                      ? [...tickedTools, tool]
+                      : tickedTools.filter((t) => t !== tool),
+                  )
+                }
+              />
+              {tool}
+            </label>
+          ))}
         </div>
+
+        <div className="mt-3">
+          <Label>Others</Label>
+          <div className="mt-1 space-y-2">
+            {otherTools.map((tool, index) => (
+              <div key={index} className="flex gap-2">
+                <Input
+                  aria-label={`Other tool ${index + 1}`}
+                  placeholder="Gas detector, hydraulic torque tool"
+                  value={tool}
+                  onChange={(e) =>
+                    setOtherTools(otherTools.map((t, i) => (i === index ? e.target.value : t)))
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setOtherTools(otherTools.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2"
+            onClick={() => setOtherTools([...otherTools, ""])}
+          >
+            Add another
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
           <Label htmlFor="m-permits">Permits required</Label>
           <Input
@@ -515,7 +577,7 @@ function MethodologyForm({
             sequenceOfWork: steps.map((step, index) => ({ ...step, step: index + 1 })),
             manpowerPlan: crew,
             materialsRequired: materials.filter((m) => m.description.trim()),
-            toolsRequired: list(tools),
+            toolsRequired: [...tickedTools, ...otherTools.map((t) => t.trim()).filter(Boolean)],
             permitsRequired: list(permits),
             durationDays: duration ? Number(duration) : null,
             mobilizationPlan: mobilization || null,
@@ -620,6 +682,20 @@ function Lifecycle({
   return (
     <Card className="p-4">
       <h2 className="text-sm font-semibold">What happens next</h2>
+
+      {/*
+        Who should review it, said out loud. The permission has always included the operations
+        manager, but the screen named nobody — so in practice it went to whichever officer looked
+        first. The company's instruction of 2026-08-17: operations reviews the method statement, and
+        the officers are the fallback rather than the default. They are the people who will have to
+        execute it.
+      */}
+      {data.status === "internal_review" && (
+        <p className="mt-1 text-xs text-text-muted">
+          Operations reviews this first — DJ or whoever holds Operations Manager. The president and
+          vice-president can approve it, but they are the fallback, not the first reader.
+        </p>
+      )}
 
       {error && <p className="mt-2 text-sm text-danger">{error.message}</p>}
 

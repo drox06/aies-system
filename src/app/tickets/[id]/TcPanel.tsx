@@ -139,6 +139,15 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
                   Signed off without the customer&rsquo;s signature. {row.signOffRemarks}
                 </p>
               )}
+              {/* §10's certificate. A draft prints with its own banner rather than being withheld. */}
+              <a
+                href={`/api/tc/${row.id}/pdf`}
+                className="mt-1 inline-block text-xs underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download the certificate
+              </a>
             </li>
           ))}
         </ul>

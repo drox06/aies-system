@@ -470,6 +470,22 @@ async function backfillSearchIndex() {
   );
 }
 
+/**
+ * The header has said "do not run it against production" since it was written, and a comment is not a
+ * guard — docs/DECISIONS.md #76. Same shape as `ALLOW_E2E_USER` and `SEED_DEMO_USERS`: the dangerous
+ * thing needs a deliberate flag, not a warning somebody has to have read.
+ *
+ * `--clean` is exempt. Removing demo rows is safe everywhere, and needing a flag to tidy up is how
+ * demo data ends up living on a production database.
+ */
+if (process.env.ALLOW_DEMO_DATA !== "1" && !process.argv.includes("--clean")) {
+  console.error(
+    "Refusing: set ALLOW_DEMO_DATA=1 to create demo CRM data. It writes dozens of fake accounts, " +
+      "inquiries and accreditations, and must never run against the live database.",
+  );
+  process.exit(1);
+}
+
 main()
   .catch((err: unknown) => {
     console.error(err);

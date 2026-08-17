@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AuditTrail } from "@/components/AuditTrail";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
@@ -67,6 +68,15 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
   const decide = trpc.order.decideSupplierPoApproval.useMutation({ onSuccess: refresh });
   const send = trpc.order.sendSupplierPo.useMutation({ onSuccess: refresh });
   const acknowledge = trpc.order.acknowledgeSupplierPo.useMutation({ onSuccess: refresh });
+  const router = useRouter();
+  const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  const remove = trpc.order.deleteSupplierPo.useMutation({
+    onSuccess: () => {
+      refresh();
+      router.push("/procurement");
+    },
+  });
+  const [deleteReason, setDeleteReason] = useState("");
 
   if (po.isPending) return <p className="text-sm text-text-muted">Loading…</p>;
   if (po.error) {
@@ -493,6 +503,42 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
           </Card>
         </div>
       </RecordLayout>
+      {/*
+        Deleting is for a duplicate that should never have existed — asked for on 2026-08-17. It is
+        deliberately not the same act as cancelling: a cancellation is a commitment the company
+        withdrew and stays visible; a double entry was never a commitment. The service refuses
+        anything already sent or received.
+      */}
+      {(me.data?.permissions ?? []).includes("supplier_po.delete") && !data.sentAt && (
+        <Card className="border-danger/30 p-4">
+          <h2 className="text-sm font-semibold text-danger">Delete this order</h2>
+          <p className="mt-1 text-xs text-text-muted">
+            For a duplicate or an order raised in error. Refused once it has been sent to the
+            supplier or goods have arrived — cancel it instead, so they see the withdrawal. The
+            number is never reused, so the gap stays as a trace.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <div className="grow">
+              <Label htmlFor="po-delete-reason">Why</Label>
+              <Input
+                id="po-delete-reason"
+                placeholder="Duplicate of AIESPO-260012"
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+              />
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={remove.isPending || deleteReason.trim().length < 3}
+              onClick={() => remove.mutate({ supplierPOId: id, reason: deleteReason })}
+            >
+              Delete
+            </Button>
+          </div>
+          {remove.error && <p className="mt-2 text-sm text-danger">{remove.error.message}</p>}
+        </Card>
+      )}
     </div>
   );
 }

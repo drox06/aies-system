@@ -31,7 +31,8 @@ describe("operations manifest", () => {
       "delivery.execute",
       // Declared in session 1 and removed the same day: they gated nothing either.
       "ticket.cancel",
-      "project.view",
+      // `project.view` came off this list in session 11, which gave it the /projects route §12's
+      // close-out checklist needs.
       // `project.manage` was on this list until session 3, which gave it §6.1's inspection sign-off.
       // That is the rule working in the intended direction: a permission comes back the moment
       // something gates it, not before.
@@ -80,6 +81,8 @@ describe("operations manifest", () => {
       "punch_item.raised",
       "warranty.claim_raised",
       "warranty.expiring",
+      "service_report.approved",
+      "project.closed",
     ]);
   });
 

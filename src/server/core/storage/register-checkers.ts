@@ -40,6 +40,7 @@ import "@/server/core/crm/accreditation-access";
 import "@/server/core/crm/inspection-access";
 import "@/server/core/crm/principal-access";
 import "@/server/core/crm/principal-lifecycle";
+import "@/server/core/operations/close-out-service";
 import "@/server/core/operations/daily-progress-service";
 import "@/server/core/operations/methodology-service";
 import "@/server/core/operations/qa-service";

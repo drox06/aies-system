@@ -866,3 +866,93 @@ export async function listStaleCostsForSalesOrderService(salesOrderId: string) {
     ];
   });
 }
+
+/**
+ * Deletes a supplier PO that should never have existed.
+ *
+ * The company's reason, from the 2026-08-17 review: "there could be mistakes for double entries."
+ * That is a real need and it is **not** what cancelling is for. A cancelled PO is a commitment the
+ * company made and then withdrew, and it stays on the record because the supplier was told about it.
+ * A double entry is a typing mistake that was never a commitment, and leaving it cancelled forever
+ * puts a phantom order in the expediting view and the spend history.
+ *
+ * ## What it refuses
+ *
+ * **A PO that has been sent.** Once the supplier has it, the order exists in the world and the
+ * honest correction is a cancellation they can see, not a deletion they cannot.
+ *
+ * **A PO that goods arrived against**, for the reason cancelling refuses it: a receipt with no order
+ * behind it is worse than a wrong order.
+ *
+ * Soft-deleted rather than destroyed, and the audit row names the reason — the record of the mistake
+ * survives even though the order stops appearing. Numbers are never reused (Spec.md §4.4), so the gap
+ * in the sequence is itself a trace.
+ */
+export async function deleteSupplierPoService(
+  actor: ActorMeta,
+  input: { supplierPOId: string; reason: string },
+) {
+  const po = await db.supplierPO.findFirst({
+    where: { id: input.supplierPOId, deletedAt: null },
+    select: { id: true, number: true, status: true, sentAt: true, supplierId: true },
+  });
+  if (!po) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That supplier PO no longer exists." });
+  }
+
+  if (input.reason.trim().length < 3) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Say why this order is being deleted. A record that vanishes without a reason is one nobody can audit.",
+    });
+  }
+
+  if (po.sentAt) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${po.number} has already been sent to the supplier, so it exists outside this system. ` +
+        `Cancel it instead — they need to see the withdrawal.`,
+    });
+  }
+
+  if (po.status === "received" || po.status === "partially_received") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `Goods have arrived against ${po.number}. Deleting it would leave a receipt with no order ` +
+        `behind it.`,
+    });
+  }
+
+  const receipts = await db.goodsReceipt.count({ where: { supplierPOId: po.id } });
+  if (receipts > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${receipts} goods receipt(s) reference ${po.number}. Deleting it would orphan them.`,
+    });
+  }
+
+  return db.$transaction(async (tx) => {
+    const row = await tx.supplierPO.update({
+      where: { id: po.id },
+      data: { deletedAt: new Date(), deletedBy: actor.actorId, version: { increment: 1 } },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "deleted",
+      entityType: SUPPLIER_PO_ENTITY_TYPE,
+      entityId: po.id,
+      summary: `Deleted ${po.number} (${po.status}, never sent) — ${input.reason.trim()}`,
+      diff: { deletedAt: { from: null, to: row.deletedAt } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return { id: row.id, number: row.number };
+  });
+}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Attachments } from "@/components/ui/attachments";
+import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card } from "@/components/ui/layout";
@@ -60,6 +61,12 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
   const assign = trpc.crm.assignInspection.useMutation({ onSuccess: invalidate });
   const complete = trpc.crm.completeInspection.useMutation({ onSuccess: invalidate });
   const cancel = trpc.crm.cancelInspection.useMutation({ onSuccess: invalidate });
+
+  /**
+   * The surveys these requests produced. Read so the panel can show the **site inspection's own**
+   * attachments rather than a second bucket of its own.
+   */
+  const surveys = trpc.operations.listInspections.useQuery({ inquiryId: inquiry.id });
 
   const openRequest = inquiry.inspections.find(
     (item) => item.status === "requested" || item.status === "scheduled",
@@ -147,6 +154,26 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               to put them — a request that names its deliverables and cannot receive them is a form,
               not a record. Photographs show as thumbnails and open full-size in place: a site photo
               you have to download before you can see it is one nobody looks at. */}
+          {/*
+            The survey's own photographs, mirrored here rather than asked for twice. Until 2026-08-17
+            this panel had its own `InspectionRequest` bucket and the surveyor's report had another,
+            so a site photo had to be uploaded in both places to be visible in both — which meant one
+            of the two was always the stale copy. Same entity, same files, two screens.
+          */}
+          {(surveys.data ?? [])
+            .filter((survey) => survey.inspectionRequestId === item.id)
+            .map((survey) => (
+              <div key={survey.id} className="mt-2 border-t border-border pt-2">
+                <Attachments
+                  entityType={SITE_INSPECTION_ENTITY_TYPE}
+                  entityId={survey.id}
+                  label={`Photographs from ${survey.number}`}
+                  hint="The surveyor's own upload — the same files the report shows. Nothing to re-upload."
+                  emptyText="The surveyor has not attached anything yet."
+                />
+              </div>
+            ))}
+
           <div className="mt-2 border-t border-border pt-2">
             <Attachments
               entityType="InspectionRequest"

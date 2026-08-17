@@ -110,6 +110,7 @@ model Ticket {
   dailyProgress         DailyProgress[]
   qaApprovals           QAApproval[]
   testingCommissionings TestingCommissioning[]
+  serviceReports        ServiceReport[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -211,6 +212,8 @@ model Project {
   dailyProgress         DailyProgress[]
   qaApprovals           QAApproval[]
   testingCommissionings TestingCommissioning[]
+  serviceReports        ServiceReport[]
+  closeOut              ProjectCloseOut?
   warrantyClaims        WarrantyClaim[]
 
   @@index([accountId, status])
@@ -378,9 +381,18 @@ model SiteInspection {
   siteId              String?
 
   inspectedAt    DateTime?
-  /// Plain ids. Several people attend a survey and the list is read whole, never queried across —
-  /// the same choice `Ticket.assignedUserIds` made.
+  /// Who was *assigned* to go, set when the survey is scheduled. Plain ids — the list is read whole,
+  /// never queried across, the same choice `Ticket.assignedUserIds` made.
   inspectedByIds String[]  @default([])
+
+  /// Who actually attended: `[{ party, name }]` where party is sales | technical | other.
+  ///
+  /// Separate from `inspectedByIds` because they are different facts, and conflating them was the
+  /// original flaw — the form asked "who attended" and wrote it to the assignment field. Asked for by
+  /// the company on 2026-08-17: internal attendance is recorded by department, since that is what
+  /// matters for a survey, and anybody else — the client's engineer, a principal's representative —
+  /// is named. An `other` with no name is refused; see site-inspection-rules.ts.
+  attendees Json @default("[]")
 
   /// §6.1's free-form record of what was found and what is already there.
   findings           String?
@@ -1111,4 +1123,116 @@ model WarrantyClaim {
   @@index([accountId, status])
   @@index([coverage, attribution])
   @@index([reportedAt])
+}
+
+/// The service report (specs/04-operations-projects.md §12).
+///
+/// §12: "Customer signs on the technician's device; the PDF emails to the customer on sync and files
+/// against the equipment and project."
+model ServiceReport {
+  id     String @id @default(cuid())
+  /// AIESSR-{YY}{####}.
+  number String @unique
+
+  ticketId  String
+  projectId String?
+
+  workPerformed   String
+  findings        String?
+  recommendations String?
+  /// [{ description, partNumber, quantity, unit, fromStock, stockItemId }] (§12).
+  partsUsed       Json    @default("[]")
+
+  /// The installed base this touched, so the report files against the equipment as §12 asks.
+  equipmentIds String[] @default([])
+
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  travelTimeMin  Int?
+  standbyTimeMin Int?
+
+  /// draft | pending_signature | signed | submitted | approved (§12).
+  status String @default("draft")
+
+  /// The customer's signature. A report AIES signed alone is AIES's account of its own work — the
+  /// same standard §5's receipts, §6.2's approval document, §9's evidence and §10's certificate are
+  /// held to.
+  customerSignatureFileId String?
+  customerName            String?
+  customerPosition        String?
+  customerRemarks         String?
+  /// Why there is no customer signature, where there is none. Required to sign off without one.
+  signatureWaiverReason   String?
+
+  technicianSignatureFileId String?
+  photoFileIds              String[] @default([])
+
+  followUpRequired Boolean @default(false)
+  followUpNotes    String?
+  ncrRaised        Boolean @default(false)
+
+  preparedById String
+  approvedById String?
+  approvedAt   DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket   @relation(fields: [ticketId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([ticketId, status])
+  @@index([projectId, status])
+}
+
+/// Project close-out (specs/04-operations-projects.md §12).
+///
+/// One per project — close-out is a state the project reaches, not an event that can happen twice.
+///
+/// §12: "Approval emits `project.closed` → module 05 releases final billing. **This is the explicit
+/// handover the brief describes.**" Which is why the blockers are computed rather than ticked: a
+/// checklist somebody can tick past is not a handover, it is a formality.
+model ProjectCloseOut {
+  id        String @id @default(cuid())
+  projectId String @unique
+
+  /// The blockers as they stood when last computed, kept so the screen can show who owns each one
+  /// without recomputing six queries on every render. Recomputed on demand — never trusted as the
+  /// answer to "can this close".
+  checklist Json @default("[]")
+
+  /// in_progress | submitted | approved
+  status String @default("in_progress")
+
+  documentIds String[] @default([])
+
+  submittedById String?
+  submittedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+
+  /// §12's blocker: "missing customer acceptance where required". Required by default — the safe
+  /// direction, since the effect of the default is to hold rather than to release. Waiving it is a
+  /// deliberate act with a reason, not a blank field.
+  customerAcceptanceRequired Boolean   @default(true)
+  customerAcceptanceFileId   String?
+  acceptanceDate             DateTime?
+  acceptanceWaiverReason     String?
+
+  lessonsLearned String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([status])
 }

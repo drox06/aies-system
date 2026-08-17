@@ -80,9 +80,61 @@ export interface CompletenessCheck {
  * a survey with one meaningless photograph attached to clear a gate is worse than one that admits
  * it has none.
  */
+/**
+ * Who attended a survey, as the company records it.
+ *
+ * Departments rather than named staff for AIES's own people: on a site survey what matters is that
+ * sales and technical were both there, and a picker of every employee is a list somebody scrolls past
+ * rather than reads. Anybody who is not AIES — the client's engineer, a principal's representative —
+ * goes under `other` and is named, because "other" with nothing after it records nothing at all.
+ *
+ * Asked for by the company on 2026-08-17, replacing a checkbox list of internal users.
+ */
+export const ATTENDEE_PARTIES = ["sales", "technical", "other"] as const;
+export type AttendeeParty = (typeof ATTENDEE_PARTIES)[number];
+
+export const ATTENDEE_PARTY_LABELS: Record<AttendeeParty, string> = {
+  sales: "Sales",
+  technical: "Technical",
+  other: "Others",
+};
+
+export interface Attendee {
+  party: AttendeeParty;
+  /** Required for `other`, optional for the two internal departments. */
+  name?: string | null;
+}
+
+export function readAttendees(raw: unknown): Attendee[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (entry): entry is Attendee =>
+      !!entry && typeof entry === "object" && ATTENDEE_PARTIES.includes((entry as Attendee).party),
+  );
+}
+
+/** An `other` attendee with no name is a blank field wearing a label. */
+export const attendeesNeedingNames = (attendees: readonly Attendee[]): Attendee[] =>
+  attendees.filter((a) => a.party === "other" && !a.name?.trim());
+
+export function describeAttendees(attendees: readonly Attendee[]): string {
+  if (attendees.length === 0) return "—";
+  return attendees
+    .map((a) =>
+      a.party === "other"
+        ? a.name?.trim() || "unnamed guest"
+        : a.name?.trim()
+          ? `${ATTENDEE_PARTY_LABELS[a.party]} (${a.name.trim()})`
+          : ATTENDEE_PARTY_LABELS[a.party],
+    )
+    .join(", ");
+}
+
 export function inspectionCompleteness(inspection: {
   inspectedAt: Date | string | null;
   inspectedByIds: readonly string[];
+  /** `[{ party, name }]` — the record of who was actually there. */
+  attendees?: unknown;
   findings: string | null;
   photoFileIds: readonly string[];
   measurements?: unknown;
@@ -93,7 +145,17 @@ export function inspectionCompleteness(inspection: {
   const warnings: string[] = [];
 
   if (!inspection.inspectedAt) missing.push("the date the site was actually visited");
-  if (inspection.inspectedByIds.length === 0) missing.push("who attended");
+  /**
+   * Attendance is read from `attendees`, not from the assignment list. The two were the same field
+   * until 2026-08-17, which meant "who was sent" and "who turned up" could never disagree — and on a
+   * survey they routinely do.
+   */
+  const attendees = readAttendees(inspection.attendees);
+  if (attendees.length === 0) missing.push("who attended");
+  const unnamed = attendeesNeedingNames(attendees);
+  if (unnamed.length > 0) {
+    missing.push(`the name of ${unnamed.length} attendee(s) recorded as "others"`);
+  }
   if (!inspection.findings?.trim()) missing.push("what was found");
 
   /**

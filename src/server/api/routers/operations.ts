@@ -53,6 +53,18 @@ import {
   upsertEquipmentService,
   warrantyReportService,
 } from "@/server/core/operations/warranty-service";
+import { ATTENDEE_PARTIES } from "@/server/core/operations/site-inspection-rules";
+import { SERVICE_REPORT_STATUSES } from "@/server/core/operations/close-out-rules";
+import {
+  advanceServiceReportService,
+  closeOutChecklistForProjectService,
+  closeOutProjectService,
+  getProjectService,
+  listProjectsService,
+  listServiceReportsForTicketService,
+  saveServiceReportService,
+  upsertCloseOutService,
+} from "@/server/core/operations/close-out-service";
 import {
   listProgressService,
   logDayService,
@@ -403,6 +415,14 @@ export const operationsRouter = router({
         inspectionId: z.string(),
         inspectedAt: z.coerce.date().nullish(),
         inspectedByIds: z.array(z.string()).optional(),
+        attendees: z
+          .array(
+            z.object({
+              party: z.enum(ATTENDEE_PARTIES),
+              name: z.string().max(200).nullish(),
+            }),
+          )
+          .optional(),
         findings: z.string().max(20000).nullish(),
         existingConditions: z.record(z.string(), z.unknown()).optional(),
         measurements: z
@@ -437,9 +457,15 @@ export const operationsRouter = router({
     .mutation(({ ctx, input }) => completeInspectionService(actorMeta(ctx), input.inspectionId)),
 
   /** §6.1's `approved`. See INSPECTION_APPROVE_PERMISSION for why `project.manage` gates it. */
-  approveInspection: p("project.manage")
+  /**
+   * §6.1's sign-off. `ticket.execute` at the door; the real rule is in the service, because being
+   * the person who asked for the survey is as good as holding `project.manage` here.
+   */
+  approveInspection: p("ticket.execute")
     .input(z.object({ inspectionId: z.string() }))
-    .mutation(({ ctx, input }) => approveInspectionService(actorMeta(ctx), input.inspectionId)),
+    .mutation(({ ctx, input }) =>
+      approveInspectionService(ctx.user, actorMeta(ctx), input.inspectionId),
+    ),
 
   listInspections: p("ticket.view")
     .input(
@@ -1093,6 +1119,92 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => upsertEquipmentService(actorMeta(ctx), input)),
+
+  saveServiceReport: p("ticket.execute")
+    .input(
+      z.object({
+        id: z.string().optional(),
+        ticketId: z.string(),
+        workPerformed: z.string().min(1).max(20000),
+        findings: z.string().max(20000).nullish(),
+        recommendations: z.string().max(20000).nullish(),
+        partsUsed: z
+          .array(
+            z.object({
+              description: z.string().min(1).max(500),
+              partNumber: z.string().max(200).nullish(),
+              quantity: z.number().positive(),
+              unit: z.string().max(40).nullish(),
+              fromStock: z.boolean().optional(),
+              stockItemId: z.string().nullish(),
+            }),
+          )
+          .optional(),
+        equipmentIds: z.array(z.string()).optional(),
+        startedAt: z.coerce.date().nullish(),
+        finishedAt: z.coerce.date().nullish(),
+        travelTimeMin: z.number().int().nonnegative().nullish(),
+        standbyTimeMin: z.number().int().nonnegative().nullish(),
+        photoFileIds: z.array(z.string()).optional(),
+        followUpRequired: z.boolean().optional(),
+        followUpNotes: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveServiceReportService(actorMeta(ctx), input)),
+
+  /**
+   * §19 gives approval its own permission. The customer signs what the technician wrote; somebody at
+   * AIES then stands behind it. One click doing both would collapse two different claims.
+   */
+  advanceServiceReport: p("service_report.approve")
+    .input(
+      z.object({
+        id: z.string(),
+        target: z.enum(SERVICE_REPORT_STATUSES),
+        customerSignatureFileId: z.string().nullish(),
+        customerName: z.string().max(200).nullish(),
+        customerPosition: z.string().max(200).nullish(),
+        customerRemarks: z.string().max(5000).nullish(),
+        signatureWaiverReason: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => advanceServiceReportService(actorMeta(ctx), input)),
+
+  listServiceReports: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => listServiceReportsForTicketService(input.ticketId)),
+
+  /** §12's blockers, computed from what the other sections recorded rather than ticked by hand. */
+  closeOutChecklist: p("ticket.view")
+    .input(z.object({ projectId: z.string() }))
+    .query(({ input }) => closeOutChecklistForProjectService(input.projectId)),
+
+  upsertCloseOut: p("project.manage")
+    .input(
+      z.object({
+        projectId: z.string(),
+        customerAcceptanceRequired: z.boolean().optional(),
+        customerAcceptanceFileId: z.string().nullish(),
+        acceptanceDate: z.coerce.date().nullish(),
+        acceptanceWaiverReason: z.string().max(2000).nullish(),
+        lessonsLearned: z.string().max(20000).nullish(),
+        documentIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => upsertCloseOutService(actorMeta(ctx), input)),
+
+  /** §12: closing emits `project.closed`, which is what releases final billing in module 05. */
+  closeOutProject: p("project.close")
+    .input(z.object({ projectId: z.string(), lessonsLearned: z.string().max(20000).nullish() }))
+    .mutation(({ ctx, input }) => closeOutProjectService(actorMeta(ctx), input)),
+
+  listProjects: p("project.view")
+    .input(z.object({ status: z.string().optional() }).optional())
+    .query(({ input }) => listProjectsService(input ?? {})),
+
+  getProject: p("project.view")
+    .input(z.object({ projectId: z.string() }))
+    .query(({ input }) => getProjectService(input.projectId)),
 
   adjustStock: p("material_request.issue")
     .input(

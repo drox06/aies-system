@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/layout";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   computeCosting,
@@ -163,9 +163,16 @@ export function LineEditor({
                       onChange={(e) => update(index, { groupLabel: e.target.value })}
                     />
                   </td>
-                  <td className="py-1 pr-2">
-                    <Input
+                  <td className="min-w-[18rem] py-1 pr-2">
+                    {/*
+                      A textarea rather than a single-line input: a quotation line often carries
+                      several entries — a pump with its seal kit and its coupling — and a field that
+                      shows twelve characters at a time is one people write badly in.
+                    */}
+                    <Textarea
                       aria-label={`Line ${index + 1} description`}
+                      rows={2}
+                      className="min-h-[3.25rem] w-full"
                       value={line.description}
                       disabled={!editable}
                       onChange={(e) => update(index, { description: e.target.value })}
