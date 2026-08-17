@@ -6,9 +6,9 @@ import { defineManifest } from "@/server/core/module-registry";
  * The largest module in the build: four gates, a delivery lane, an offline-first field application,
  * digital checklists and dispatch scheduling. Three sessions are in: §4's ticket and proposal, §5's
  * cash advance gate, §6.1's site inspection, §6.2's methodology, §7's material request and
- * §8's mobilisation and execution.
+ * §8's mobilisation and execution, and §9's client QA gate.
  *
- * §19 lists thirty permissions for the finished module; seventeen are here, because nine gate something.
+ * §19 lists thirty permissions for the finished module; eighteen are here, because nine gate something.
  * **A permission is declared in the change that uses it** — the same rule `emits` follows, enforced
  * by tests/server/core/modules/permissions-are-used.test.ts. A permission declared ahead of its gate
  * sits in the admin role screen granting access to nothing; somebody assigns it and wonders why
@@ -36,6 +36,7 @@ export const operationsManifest = defineManifest({
     "StockMovement",
     "Mobilization",
     "DailyProgress",
+    "QAApproval",
   ],
 
   permissions: [
@@ -207,6 +208,15 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "admin_manager", "operations_manager"],
     },
     {
+      key: "qa.record",
+      label: "Record the client's QA outcome and upload their evidence",
+      group: "Operations",
+      // §19 names the level: "operations manager and above". Deliberately not the technician who did
+      // the work — §9's whole point is that the verdict is the client's, and the person recording it
+      // should not be the person it judges.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
       key: "ticket.dispatch",
       label: "Send a crew to site, and record their return",
       group: "Operations",
@@ -232,7 +242,7 @@ export const operationsManifest = defineManifest({
   ],
 
   /**
-   * §18 lists twenty-eight events. Thirteen are emitted today.
+   * §18 lists twenty-eight events. Fifteen are emitted today.
    *
    * The registry rejects a subscription to an event nothing emits, so declaring the rest now would
    * let a later module subscribe to something that never fires — which fails silently, and is worse
@@ -252,6 +262,8 @@ export const operationsManifest = defineManifest({
     "ticket.mobilized",
     "ticket.started",
     "ticket.demobilized",
+    "qa.passed",
+    "qa.failed",
   ],
 
   /**

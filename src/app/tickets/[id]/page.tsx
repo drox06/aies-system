@@ -9,6 +9,7 @@ import { MaterialPanel } from "./MaterialPanel";
 import { MethodologyPanel } from "./MethodologyPanel";
 import { MobilizationPanel } from "./MobilizationPanel";
 import { ProgressPanel } from "./ProgressPanel";
+import { QaPanel } from "./QaPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -187,6 +188,8 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
           <MobilizationPanel ticketId={data.id} />
 
           <ProgressPanel ticketId={data.id} />
+
+          <QaPanel ticketId={data.id} />
 
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>

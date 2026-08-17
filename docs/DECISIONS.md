@@ -2377,3 +2377,48 @@ wrote its audit row and moved the status. Neither had a test proving anybody cou
 because at the time nothing could. Where a feature's whole purpose is to unblock something that does
 not exist yet, the test that matters cannot be written yet — and that is worth writing down at the
 time, rather than discovering two sessions later.
+
+## #67 — A metric that moves backwards as work finishes is a metric nobody trusts
+
+§9 calls first-time-right "the quality metric that matters most and is currently unmeasurable", so
+the moment `QAApproval` rows exist it becomes measurable and the counting rule has to be decided
+deliberately rather than fallen into.
+
+`firstTimeRightRate` counts over **approved records only**. A job currently going round the rework
+loop is not counted as a first-time-right failure, even though it plainly failed the first time.
+
+The alternative — count every inspected job, failures included — is more intuitive and is wrong. A
+job rejected today and approved next week would move the rate *down* on rejection and back *up* on
+approval. A number that gets worse while the crew fixes the problem, then recovers when they finish,
+is one people learn to argue with rather than act on. Counting only finished jobs means the rate
+moves in one direction per job and never revises itself.
+
+The cost is that the rate lags: a bad month looks fine until its rework clears. That is the right
+trade for a metric whose whole purpose is to be quoted in a review meeting without a caveat.
+
+### A rate over zero jobs is not 100%
+
+`ratePct` is `null`, not `100`, when nothing has been inspected, and the message says so in words.
+Zero-denominator percentages default to flattering — a fresh install would report perfect quality —
+and a dashboard tile reading 100% is indistinguishable from a real one.
+
+## #68 — A scripted edit that misses its anchor fails silently, and green proves nothing
+
+Three times in this module a Python edit script did not change what it was supposed to change, and
+in each case the build, the typecheck and the lint all passed afterwards — because the code they
+checked was the unchanged code.
+
+- `ProgressPanel` was never wired into the ticket page: the script asserted *after* a partial
+  replacement, so the assertion threw before `write_text` and nothing at all was written.
+- The `methodology` numbering format, and later `qa_approval`, failed to match because Prettier had
+  reflowed the anchor line since the pattern was written.
+
+The shape is the same each time: a `str.replace` that matches nothing returns the original string
+perfectly happily, and every downstream check then agrees the untouched code is fine.
+
+**The practice:** assert before writing, never after; and verify by the effect rather than by the
+exit code — count the wire-ins, re-read the seeded formats, grep for the symbol. "The build passed"
+is evidence about code that may not be the code that was meant to exist.
+
+The related habit, from the same cause: run Prettier **before** the suite rather than after, so a
+formatting pass cannot reflow a file out from under an edit that has already been verified.

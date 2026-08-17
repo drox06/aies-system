@@ -21,6 +21,12 @@ import { listInspectionAssigneesService } from "@/server/core/crm/inspection-ser
 import { ITEM_TYPES, SOURCES } from "@/server/core/operations/material-request-rules";
 import { CLEARANCE_STATES, MOBILIZATION_TYPES } from "@/server/core/operations/mobilization-rules";
 import { STANDBY_CAUSES } from "@/server/core/operations/daily-progress-rules";
+import { DEFECT_SEVERITIES, EVIDENCE_TYPES } from "@/server/core/operations/qa-rules";
+import {
+  firstTimeRightService,
+  listQaForTicketService,
+  recordQaService,
+} from "@/server/core/operations/qa-service";
 import {
   listProgressService,
   logDayService,
@@ -793,6 +799,51 @@ export const operationsRouter = router({
   standbyEvidence: p("ticket.view")
     .input(z.object({ ticketId: z.string().optional(), projectId: z.string().optional() }))
     .query(({ input }) => standbyEvidenceService(input)),
+
+  // ---- §9's client QA gate ------------------------------------------------------------------------
+
+  /**
+   * Records the client's verdict. §9: "QA is performed and approved by the client, not by AIES."
+   *
+   * The evidence requirement is enforced in the service as well as the form, because §9 calls it a
+   * hard block and a rule living only in a React component is one a network tab walks past.
+   */
+  recordQa: p("qa.record")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        approved: z.boolean(),
+        clientInspected: z.boolean().optional(),
+        inspectedAt: z.coerce.date().nullish(),
+        clientInspectorName: z.string().max(200).nullish(),
+        clientInspectorPosition: z.string().max(200).nullish(),
+        evidenceFileIds: z.array(z.string()).optional(),
+        evidenceType: z.enum(EVIDENCE_TYPES).nullish(),
+        remarks: z.string().max(5000).nullish(),
+        defects: z
+          .array(
+            z.object({
+              description: z.string().min(1).max(1000),
+              severity: z.enum(DEFECT_SEVERITIES),
+              ownerId: z.string().nullish(),
+              dueAt: z.string().nullish(),
+              status: z.string().max(40).optional(),
+              photoFileIds: z.array(z.string()).optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordQaService(actorMeta(ctx), input)),
+
+  listQa: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => listQaForTicketService(input.ticketId)),
+
+  /** §9's "quality metric that matters most and is currently unmeasurable". */
+  firstTimeRight: p("ticket.view")
+    .input(z.object({ projectId: z.string().optional() }).optional())
+    .query(({ input }) => firstTimeRightService(input ?? {})),
 
   getMobilization: p("ticket.view")
     .input(z.object({ mobilizationId: z.string() }))

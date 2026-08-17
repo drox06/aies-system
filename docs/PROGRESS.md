@@ -2099,12 +2099,63 @@ server stopped; typecheck, lint and `build:check` clean. Counters reset last. Th
 carries six panels in the order a job moves through — inspection, method statement, cash advance,
 materials, mobilisation, daily progress.
 
-**Still to build in module 04:** §9's QA gate, §8's mobilisation and execution, §9's QA gate with its rework loop, §10's testing and
+**Still to build in module 04:** §9's QA gate with its rework loop, §10's testing and
 commissioning, §11's warranty gate, §12's service report and close-out, §13's delivery lane, §14's
 offline PWA, §15's checklists, §16's time and installed base, §17's scheduling.
 
 **What it unblocks when §13 lands:** module 03's §7 delivery receipt, and with it
 `sales_order.goods_delivered`, `delivery.dr_signed` and `po_received → won`.
+
+### Session 8 — §9's QA gate: the client's verdict, and the loop back
+
+- [x] **`QAApproval`, recording somebody else's judgement.** §9 opens with "QA is performed and
+      approved by the client, not by AIES", so nothing in `qa-rules.ts` expresses an opinion about
+      whether the work is good. Every field records what the customer said or produced.
+- [x] **An approval cannot be saved without the client's own document** — §9's hard block, enforced
+      in the service and not only in the form, because a rule living in a React component is one a
+      network tab walks straight past. This is the third time the same principle has decided a design
+      in this module: §5 settles a cash advance on receipts in finance's hands, §6.2 gates
+      mobilisation on the approval *document* as well as the status, §9 refuses an approval with
+      nothing behind it. A status is something AIES set; an artefact is something somebody else
+      produced, and only the second survives an argument.
+- [x] **The block is satisfiable in every real situation**, which is what makes it fair to enforce. A
+      verbal approval is written up, uploaded, and marked `other` — §9's own answer: weak evidence
+      honestly labelled beats an assertion.
+- [x] **The warning is said before the toggle is set, not on submit.** A hard block somebody meets
+      only after choosing "they approved it" is one they route around by choosing the other answer.
+- [x] **A client who did not inspect is recorded, not left blank**, and the fact is a queryable
+      column rather than a sentence in the remarks. §9: a silently skipped gate and a deliberately
+      waived one look identical in a database unless you make them different — the same distinction
+      §7's undecided material gate and DECISIONS #65's default both turn on. A waiver with no
+      explanation is refused, because that is a blank gate wearing a label.
+- [x] **The rework loop is drawn literally.** §9 says the QA diamond loops failures back to Project
+      Execution, so a rejection puts the ticket back to `in_progress` and increments the round. No
+      intermediate review state: the flowchart does not draw one, and inventing one would put a step
+      between the client's rejection and the crew going back.
+- [x] **A rejection needs at least one defect.** "They rejected it" with nothing listed gives the
+      crew nothing to put right.
+- [x] **Approval with a punch list is allowed and says so out loud** — a warning, and open defects
+      stay visible across every round. Approval is not closure.
+- [x] **First-time-right is measurable from here**, the metric §9 calls the one that matters most and
+      is currently unmeasurable. Counted over approved records only, and `null` rather than 100% when
+      nothing has been inspected. docs/DECISIONS.md #67.
+- [x] `qa.failed` carries the major and critical defects in its payload, so module 08 raises the NCR
+      without re-reading the defects and re-deciding which ones qualify.
+
+**Migration** `20260817011114_qa_approval`.
+
+**State at this stop.** **1063 tests** across 104 files pass with the dev server stopped; typecheck,
+lint, Prettier and `build:check` clean. Prettier was run *before* the suite this time — docs/DECISIONS.md
+#68 for why that ordering is now the habit.
+
+**Still to build in module 04:** §10's testing and commissioning, §11's warranty gate, §12's service
+report and close-out, §13's delivery lane, §14's offline PWA, §15's checklists, §16's time and
+installed base, §17's scheduling.
+
+**Carried forward from §8:** the daily progress PDF, deliberately left to be built in one pass with
+§12's service report.
+
+**What it unblocks when module 08 lands:** the NCR, which `qa.failed` already carries the defects for.
 
 ## Not started
 - [ ] Modules 05–10
@@ -2133,6 +2184,11 @@ offline PWA, §15's checklists, §16's time and installed base, §17's schedulin
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #67-#68: session 8 (first-time-right counts approved records only, because a
+  metric that moves backwards while the crew fixes the problem is one people argue with rather than
+  act on — and a rate over zero jobs is `null`, not a flattering 100%; a scripted edit that misses
+  its anchor changes nothing and every downstream check then passes on the unchanged code, so assert
+  before writing and verify by the effect).
 - docs/DECISIONS.md #66: an escape hatch that opens nothing is worse than none — the gate overrides
   from sessions 2 and 4 wrote their audit rows and moved the status while the gates went on refusing,
   invisible until §8 gave anybody a reason to ask.

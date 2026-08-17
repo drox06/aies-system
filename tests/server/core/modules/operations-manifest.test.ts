@@ -28,7 +28,6 @@ describe("operations manifest", () => {
     const declared = new Set(operationsManifest.permissions.map((p) => p.key));
     for (const key of [
       "cash_advance.approve",
-      "qa.record",
       "delivery.execute",
       // Declared in session 1 and removed the same day: they gated nothing either.
       "ticket.cancel",
@@ -75,6 +74,8 @@ describe("operations manifest", () => {
       "ticket.mobilized",
       "ticket.started",
       "ticket.demobilized",
+      "qa.passed",
+      "qa.failed",
     ]);
   });
 

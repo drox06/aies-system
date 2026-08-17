@@ -139,6 +139,14 @@ async function highestInUse(documentType: string): Promise<number> {
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
     }
+    // Added by module 04 session 8, which started issuing AIESQA numbers.
+    case "qa_approval": {
+      const rows = await db.qAApproval.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
     // Added by module 04 session 5, which started issuing AIESMR numbers.
     case "material_request": {
       const rows = await db.materialRequest.findMany({

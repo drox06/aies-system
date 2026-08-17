@@ -107,7 +107,8 @@ model Ticket {
   methodologies    Methodology[]
   materialRequests MaterialRequest[]
   mobilizations    Mobilization[]
-  dailyProgresses  DailyProgress[]
+  dailyProgress    DailyProgress[]
+  qaApprovals      QAApproval[]
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -206,7 +207,8 @@ model Project {
   methodologies    Methodology[]
   materialRequests MaterialRequest[]
   mobilizations    Mobilization[]
-  dailyProgresses  DailyProgress[]
+  dailyProgress    DailyProgress[]
+  qaApprovals      QAApproval[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -823,4 +825,76 @@ model DailyProgress {
   @@unique([ticketId, logDate])
   @@index([ticketId, logDate])
   @@index([standbyCause])
+}
+
+/// §9's Gate 3 — the QA the **client** performs, not AIES.
+///
+/// §9 is unambiguous, and it shapes every field below: "**Confirmed: QA is performed and approved by
+/// the client, not by AIES.** The customer inspects the work. The Operations Manager records whether
+/// they approved it and uploads the customer's own documentation as evidence."
+///
+/// So there is no internal inspector, no AIES pass mark, and no signature field for one. What is
+/// modelled is a *recording* of somebody else's decision, and the evidence is what makes the
+/// recording worth anything — §9: "the uploaded client approval is simultaneously the quality
+/// record, the release authorisation under clause 8.6, and the best support the company will ever
+/// have for the final bill."
+model QAApproval {
+  id     String @id @default(cuid())
+  /// AIESQA-{YY}{####}.
+  number String @unique
+
+  ticketId  String
+  projectId String?
+
+  inspectedAt             DateTime?
+  clientInspectorName     String?
+  clientInspectorPosition String?
+
+  /// §9: "the toggle the Operations Manager sets". Their record of the client's answer, never their
+  /// own opinion of the work.
+  approved Boolean
+
+  /// §9: "Where a client does not inspect at all, the Operations Manager records that fact
+  /// explicitly rather than leaving the gate blank… **A silently skipped gate and a deliberately
+  /// waived one look identical in a database unless you make them different.**"
+  ///
+  /// This is what makes them different, and makes it queryable — a note buried in `remarks` is not
+  /// something anybody can count. Same principle as §7's recorded N/A.
+  clientInspected Boolean @default(true)
+
+  recordedById String
+  recordedAt   DateTime @default(now())
+
+  /// The client's own documentation. §9 makes at least one **required** when `approved` is true, and
+  /// that is a hard block rather than a warning — see qa-rules.ts.
+  evidenceFileIds String[] @default([])
+  /// client_signed_form | email_confirmation | inspection_report | punch_sheet | other (§9).
+  evidenceType    String?
+
+  remarks String?
+
+  /// [{ description, severity, ownerId, dueAt, status, photoFileIds }] (§9).
+  ///
+  /// Severity matters beyond description: §9 auto-raises an NCR in module 08 for major and critical
+  /// defects, and module 08 will read these when it exists.
+  defects Json @default("[]")
+
+  /// §9: "Rework rounds are counted and reported. **First-time-right (module 09) is
+  /// `reworkRound = 0`.** This is the quality metric that matters most and is currently
+  /// unmeasurable." The counter is the whole reason this is a numbered record rather than a flag.
+  reworkRound    Int     @default(0)
+  reworkTicketId String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket  Ticket   @relation(fields: [ticketId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([ticketId, reworkRound])
+  @@index([approved, recordedAt])
 }

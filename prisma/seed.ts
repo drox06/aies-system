@@ -344,6 +344,10 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
     format: "AIESSIR-{YY}{####}",
     label: "Site Inspection Report",
   },
+  // specs/04-operations-projects.md §9. Not in Spec.md §5's table, and it needs a number for the
+  // reason §9 gives: the client's approval is "the release authorisation under clause 8.6, and the
+  // best support the company will ever have for the final bill" — a document that gets referenced.
+  { documentType: "qa_approval", format: "AIESQA-{YY}{####}", label: "QA Approval" },
   { documentType: "material_request", format: "AIESMR-{YY}{####}", label: "Material Request" },
   { documentType: "methodology", format: "AIESMTH-{YY}{####}", label: "Methodology" },
   { documentType: "delivery_receipt", format: "AIESDR-{YY}{####}", label: "Delivery Receipt" },
