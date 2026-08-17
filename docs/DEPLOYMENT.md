@@ -59,16 +59,50 @@ and its migration history get out of sync, and Prisma cannot fix it for you afte
    - `/api/cron/drain` every minute — relays the event outbox into the job queue. Without it,
      nothing that depends on an event ever happens.
 
-   > Spec.md §7 also calls for a daily `/api/cron/nightly` (media-archive lifecycle, digest
-   > email). **Not built as of module 00** — nothing yet needs it, and an endpoint that exists but
-   > does nothing is worse than one that is honestly absent. Add it to `vercel.json` at
-   > `0 18 * * *` (02:00 Manila) when module 10's lifecycle job lands.
+   - `/api/cron/nightly` at `0 18 * * *` — 02:00 Manila. **Built, and already in `vercel.json`.**
+     Fourteen sweeps run inside it, each caught individually so one failure cannot stop the rest:
+     accreditation renewals, stalled renewals, inquiry SLA escalation, principal expiries, quotation
+     expiry, quotation archival, overdue supplier RFQs, unsent quotation downloads, dormant accounts,
+     follow-ups, silent quotations, unactioned scope changes, overdue cash-advance liquidations, and
+     expiring equipment warranties.
+
+   > **Neither cron has ever run on a schedule.** No Vercel project has existed, so both have only
+   > ever been exercised by hand — `curl -X POST http://localhost:3000/api/cron/nightly`. Every one of
+   > those fourteen sweeps fires on a date threshold being crossed, which is exactly the kind of logic
+   > that a manual poke cannot prove and a week of real elapsed time can. **Expect the first fortnight
+   > after this deployment to surface sweep bugs**, and read `/api/cron/nightly`'s JSON response for a
+   > few days: it returns a per-sweep result, and a sweep that failed reports `{ error: ... }` there
+   > rather than throwing.
+   >
+   > Spec.md §7's media-archive lifecycle and digest email are the two pieces of the nightly job still
+   > outstanding; they belong to module 10 and the endpoint they will live in already exists.
 5. Preview deploys are automatic per PR. Point them at a Supabase **branch** database (§3.6), never
    at production.
+
+   > **While there is only one database, this rule has no safe answer.** Until the production project
+   > exists, a preview deploy and production share the same Postgres, so a preview *is* production for
+   > writing purposes. Development commits straight to `main` rather than through PRs, so previews
+   > should be rare — but if you open one, treat anything it writes as real. The clean fix arrives with
+   > the second project, not before.
 
 ---
 
 ## 3. Supabase
+
+> **Read this before step 1.** As decided on 2026-08-17, the company builds and tests against the
+> **existing** Supabase project and creates a second one only at the point of going to production.
+> So on the first Vercel deployment:
+>
+> - **Skip step 1.** The project exists. Creating another one here is the mistake this note prevents.
+> - **Steps 2, 3 and 4 are already done** on it — connection strings, the `aies-files` bucket and
+>   `pg_trgm` are in place. Re-read step 2 anyway: `DATABASE_URL` must be the *transaction* pooler,
+>   and it is the value most likely to be filled in wrong.
+> - **Step 5, Point in Time Recovery, is worth checking now** rather than at go-live. It is the only
+>   item on this page that cannot be applied retroactively to data already lost.
+>
+> Step 1 comes back into force when the production project is created. At that point the migration is
+> small: one real user account plus roles, permissions, numbering formats and approval rules. Every
+> customer, supplier and deal currently in the database is the company's own sample data.
 
 1. Create the project (region **ap-southeast-1**, Singapore — nearest to Manila).
 2. **Project Settings → Database → Connection string.** You need two, and they are not
@@ -259,7 +293,9 @@ matters as much as the act.
 | | | | | |
 | | | | | |
 
-*(Never performed as of module 00. The first drill is due once production data exists.)*
+*(Still never performed, reviewed at module 04. The trigger has not been reached: the database
+holds no production data yet — only the company's own samples and one real user account. The
+first drill is due once real work is being entered.)*
 
 ---
 
