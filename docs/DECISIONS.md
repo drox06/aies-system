@@ -2745,3 +2745,85 @@ Both found by reading it against what it actually did:
   Ctrl+K finding nothing after a cleanup looks exactly like search being broken, so the script now
   rebuilds the index for what survives. That incidentally closed a standing gap: `reindexAccount` has
   existed since module 01 and nothing ever called it, so customer accounts were never searchable.
+
+## #78 — Home is a page with no nav entry, and that is the point
+
+Home was a module 00 scaffold for eleven sessions: the signed-in user's own permission count and a
+checklist of infrastructure with "Built" badges. The first screen everybody opened every day, about
+the software rather than about their work.
+
+The company's decision of 2026-08-17, after two reversals worth recording:
+
+1. Build a cross-module landing summary — what needs *you*, filtered to what you can act on.
+2. Revert it; remove Home entirely and wait for module 09's dashboard.
+3. Keep the page, **take it out of the nav**, and grow it into DJ's dashboard when module 09 lands.
+
+The third is the right answer and the middle one taught why. Spec 09 §2 builds *five* landing pages,
+one per person, and singles out DJ's blocked-at-a-gate widget as "the single most useful widget in the
+platform for this company". The summary already carries that tile. Deleting it would have meant
+rebuilding it in module 09; keeping it in everybody's sidebar would have put a half-built dashboard in
+front of four people who did not ask for one.
+
+So `/` renders it, nothing links there, and it is the seed of one of module 09's five pages.
+
+### Why not redirect to My day
+
+The obvious move, and wrong. My day is module 01 §6 and CRM-only — follow-ups, silent quotations,
+inspections assigned to you. It serves EA and EM well and gives DJ, PD and a technician a page about
+somebody else's job. A redirect would have sent half the company somewhere useless.
+
+### Absent, not zero
+
+Permissions decide which tiles **exist**, not what they show. Someone without `warranty.determine`
+sees no warranty tile rather than one reading 0, because a count of a queue you cannot open is noise
+dressed as information — and worse, "0" tells them nothing is waiting when they were never going to be
+told either way. Where a tile *does* apply and the queue is empty it says so in words: an empty page
+and "nothing is waiting on you" are the same pixels and opposite messages.
+
+`home-service.test.ts` pins both, and asserts counts as **changes** rather than absolutes, because
+every tile counts a global queue and DECISIONS #64 is about exactly that trap.
+
+## #79 — A rename is not local, and strict mode is how you find out
+
+"Awaiting approval" became "Quotations for Approval" at the company's request. Three places needed it:
+the nav label, the page's own heading, and the Playwright assertion. Renaming only the nav would have
+left the menu contradicting the page it opens.
+
+Playwright then failed on something the rename had broken at a distance. The sidebar test asserted
+`getByRole("link", { name: "Quotations" })`, which had matched exactly one link for eleven sessions.
+The new label *contains* the old one, so it resolved to three elements and strict mode refused.
+
+The test was right to fail and the fix is `exact: true`. The general point: **a substring-matching
+locator is a latent failure that fires when an unrelated label grows.** It passed for months not
+because it was correct but because nothing had collided with it yet. The list is now matched exactly,
+covers the entries added since, and asserts Home is *absent* from the sidebar — the rule from #78,
+tested rather than assumed.
+
+## #80 — When the reason for a rule dies, the rule may not
+
+The company confirmed on 2026-08-18 that the Synology DS220+ is a backup and recovery target only,
+never a host.
+
+Most of the repo already agreed — Spec.md §11 recorded the NAS as not viable for the application, and
+the architecture diagram had it as backup and archive. One place did not, and it mattered: **spec 09 §1
+argued its entire design constraint from that hardware.** "The DS220+ has two Celeron cores. Never run
+analytical aggregation synchronously in a request."
+
+Left alone, whoever builds module 09 reads a constraint whose stated reason is obsolete and concludes
+the constraint is too. So the reason was rewritten rather than the rule:
+
+- **Serverless functions have a wall-clock limit.** An in-request aggregation does not get slow, it
+  gets killed, and the user sees a 504 rather than a slow page.
+- **Vercel scales out; Supabase Postgres does not.** Five dashboards scanning transaction tables are
+  five concurrent scans on one instance, and everything else queues behind them.
+- **A dashboard is read far more often than its data changes.** Recomputing per view is waste on any
+  hardware.
+
+The thresholds move from "a 2GB box" to "seconds of function budget". None of the four practices —
+materialised fact tables, dashboards reading them, queued ad-hoc reports, stored KPI snapshots —
+change at all.
+
+**The lesson worth keeping:** a rule justified by one fact about the world outlives that fact, and the
+dangerous state is a live rule with a dead reason attached. When a premise changes, go and find what
+was argued from it. `grep DS220` took ten seconds and found the one file that would have misled the
+next reader.

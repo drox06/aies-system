@@ -31,7 +31,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 const SCREENS = [
-  { path: "/", heading: "AIES Operations Platform" },
+  // `/` greets the user by name, so match either that or the fallback rather than a fixed string.
+  // No nav entry points here — the company's decision of 2026-08-17 — but it is still where a
+  // bookmark and the post-login redirect land, so it has to render.
+  { path: "/", heading: "Good day|Home" },
   { path: "/crm/my-day", heading: "My day" },
   { path: "/crm/pipeline", heading: "Pipeline" },
   { path: "/crm/accounts", heading: "Accounts" },
@@ -48,7 +51,7 @@ const SCREENS = [
   { path: "/methodologies", heading: "Method statements" },
   { path: "/store", heading: "Store" },
   { path: "/warranty", heading: "Warranty" },
-  { path: "/quotations/approvals", heading: "Awaiting approval" },
+  { path: "/quotations/approvals", heading: "Quotations for Approval" },
   { path: "/notifications", heading: "Notification" },
   { path: "/admin/users", heading: "Users" },
 ];
@@ -87,13 +90,22 @@ test("the sidebar offers the sections this user can reach", async ({ page }) => 
     "Accounts",
     "Inquiries",
     "Quotations",
+    "Quotations for Approval",
+    "Principals",
     "Sales orders",
     "Procurement",
     "Suppliers",
+    "Projects",
     "Tickets",
   ]) {
-    await expect(page.getByRole("link", { name: label })).toBeVisible();
+    // `exact` matters: "Quotations for Approval" contains "Quotations", and Home links to My day with
+    // a longer sentence. Without it the plain "Quotations" matcher resolves to three links and fails
+    // on strict mode — which is how the 2026-08-17 rename announced itself.
+    await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
   }
+
+  // Home has no nav entry as of 2026-08-17 — the page exists, the sidebar does not offer it.
+  await expect(page.getByRole("link", { name: "Home", exact: true })).toHaveCount(0);
 });
 
 test("a customer record offers the controls that had no route for weeks", async ({ page }) => {

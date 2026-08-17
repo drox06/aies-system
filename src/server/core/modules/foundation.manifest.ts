@@ -21,7 +21,8 @@ export const foundationManifest = defineManifest({
   emits: ["approval.requested", "approval.approved", "approval.rejected"],
   consumes: [],
   nav: [
-    { label: "Home", href: "/", icon: "home", order: 0 },
+    // No Home entry: `/` is a redirect to the first section a person can reach, not a page. It
+    // becomes module 09's dashboard when that lands — see src/app/page.tsx.
     // Everyone can reach their own approval inbox; it is empty unless something is waiting on
     // them, so gating it on a permission would only hide it from the people who need it.
     { label: "Approvals", href: "/approvals", icon: "check", order: 2 },

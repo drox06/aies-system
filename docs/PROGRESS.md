@@ -2390,6 +2390,38 @@ Eight items from a desktop review of sessions 8-11, plus the clean-up before goi
 after today, because the attendee rows, the tools card and the wider line description are all new
 multi-column layouts.
 
+### Home, a role rename, and the NAS decision (2026-08-18)
+
+- [x] **Home is a real page again, and deliberately not in the nav.** It was a module 00 scaffold for
+      eleven sessions — the reader's own permission count and a list of built infrastructure. It now
+      answers "what needs you?" across every module. Two reversals got there: built, removed, then
+      kept-but-hidden, which is the right answer. Spec 09 §2 builds five landing pages and calls DJ's
+      blocked-at-a-gate widget "the single most useful widget in the platform for this company" — this
+      page already carries that tile, so module 09 grows it rather than rebuilding it.
+      docs/DECISIONS.md #78.
+- [x] **Tiles are absent, not zero, where the permission is missing.** A count of a queue you cannot
+      open is noise; "0" on it actively misleads. Where a tile does apply and the queue is empty it
+      says so in words. `home-service.test.ts` pins both and asserts counts as *changes*, because every
+      tile counts a global queue — DECISIONS #64's trap.
+- [x] **EM is Sales and Marketing Manager**, in the seed and in spec 09 §2. The role *key* stays
+      `marketing_manager`: it is written into RolePermission rows, every manifest's `defaultRoles` and
+      every permission check, so renaming it would be a migration to alter a label.
+- [x] **The NAS is a backup and recovery target only, never a host.** Most of the repo already said so
+      — but spec 09 §1 argued its whole design constraint from the DS220+'s two Celeron cores. The
+      constraint survives its reason, so the reason was rewritten: serverless wall-clock limits, one
+      Postgres instance behind a web tier that scales out, and dashboards read far more often than
+      their data changes. Thresholds move, none of the four practices do. docs/DECISIONS.md #80.
+- [x] **A rename found a latent test failure.** "Awaiting approval" → "Quotations for Approval" broke
+      the sidebar test at a distance: its `getByRole("link", { name: "Quotations" })` had matched one
+      link for eleven sessions, and the new label contains the old one, so strict mode refused three
+      matches. Now matched exactly, widened to the entries added since, and asserting Home is absent
+      from the sidebar. docs/DECISIONS.md #79.
+
+**State at this stop.** **1211 tests** across 112 files and **24 Playwright tests** pass; typecheck,
+lint, Prettier and `build:check` clean. Counters reset last.
+
+**Owed to the company, unchanged:** the phone pass over every screen once the app is on Vercel.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
@@ -2417,6 +2449,10 @@ multi-column layouts.
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #78-#80: Home and the NAS (a page with no nav entry is the right answer when it is
+  the seed of one of module 09's five dashboards; a rename is not local, and a substring-matching test
+  locator is a latent failure waiting for an unrelated label to grow; and when the reason for a rule
+  dies the rule may not — go and find what was argued from the dead premise).
 - docs/DECISIONS.md #74-#77: the 2026-08-17 review pass (who was sent and who turned up are two
   facts; a relationship can substitute for a role, which a single-permission gate cannot express;
   demo accounts must be off by default rather than deleted by hand, since the seed recreated them;

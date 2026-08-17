@@ -8,7 +8,22 @@ management can answer "how are we doing?" without asking anyone to prepare anyth
 
 ## 1. Design constraint first
 
-The DS220+ has two Celeron cores. **Never run analytical aggregation synchronously in a request.**
+**Never run analytical aggregation synchronously in a request.**
+
+This was originally argued from the DS220+'s two Celeron cores. The company confirmed on 2026-08-17
+that the NAS is a **backup and recovery target only** and never a host, so that premise is gone — but
+the rule survives it, for reasons that are now the real ones:
+
+- **Serverless functions have a wall-clock limit.** On Vercel a dashboard that aggregates in-request
+  does not get slower under load, it gets killed, and the user sees a 504 rather than a slow page.
+- **The database is the shared resource, not the web tier.** Vercel scales out; Supabase Postgres does
+  not. Five people opening dashboards that each scan the transaction tables is five concurrent
+  sequential scans against one instance, and everything else in the app queues behind them.
+- **A dashboard is read far more often than the data changes.** Recomputing per view is wasted work
+  whatever the hardware.
+
+So the thresholds move — seconds of function budget rather than a 2GB box — and none of the four
+practices below change.
 
 - Nightly job materialises fact tables: `FactSalesDaily`, `FactProjectMargin`,
   `FactQualityMetrics`, `FactCollections`, `FactUtilisation`.
@@ -49,7 +64,7 @@ owns the unblock. This is the single most useful widget in the platform for this
 Tickets at risk. QA outcomes to record and rework outstanding. Service reports awaiting review.
 Instruments at the calibration laboratory and due back. Capacity vs committed work, 4 weeks.
 
-**EM — Marketing Manager.** Principal prospects by stage with next follow-up. Distributor
+**EM — Sales and Marketing Manager.** Principal prospects by stage with next follow-up. Distributor
 agreements and price lists expiring. Accounts not contacted in 60 days. Inquiry sources and
 conversion by source. New product lines and their revenue contribution.
 

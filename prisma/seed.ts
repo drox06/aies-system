@@ -85,7 +85,10 @@ const ROLES: RoleSeed[] = [
   { key: "vice_president", name: "Vice President" },
   { key: "admin_manager", name: "Admin Manager" },
   { key: "operations_manager", name: "Operations Manager" },
-  { key: "marketing_manager", name: "Marketing Manager" },
+  // Renamed 2026-08-17 at the company's request: EM covers sales as well as marketing. The key
+  // stays `marketing_manager` — it is written into RolePermission rows, every manifest's
+  // defaultRoles and every permission check, so changing it would be a migration to alter a label.
+  { key: "marketing_manager", name: "Sales and Marketing Manager" },
   { key: "technician", name: "Technician" },
   { key: "sales", name: "Sales" },
   { key: "finance_officer", name: "Finance Officer" },

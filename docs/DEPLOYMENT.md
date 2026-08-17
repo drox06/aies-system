@@ -336,8 +336,14 @@ anyone experiences.
 Not the deployment path, kept working so AIES is never locked in (Spec.md §7.2). CI boots it on
 every push, because a fallback nobody exercises rots within two months.
 
-Requires a host with **6GB RAM** — the current DS220+ has 2GB and cannot run it, which is why
-Vercel and Supabase were chosen (Spec.md §3.1).
+Requires a host with **6GB RAM**, which means a VPS or a real server — **not the NAS.** The company
+settled this on 2026-08-17: the Synology DS220+ is a backup and recovery target only, never a host.
+It has 2GB and was never going to run this; Spec.md §11 recorded that, and this is the operational
+half of the same decision.
+
+So "self-host" here means somewhere else entirely, and its purpose is narrow: proof that AIES is not
+locked into Vercel (Spec.md §7.2). Recovery *from* the NAS is the fallback that matters day to day,
+and it is §5, §6 and §8 rather than this section.
 
 ```bash
 cp .env.example docker/.env     # set POSTGRES_PASSWORD, AUTH_SECRET, APP_DOMAIN
