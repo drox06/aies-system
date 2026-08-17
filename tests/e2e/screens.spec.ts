@@ -47,6 +47,7 @@ const SCREENS = [
   { path: "/inspections", heading: "Site inspections" },
   { path: "/methodologies", heading: "Method statements" },
   { path: "/store", heading: "Store" },
+  { path: "/warranty", heading: "Warranty" },
   { path: "/quotations/approvals", heading: "Awaiting approval" },
   { path: "/notifications", heading: "Notification" },
   { path: "/admin/users", heading: "Users" },

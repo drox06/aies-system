@@ -38,6 +38,8 @@ export const operationsManifest = defineManifest({
     "DailyProgress",
     "QAApproval",
     "TestingCommissioning",
+    "Equipment",
+    "WarrantyClaim",
   ],
 
   permissions: [
@@ -218,6 +220,21 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "warranty.determine",
+      label: "Decide whether a warranty claim is covered, and who caused it",
+      group: "Operations",
+      // §11's determination is who-pays. Not the technician who did the original work — the same
+      // reason §9 keeps the QA record away from the person it judges.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
+      key: "equipment.manage",
+      label: "Maintain the installed base",
+      group: "Operations",
+      // §19 names it. The warranty window lives here, and it decides who pays.
+      defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
+    },
+    {
       key: "tc.signoff",
       label: "Sign off testing and commissioning",
       group: "Operations",
@@ -276,6 +293,8 @@ export const operationsManifest = defineManifest({
     "qa.failed",
     "tc.completed",
     "punch_item.raised",
+    "warranty.claim_raised",
+    "warranty.expiring",
   ],
 
   /**
@@ -364,6 +383,16 @@ export const operationsManifest = defineManifest({
       // reads before a progress meeting to see whose delay a wait actually was.
       permission: "methodology.prepare",
       order: 43,
+    },
+    {
+      label: "Warranty",
+      href: "/warranty",
+      icon: "shield-check",
+      // §11's claims and the installed base they are read against. §11: "Warranty cost that nobody
+      // totals is warranty cost that never gets fixed" — a total nobody can reach is one nobody
+      // totals, so it gets a nav entry rather than living inside a ticket.
+      permission: "warranty.determine",
+      order: 45,
     },
   ],
 });

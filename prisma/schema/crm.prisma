@@ -76,6 +76,8 @@ model CustomerAccount {
   salesOrders    SalesOrder[]
   tickets        Ticket[]
   projects       Project[]
+  equipment      Equipment[]
+  warrantyClaims WarrantyClaim[]
 
   @@index([ownerId, status])
   @@index([status, name])

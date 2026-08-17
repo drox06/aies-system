@@ -290,6 +290,9 @@ export async function createStandaloneTicketService(
   input: {
     accountId: string;
     siteId?: string | null;
+    /// §11's warranty callback links its ticket to the project the original work belongs to, rather
+    /// than opening a second one — the callback is part of that job's history, not a new job.
+    projectId?: string | null;
     type: TicketType;
     subType?: string | null;
     priority?: string;
@@ -326,6 +329,7 @@ export async function createStandaloneTicketService(
         number,
         accountId: account.id,
         siteId: input.siteId ?? null,
+        projectId: input.projectId ?? null,
         type: input.type,
         subType: input.subType ?? null,
         priority: input.priority ?? "normal",

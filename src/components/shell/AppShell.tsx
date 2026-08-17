@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   Building2,
   ClipboardCheck,
+  ShieldCheck,
   Columns3,
   FileText,
   Handshake,
@@ -277,6 +278,7 @@ const ICONS: Record<string, LucideIcon> = {
   wrench: Wrench,
   wallet: Wallet,
   "clipboard-check": ClipboardCheck,
+  "shield-check": ShieldCheck,
 };
 
 const ICON_SIZE = 20;

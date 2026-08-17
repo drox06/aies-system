@@ -2223,6 +2223,62 @@ delivery lane, §14's offline PWA, §15's checklists, §16's time and installed 
 Acceptance currently moves the ticket straight to `for_closeout`; §11 inserts itself on that
 transition rather than changing where commissioning leaves the ticket.
 
+### Session 10 — §11's warranty gate, and the case a single dropdown would have lost
+
+- [x] **`Equipment`, §16's model, built now because §11 has nothing to check without it.** §11's gate
+      "checks the equipment's warranty window", and a gate with nothing to check is the theatre
+      docs/DECISIONS.md #69 refused. The §11 fields are live; §16's PM scheduling fields are inert
+      until §16. Same call as §7's minimum-viable `StockItem`.
+- [x] **Coverage and fault are two questions, not one.** §11 lists three outcomes — in warranty, out
+      of warranty, AIES-caused — which reads as one field with three values. That loses the case
+      that matters most: **our fault, out of warranty**. §11 makes an AIES-caused defect non-billable
+      *and* an NCR, and nothing in that depends on the window still running. A company that installed
+      something badly does not get to charge for fixing it because thirteen months have passed.
+      docs/DECISIONS.md #71, with a test for exactly that case.
+- [x] **A missing warranty date is `unknown`, not expired.** Treating it as expired bills a customer
+      for work that may have been covered; treating it as covered gives work away. Both are the
+      software answering a commercial question it has no basis to answer. Unknown routes to
+      `needs_determination` — no ticket, no sales referral, nothing committed — until a person
+      establishes the terms. §7's undecided material gate and §9's waived inspection, again.
+- [x] **Out of warranty with the cause unestablished parks the same way**, because quoting before
+      anybody has looked risks charging the customer for AIES's own defect.
+- [x] **Billability is derived from the pair and then stored.** It is a position the company took on
+      a date, not a formula to re-run — recomputing it on read would let a corrected warranty date
+      silently rewrite what the customer was told.
+- [x] **Overriding what the dates say is allowed; silently is not.** The next person to read the
+      claim needs to know the answer did not come from the window.
+- [x] **An AIES-caused claim needs a root cause category.** §11 reports warranty cost by cause, and
+      "ours" with no cause tells nobody what to stop doing.
+- [x] **The three routes, as §20 names them:** in-warranty raises a non-billable `after_sales` ticket
+      with `subType = warranty` linked to the original project; out-of-warranty customer-caused goes
+      to sales to quote rather than becoming free work by default; AIES-caused carries `ncrRequired`
+      on the record and on the event, so module 08's obligation survives until module 08 exists.
+- [x] **§11's report separates what the company caused from what it merely carried** — the part that
+      disappears if warranty work is only ever counted in total. Cost arrives with §16's timesheets;
+      the shape is built so the report is not waiting on a module that has not been built.
+- [x] **§16's renewal loop, the half §11 needs:** warranties expiring inside 90 days emit nightly for
+      module 01 to turn into a lead. §16 calls this where the recurring revenue lives, so it is a
+      lead rather than a warning.
+- [x] Screens: `/warranty` with the unanswered queue, the cost report, the claims and the installed
+      base. The form asks the two questions separately and shows the consequence of the pair —
+      chargeable or not, NCR, sales referral — before anybody saves.
+
+**Migration** `20260817041653_warranty_gate`.
+
+**Extended outside §11:** `createStandaloneTicketService` gained a `projectId`, because §11 requires
+the warranty ticket to be linked to the original project and the alternative was a second
+ticket-creation path that would have bypassed its audit row.
+
+**State at this stop.** **1151 tests** across 108 files pass with the dev server stopped; typecheck,
+lint, Prettier and `build:check` clean.
+
+**Not built from §11:** nothing. The gate passed with no claim needs no record — §10's acceptance
+already moves the ticket to `for_closeout`, which is what "proceeds to Service Report" means until
+§12 exists.
+
+**Still to build in module 04:** §12's service report and close-out, §13's delivery lane, §14's
+offline PWA, §15's checklists, §16's time and installed base (the rest of it), §17's scheduling.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
@@ -2250,6 +2306,10 @@ transition rather than changing where commissioning leaves the ticket.
   redrawn interpretation; a database error in the Auth.js session callback now degrades access
   instead of signing the user out; never run `npm run build` against a live dev server — it
   silently kills the running app's JavaScript while every page still returns 200).
+- docs/DECISIONS.md #71: session 10 (§11's three outcomes are two questions — coverage and fault —
+  because one field cannot express "our fault, out of warranty", which §11 makes non-billable and an
+  NCR regardless of the window; and a missing warranty date is `unknown` rather than expired, since
+  both defaults have the software answering a commercial question it has no basis to answer).
 - docs/DECISIONS.md #69-#70: session 9 (§10 asks for test results compared against the quoted
   specification, but module 02 stores specifications as prose — so what is enforced is provenance:
   where each criterion came from, and whether it was fixed before the reading it judges, stamped by

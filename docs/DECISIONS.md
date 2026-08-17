@@ -2492,3 +2492,56 @@ The fix is a canonical serialiser that sorts keys before comparing. **Anywhere i
 compares two values that have been through a `Json` column, sort the keys first** — there are Json
 columns on defects, punch items, loop checks, training records and custom fields, and the same
 comparison written the obvious way would be wrong in the same silent way.
+
+## #71 — Coverage and fault are two questions, and a missing warranty date is neither answer
+
+§11 lists three outcomes for a warranty callback: in warranty, out of warranty, and "AIES-caused
+defect". Read quickly, that is one field with three values, and it is the obvious way to build it.
+
+It is wrong, and the case that proves it is the one the single enum cannot express: **our fault, out
+of warranty**. §11 says an AIES-caused defect makes the ticket non-billable *and* raises an NCR, and
+nothing in that sentence depends on the window still running. A company that installed something
+badly does not get to charge for fixing it because thirteen months have passed. With one field,
+"out_of_warranty" and "aies_caused" are mutually exclusive, so that job either gets billed or the
+company loses the record that it was ever its own fault.
+
+So the record keeps two axes:
+
+- **`coverage`** — what the dates say, or what a person decided they say.
+- **`attribution`** — whose fault it was, on §8's standby-attribution pattern, for the same reason:
+  the commercial position rests on who caused it.
+
+Billability is then derived from the pair and **stored**, because it is a position the company took
+on a date. Recomputing it on read would let a corrected warranty date silently rewrite what the
+customer was told.
+
+### `unknown` is an answer
+
+Equipment reaches the installed base from commissioning, from a migration, or from somebody typing
+it in, and plenty of it will carry no warranty window at all. The two tempting defaults are both
+wrong in the same way:
+
+- treat a missing end date as **expired**, and the company bills a customer for work that may well
+  have been covered;
+- treat it as **covered**, and the company gives work away.
+
+Both are software answering a commercial question it has no basis to answer. So `readCoverage`
+returns `unknown`, `determine` routes it to `needs_determination` — no ticket, no sales referral,
+nothing committed — and a person establishes the terms. Same principle as §7's undecided material
+gate (DECISIONS #65) and §9's waived client inspection: a question nobody has answered must not be
+stored as an answer. The out-of-warranty-but-cause-unknown case parks the same way, because quoting
+before the cause is known risks charging for the company's own defect.
+
+### Overriding the dates is allowed, silently is not
+
+A person may overrule what the record says — goodwill, or terms the equipment record never captured.
+`checkClaim` refuses the override without a reason, because the next person to read the claim needs
+to know the answer did not come from the window.
+
+### What Equipment being built here costs
+
+§16 owns the installed base. §11 cannot work without the warranty window, and a gate with nothing to
+check is the theatre #69 refused — so the model is built now with its §11 fields live and its PM
+scheduling fields inert, exactly as §7 built a minimum-viable `StockItem` for the material gate. The
+alternative was deferring §11 until §16, which would have left the flowchart's warranty diamond
+undrawn for several more sessions.

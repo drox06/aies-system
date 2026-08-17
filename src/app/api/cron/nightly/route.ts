@@ -10,6 +10,7 @@ import { sweepQuotationsToArchive } from "@/server/core/quotation/archive-servic
 import { sweepOverdueRfqs } from "@/server/core/quotation/rfq-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepOverdueLiquidationsService } from "@/server/core/operations/cash-advance-service";
+import { sweepExpiringWarrantiesService } from "@/server/core/operations/warranty-service";
 import { sweepUnactionedScopeChanges } from "@/server/core/quotation/scope-change-service";
 import {
   sweepDormantAccounts,
@@ -144,6 +145,15 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] overdue liquidation sweep failed:", error);
     results.overdueLiquidations = { error: String(error) };
+  }
+
+  // specs/04-operations-projects.md §16's renewal loop, the half §11 needs: a warranty ending is not
+  // a warning, it is the moment to offer a maintenance contract. Emitted for module 01 to pick up.
+  try {
+    results.expiringWarranties = await sweepExpiringWarrantiesService();
+  } catch (error) {
+    console.error("[cron/nightly] expiring warranty sweep failed:", error);
+    results.expiringWarranties = { error: String(error) };
   }
 
   // specs/04-operations-projects.md §6.1's link, chased. The event fires once so the warning stays

@@ -41,6 +41,19 @@ import {
   saveTcService,
 } from "@/server/core/operations/tc-service";
 import {
+  ATTRIBUTION,
+  COVERAGE,
+  ROOT_CAUSE_CATEGORIES,
+} from "@/server/core/operations/warranty-rules";
+import {
+  determineWarrantyClaimService,
+  listEquipmentService,
+  listWarrantyClaimsService,
+  raiseWarrantyClaimService,
+  upsertEquipmentService,
+  warrantyReportService,
+} from "@/server/core/operations/warranty-service";
+import {
   listProgressService,
   logDayService,
   standbyEvidenceService,
@@ -998,6 +1011,88 @@ export const operationsRouter = router({
   promisedLines: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))
     .query(({ input }) => promisedLinesForTicketService(input.ticketId)),
+
+  /**
+   * §11's warranty callback.
+   *
+   * Coverage and attribution are two answers, not one — §11 makes an AIES-caused defect
+   * non-billable and an NCR whether or not the window has closed. docs/DECISIONS.md #71.
+   */
+  raiseWarrantyClaim: p("warranty.determine")
+    .input(
+      z.object({
+        accountId: z.string(),
+        equipmentId: z.string().nullish(),
+        originalProjectId: z.string().nullish(),
+        originalTicketId: z.string().nullish(),
+        faultDescription: z.string().min(1).max(5000),
+        coverage: z.enum(COVERAGE).optional(),
+        attribution: z.enum(ATTRIBUTION).optional(),
+        rootCause: z.string().max(2000).nullish(),
+        rootCauseCategory: z.enum(ROOT_CAUSE_CATEGORIES).nullish(),
+        coverageOverrideReason: z.string().max(2000).nullish(),
+        remarks: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => raiseWarrantyClaimService(actorMeta(ctx), input)),
+
+  /** Answers a claim left open because nobody could say who paid. */
+  determineWarrantyClaim: p("warranty.determine")
+    .input(
+      z.object({
+        id: z.string(),
+        coverage: z.enum(COVERAGE),
+        attribution: z.enum(ATTRIBUTION),
+        rootCause: z.string().max(2000).nullish(),
+        rootCauseCategory: z.enum(ROOT_CAUSE_CATEGORIES).nullish(),
+        coverageOverrideReason: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => determineWarrantyClaimService(actorMeta(ctx), input)),
+
+  listWarrantyClaims: p("ticket.view")
+    .input(
+      z
+        .object({
+          accountId: z.string().optional(),
+          projectId: z.string().optional(),
+          openOnly: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => listWarrantyClaimsService(input ?? {})),
+
+  /** §11: "Warranty cost that nobody totals is warranty cost that never gets fixed." */
+  warrantyReport: p("ticket.view")
+    .input(z.object({ accountId: z.string().optional() }).optional())
+    .query(({ input }) => warrantyReportService(input ?? {})),
+
+  listEquipment: p("ticket.view")
+    .input(z.object({ accountId: z.string().optional() }).optional())
+    .query(({ input }) => listEquipmentService(input ?? {})),
+
+  upsertEquipment: p("equipment.manage")
+    .input(
+      z.object({
+        id: z.string().optional(),
+        accountId: z.string(),
+        siteId: z.string().nullish(),
+        description: z.string().min(1).max(500),
+        serialNumber: z.string().max(200).nullish(),
+        tagNumber: z.string().max(200).nullish(),
+        manufacturer: z.string().max(200).nullish(),
+        modelNumber: z.string().max(200).nullish(),
+        installedAt: z.coerce.date().nullish(),
+        installedByTicketId: z.string().nullish(),
+        commissionedAt: z.coerce.date().nullish(),
+        commissionedByTcId: z.string().nullish(),
+        warrantyStart: z.coerce.date().nullish(),
+        warrantyEnd: z.coerce.date().nullish(),
+        warrantyTerms: z.string().max(2000).nullish(),
+        location: z.string().max(500).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => upsertEquipmentService(actorMeta(ctx), input)),
 
   adjustStock: p("material_request.issue")
     .input(

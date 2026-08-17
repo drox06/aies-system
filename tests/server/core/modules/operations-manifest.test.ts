@@ -78,6 +78,8 @@ describe("operations manifest", () => {
       "qa.failed",
       "tc.completed",
       "punch_item.raised",
+      "warranty.claim_raised",
+      "warranty.expiring",
     ]);
   });
 

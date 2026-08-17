@@ -211,6 +211,7 @@ model Project {
   dailyProgress         DailyProgress[]
   qaApprovals           QAApproval[]
   testingCommissionings TestingCommissioning[]
+  warrantyClaims        WarrantyClaim[]
 
   @@index([accountId, status])
   @@index([status, plannedStart])
@@ -978,4 +979,136 @@ model TestingCommissioning {
 
   @@index([ticketId, startedAt])
   @@index([result, completedAt])
+}
+
+/// The installed base (specs/04-operations-projects.md §16), built now because §11 needs it.
+///
+/// §11's warranty gate "checks the equipment's warranty window", and a gate with nothing to check is
+/// the theatre docs/DECISIONS.md #69 refused. Same call as §7's minimum-viable `StockItem`: the
+/// fields §11 reads are real from today, the rest of §16 — PM scheduling, service intervals, the
+/// renewal loop — is inert until §16 builds it.
+///
+/// §16: "Every commissioned item becomes an `Equipment` record with certificates and full history."
+model Equipment {
+  id        String  @id @default(cuid())
+  accountId String
+  siteId    String?
+
+  tagNumber    String?
+  serialNumber String?
+
+  productId    String?
+  manufacturer String?
+  modelNumber  String?
+  description  String
+
+  installedAt         DateTime?
+  installedByTicketId String?
+  salesOrderId        String?
+  commissionedAt      DateTime?
+  /// The commissioning record this was created from, so the certificate is one hop away.
+  commissionedByTcId  String?
+
+  /// §11 reads these. Null means nobody has recorded a window — which is neither "covered" nor
+  /// "expired", and warranty-rules.ts refuses to guess. See docs/DECISIONS.md #71.
+  warrantyStart DateTime?
+  warrantyEnd   DateTime?
+  warrantyTerms String?
+
+  /// Inert until §16: PM scheduling and the renewal loop.
+  calibrationDueAt DateTime?
+  lastServiceAt    DateTime?
+  nextPMDueAt      DateTime?
+
+  location           String?
+  processDescription String?
+  status             String  @default("active")
+
+  documentIds String[] @default([])
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account        CustomerAccount @relation(fields: [accountId], references: [id])
+  warrantyClaims WarrantyClaim[]
+
+  @@index([accountId, status])
+  @@index([warrantyEnd])
+  @@index([serialNumber])
+}
+
+/// §11's warranty gate.
+///
+/// §11 describes behaviour rather than a model, but it also asks for warranty work to be "reported
+/// separately: count, cost, and root cause by product and by technician" — and a report needs
+/// something to count. This is that record: the claim, the determination, and what the determination
+/// produced.
+model WarrantyClaim {
+  id     String @id @default(cuid())
+  /// AIESWC-{YY}{####}.
+  number String @unique
+
+  accountId         String
+  equipmentId       String?
+  /// The work this comes back on. §11: "work already commissioned comes back for rectification."
+  originalProjectId String?
+  originalTicketId  String?
+
+  reportedAt       DateTime @default(now())
+  reportedById     String
+  faultDescription String
+
+  /// in_warranty | out_of_warranty | unknown. `unknown` is a real answer, not a missing one — see
+  /// warranty-rules.ts and docs/DECISIONS.md #71.
+  coverage               String
+  coverageDeterminedAt   DateTime?
+  coverageDeterminedById String?
+  /// Why, when a person overrode what the dates said. An override nobody explains is a blank field.
+  coverageOverrideReason String?
+
+  /// aies_caused | customer_caused | third_party | undetermined.
+  ///
+  /// Deliberately a **separate axis** from coverage, following §8's standby attribution. §11 makes a
+  /// defect AIES caused non-billable *and* an NCR — and that is true whether or not the warranty has
+  /// expired. Folding the two into one enum would lose the case that matters most: our fault, out of
+  /// warranty, still ours to fix.
+  attribution String @default("undetermined")
+
+  rootCause         String?
+  rootCauseCategory String?
+
+  /// Derived from coverage and attribution, then stored — it is the commercial decision somebody
+  /// signed, not a formula anybody may quietly re-run later.
+  billable Boolean
+
+  /// The after_sales ticket this raised, when it raised one.
+  resultingTicketId String?
+  /// §11: an AIES-caused defect "auto-raises an NCR (module 08)". Module 08 does not exist, so the
+  /// obligation is recorded here and carried by the event.
+  ncrRequired       Boolean   @default(false)
+  /// §11: out of warranty "prompts sales to quote the rectification".
+  salesReferredAt   DateTime?
+
+  /// open | routed | closed
+  status  String  @default("open")
+  remarks String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account   CustomerAccount @relation(fields: [accountId], references: [id])
+  equipment Equipment?      @relation(fields: [equipmentId], references: [id])
+  project   Project?        @relation(fields: [originalProjectId], references: [id])
+
+  @@index([accountId, status])
+  @@index([coverage, attribution])
+  @@index([reportedAt])
 }
