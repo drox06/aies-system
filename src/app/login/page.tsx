@@ -24,7 +24,22 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/";
+  /**
+   * Where signing in lands you.
+   *
+   * `callbackUrl` is set by middleware when somebody is bounced off a page they asked for, and going
+   * back there is right — you meant to be there. It is only the *default*, for a plain visit to the
+   * login page, that changed on 2026-08-18 at the company's request: My day rather than `/`.
+   *
+   * `/` is the cross-module summary with no nav entry (docs/DECISIONS.md #78), kept as the seed of
+   * DJ's module 09 dashboard. My day is where the sales side actually starts work, so it is the more
+   * useful first screen today.
+   */
+  const requested = searchParams.get("callbackUrl");
+  // `/` counts as "no destination", not as a destination. Typing the bare domain is what most people
+  // do, and middleware turns that into `?callbackUrl=%2F` — honouring it literally would send
+  // everybody to Home and defeat the point of this default.
+  const callbackUrl = !requested || requested === "/" ? "/crm/my-day" : requested;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
