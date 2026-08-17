@@ -93,6 +93,26 @@ and its migration history get out of sync, and Prisma cannot fix it for you afte
 
 ---
 
+## 3b. First logins — the step that locks people out if it is skipped
+
+Do this **before the URL goes to anybody else**, and again every time an account is created.
+
+The platform forces TOTP enrolment at first login and **has no TOTP reset in the admin UI**. That
+absence is deliberate: an admin who can reset a second factor is a second factor that can be reset by
+whoever compromises the admin. The consequence is that the recovery codes issued at enrolment are the
+**only** way back in.
+
+- [ ] Each of the five named users logs in once, sets their own password, and enrols an authenticator.
+      EA has already done this.
+- [ ] **Each person saves their recovery codes somewhere that is not the phone running the
+      authenticator.** A wiped or lost phone with the codes on it is a permanent lockout, and nobody —
+      including the president — can undo it from inside the app.
+- [ ] The same applies to every account created later in Admin → Users. The screen says so beside the
+      temporary password; say it out loud as well.
+
+If somebody does get locked out with no codes, the only route is a direct database intervention, which
+means a developer and downtime for that user. Cheaper to spend the minute now.
+
 ## 4. Email — SPF, DKIM, DMARC
 
 Notification email is sent from `no-reply@aieselectromech.com`. Without these three records it

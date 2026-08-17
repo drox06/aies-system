@@ -157,6 +157,20 @@ export default function AdminUsersPage() {
               Share this out of band — it will not be shown again. They must change it and enrol
               TOTP at first sign-in.
             </p>
+            {/*
+              Said here because here is where the person who needs to say it is standing. There is no
+              TOTP reset in this screen and that is deliberate: an admin who can reset a second factor
+              is a second factor that can be reset by whoever compromises the admin. The consequence
+              lands on the new user, so the warning belongs at the moment their account is made.
+            */}
+            <p className="mt-2 font-medium">
+              Tell them to save their recovery codes somewhere that is not the phone running the
+              authenticator.
+            </p>
+            <p className="mt-1 text-text-muted">
+              Those codes are the only way back in. Nobody here can reset a lost authenticator — a
+              wiped phone with the codes on it locks that person out for good.
+            </p>
           </div>
         )}
       </Card>
