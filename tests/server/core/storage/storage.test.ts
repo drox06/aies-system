@@ -73,6 +73,51 @@ describe("uploadFile", () => {
     expect(rows).toHaveLength(1);
   }, 30_000);
 
+  /**
+   * Reported by the company on 2026-08-18, minutes after the first deployment: a PDF was attached,
+   * removed, then attached again — the upload reported success and the file was nowhere.
+   *
+   * The dedupe matched on sha256 without regard to `deletedAt`, so the second upload found its own
+   * tombstone and returned it. The list filters removed rows, so the file existed and was invisible.
+   * Nothing in the suite caught it because no test had ever removed a file and re-attached it.
+   */
+  it("brings a removed file back when the same bytes are attached again", async () => {
+    const content = Buffer.from(`revive test ${randomUUID()}`);
+    const first = await uploadFile({
+      entityType,
+      entityId: "e-revive",
+      uploaderId: "u1",
+      filename: "report.txt",
+      mimeType: "text/plain",
+      buffer: content,
+    });
+    createdFileIds.push(first.id);
+    uploadedKeys.push(first.storageKey);
+
+    await db.fileObject.update({
+      where: { id: first.id },
+      data: { deletedAt: new Date() },
+    });
+
+    const again = await uploadFile({
+      entityType,
+      entityId: "e-revive",
+      uploaderId: "u1",
+      filename: "report.txt",
+      mimeType: "text/plain",
+      buffer: content,
+    });
+
+    // Same row revived rather than a second copy — the bytes never left the bucket.
+    expect(again.id).toBe(first.id);
+    expect(again.deletedAt).toBeNull();
+
+    const rows = await db.fileObject.findMany({
+      where: { entityType, entityId: "e-revive", deletedAt: null },
+    });
+    expect(rows).toHaveLength(1);
+  }, 30_000);
+
   it("does not deduplicate the same content across different entities", async () => {
     const content = Buffer.from(`cross entity ${randomUUID()}`);
     const a = await uploadFile({

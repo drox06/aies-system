@@ -53,7 +53,27 @@ export async function uploadFile(input: UploadFileInput): Promise<FileObject> {
       },
     },
   });
-  if (existing) return existing;
+  if (existing && !existing.deletedAt) return existing;
+
+  /**
+   * Re-attaching something that was removed brings it back, rather than silently doing nothing.
+   *
+   * The dedupe above matched on `entityType + entityId + sha256` without regard to `deletedAt`, so a
+   * removed file re-uploaded byte-for-byte found its own tombstone and returned it as a success. The
+   * upload reported "uploaded", the list filters on `deletedAt: null`, and the file was nowhere —
+   * reported by the company on 2026-08-18, minutes after the first deployment.
+   *
+   * Reviving is safe because removal is soft: `removeEntityFileService` leaves the bytes in the
+   * bucket and keeps the sha256 precisely so the record of what was attached survives. The object is
+   * still there, so clearing the tombstone is enough — no second copy, and the original upload date
+   * is preserved, which is the honest answer to "when was this attached".
+   */
+  if (existing) {
+    return db.fileObject.update({
+      where: { id: existing.id },
+      data: { deletedAt: null },
+    });
+  }
 
   const storageKey = buildStorageKey(input.entityType, input.entityId, input.filename);
   await supabaseStorageDriver.upload(storageKey, input.buffer, input.mimeType);
