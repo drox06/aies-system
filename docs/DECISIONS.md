@@ -3490,3 +3490,18 @@ the same class of error as a comment that does not match its code.
 **The screen does not offer what the service would refuse.** Discard appears only on unfinished rows.
 The service refuses a completed one regardless of what any screen offers — but a button that exists
 to be rejected teaches people that the app argues with them, and there is no reason to invite that.
+
+**Every discard asks first**, at the company's instruction: press Discard, and the row asks "discard
+this checklist?" with *Yes, discard it* and *Keep it*, naming what goes with it.
+
+Worth setting against §17's scheduling confirmation, which asks **only** when there is a clash. The
+two look like the same pattern and are governed by opposite reasoning:
+
+- A booking with no clash is **harmless**, so a dialog there is pure friction — and friction on the
+  harmless case is exactly what teaches people to click through dialogs without reading, so that the
+  one that mattered gets clicked through too.
+- A discard is **never harmless**. There is no version of it that costs nothing, so there is no case
+  to skip the question for.
+
+The rule that generalises: *confirm when the action has a cost, not when the system is merely
+uncertain*. A dialog that fires on the safe path spends the user's attention and buys nothing.

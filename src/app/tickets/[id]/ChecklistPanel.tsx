@@ -39,11 +39,21 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
 
   const canFill = (me.data?.permissions ?? []).includes("checklist.fill");
   const [openId, setOpenId] = useState<string | null>(null);
+  /**
+   * Which row is asking to be discarded.
+   *
+   * **Every discard asks**, unlike §17's scheduling confirmation which only appears when there is
+   * a clash. The difference is that a booking with no clash is harmless, so a dialog there would be
+   * pure friction and would teach people to click through dialogs — whereas every discard loses
+   * something. There is no harmless version to skip the question for.
+   */
+  const [confirmingDiscard, setConfirmingDiscard] = useState<string | null>(null);
   const [starting, setStarting] = useState("");
 
   const discard = trpc.operations.discardChecklist.useMutation({
     onSuccess: () => {
       setOpenId(null);
+      setConfirmingDiscard(null);
       void rows.refetch();
     },
   });
@@ -94,13 +104,13 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
                     checked, and the service refuses to remove one whatever the screen offers — this
                     just does not offer it, so nobody is invited to try.
                   */}
-                  {row.status !== "complete" && canFill && (
+                  {row.status !== "complete" && canFill && confirmingDiscard !== row.id && (
                     <Button
                       variant="ghost"
                       size="sm"
                       className="text-danger"
                       disabled={discard.isPending}
-                      onClick={() => discard.mutate({ responseId: row.id })}
+                      onClick={() => setConfirmingDiscard(row.id)}
                     >
                       Discard
                     </Button>
@@ -117,6 +127,29 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
                   </>
                 )}
               </p>
+
+              {confirmingDiscard === row.id && (
+                <div className="mt-2 rounded-md border-2 border-amber-400 bg-amber-50 p-3">
+                  <p className="text-sm font-semibold text-amber-900">Discard this checklist?</p>
+                  <p className="mt-1 text-sm text-amber-900">
+                    {row.templateKey} v{row.templateVersion} comes off this ticket. Anything already
+                    answered on it goes with it.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      className="text-danger"
+                      disabled={discard.isPending}
+                      onClick={() => discard.mutate({ responseId: row.id })}
+                    >
+                      {discard.isPending ? "Discarding…" : "Yes, discard it"}
+                    </Button>
+                    <Button variant="secondary" onClick={() => setConfirmingDiscard(null)}>
+                      Keep it
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {openId === row.id && (
                 <ResponseForm responseId={row.id} onSaved={() => void rows.refetch()} />
