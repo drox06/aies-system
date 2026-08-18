@@ -382,6 +382,64 @@ export async function completeResponseService(
   });
 }
 
+/**
+ * Removes a checklist somebody started by mistake.
+ *
+ * The company's reason, 2026-08-18: "a wrong checklist might be selected and is not needed. This
+ * will leave an 'in progress' when it does not really progress." Correct — an abandoned draft sits on
+ * the ticket forever looking like outstanding work, and a list of outstanding work that contains
+ * things nobody intends to do is a list people stop reading.
+ *
+ * ## A signed checklist is never deletable
+ *
+ * That is the line, and it is not a policy setting. §15 exists so that what was checked can be read
+ * afterwards; a signed-off checklist is the evidence, and evidence somebody can remove when it
+ * becomes inconvenient is not evidence. If a completed one is wrong, the answer is a new one that
+ * says so — the record then shows both, which is the truth.
+ *
+ * ## Soft, not hard
+ *
+ * A draft can be half-filled. Somebody deleting the wrong row should not destroy an afternoon of
+ * answers, and §14's whole argument is that field work is not something to lose casually. The row
+ * stays, hidden, recoverable by anybody with database access.
+ */
+export async function deleteResponseService(actor: ActorMeta, input: { responseId: string }) {
+  const response = await loadResponse(input.responseId);
+
+  if (response.status === "complete") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${response.templateKey} was signed off${response.signedByName ? ` by ${response.signedByName}` : ""} ` +
+        `and cannot be deleted — it is the record of what was checked. If it is wrong, fill in a new ` +
+        `one; the history then shows both, which is what actually happened.`,
+    });
+  }
+
+  const removed = await db.$transaction(async (tx) => {
+    const row = await tx.checklistResponse.update({
+      where: { id: response.id },
+      data: { deletedAt: new Date(), deletedBy: actor.actorId, version: { increment: 1 } },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "checklist_discarded",
+      entityType: CHECKLIST_RESPONSE_ENTITY_TYPE,
+      entityId: response.id,
+      summary: `Discarded an unfinished ${response.templateKey} v${response.templateVersion}.`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return row;
+  });
+
+  return removed;
+}
+
 export async function getResponseService(responseId: string) {
   const response = await db.checklistResponse.findFirst({
     where: { id: responseId, deletedAt: null },

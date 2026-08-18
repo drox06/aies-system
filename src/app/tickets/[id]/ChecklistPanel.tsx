@@ -41,6 +41,13 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [starting, setStarting] = useState("");
 
+  const discard = trpc.operations.discardChecklist.useMutation({
+    onSuccess: () => {
+      setOpenId(null);
+      void rows.refetch();
+    },
+  });
+
   const start = trpc.operations.startChecklist.useMutation({
     onSuccess: (created) => {
       setOpenId(created.id);
@@ -77,9 +84,28 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
                 >
                   {row.templateKey} v{row.templateVersion}
                 </button>
-                <StatusBadge tone={TONE[row.status] ?? "pending"}>
-                  {row.status === "complete" ? "Signed off" : "In progress"}
-                </StatusBadge>
+                <div className="flex items-center gap-2">
+                  <StatusBadge tone={TONE[row.status] ?? "pending"}>
+                    {row.status === "complete" ? "Signed off" : "In progress"}
+                  </StatusBadge>
+
+                  {/*
+                    Only while it is unfinished. A signed checklist is the record of what was
+                    checked, and the service refuses to remove one whatever the screen offers — this
+                    just does not offer it, so nobody is invited to try.
+                  */}
+                  {row.status !== "complete" && canFill && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-danger"
+                      disabled={discard.isPending}
+                      onClick={() => discard.mutate({ responseId: row.id })}
+                    >
+                      Discard
+                    </Button>
+                  )}
+                </div>
               </div>
               <p className="mt-1 text-xs text-text-muted">
                 {row.summary}
@@ -126,7 +152,9 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
         </div>
       )}
 
-      {start.error && <p className="mt-2 text-sm text-danger">{start.error.message}</p>}
+      {(start.error ?? discard.error) && (
+        <p className="mt-2 text-sm text-danger">{(start.error ?? discard.error)!.message}</p>
+      )}
     </Card>
   );
 }

@@ -35,6 +35,7 @@ import {
   activeTemplateService,
   completeResponseService,
   createTemplateService,
+  deleteResponseService,
   getResponseService,
   listResponsesForTicketService,
   listTemplatesService,
@@ -1546,6 +1547,14 @@ export const operationsRouter = router({
         }),
       });
     }),
+
+  /**
+   * Only an unfinished one. A signed checklist is the record of what was checked, and the service
+   * refuses regardless of who is asking.
+   */
+  discardChecklist: p("checklist.fill")
+    .input(z.object({ responseId: z.string() }))
+    .mutation(({ ctx, input }) => deleteResponseService(actorMeta(ctx), input)),
 
   getChecklistResponse: p("ticket.view")
     .input(z.object({ responseId: z.string() }))

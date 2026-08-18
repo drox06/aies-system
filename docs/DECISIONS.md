@@ -3453,3 +3453,29 @@ complete this task?"
 **Also fixed alongside it:** the Sign off button was disabled with no stated reason when the name box
 was empty. A disabled control that does not say why is the same dead end in miniature, and on a phone
 there is not even a tooltip to fall back on. It now says so in the page.
+
+---
+
+## #102 — A draft can be discarded; a signed checklist cannot
+
+The company asked for delete, with the reason attached: "a wrong checklist might be selected and is
+not needed. This will leave an 'in progress' when it does not really progress."
+
+That is exactly right, and the harm is subtler than clutter. An abandoned draft sits on the ticket
+looking like outstanding work. A list of outstanding work containing things nobody intends to do is a
+list people stop reading — and then the item on it that *did* matter is skipped too. Same argument as
+#83's nightly alert and #70's warning that always fires: the cost of noise is that the signal goes
+with it.
+
+**The line is completion, and it does not move.** §15 exists so that what was checked can be read
+afterwards. A signed checklist is the evidence; evidence somebody can remove once it becomes
+inconvenient is not evidence. So `deleteResponseService` refuses a completed one and says what to do
+instead — fill in a new one, and the history shows both, which is what actually happened.
+
+**Soft, not hard.** A draft can be half-filled, and somebody clicking the wrong row should not destroy
+an afternoon of answers. §14's entire argument is that field work is not lost casually, and that
+argument does not stop applying because the work is unfinished. The row stays, hidden and recoverable.
+
+**The screen does not offer what the service would refuse.** Discard appears only on unfinished rows.
+The service refuses a completed one regardless of what any screen offers — but a button that exists
+to be rejected teaches people that the app argues with them, and there is no reason to invite that.

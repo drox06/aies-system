@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   activeTemplateService,
   completeResponseService,
+  deleteResponseService,
   createTemplateService,
   getResponseService,
   listResponsesForTicketService,
@@ -279,6 +280,69 @@ describe("signing one off", () => {
       where: { event: "checklist.failed", actorId: OWNER },
     });
     expect(after).toBe(before);
+  });
+});
+
+describe("discarding one started by mistake", () => {
+  /**
+   * The company's reason: "a wrong checklist might be selected and is not needed. This will leave an
+   * 'in progress' when it does not really progress." An abandoned draft sits on the ticket looking
+   * like outstanding work, and a list of outstanding work containing things nobody intends to do is
+   * a list people stop reading.
+   */
+  it("removes an unfinished one from the ticket", async () => {
+    const template = await publishedTemplate();
+    const ticket = await db.ticket.findFirst({ where: { deletedAt: null }, select: { id: true } });
+    if (!ticket) return;
+
+    const response = await trackedResponse(template.key, ticket.id);
+    expect(
+      (await listResponsesForTicketService(ticket.id)).some((row) => row.id === response.id),
+    ).toBe(true);
+
+    await deleteResponseService(actor, { responseId: response.id });
+
+    expect(
+      (await listResponsesForTicketService(ticket.id)).some((row) => row.id === response.id),
+    ).toBe(false);
+  });
+
+  /**
+   * The line that does not move. §15 exists so what was checked can be read afterwards, and evidence
+   * somebody can remove once it becomes inconvenient is not evidence.
+   */
+  it("refuses to remove one that was signed off, and says what to do instead", async () => {
+    const template = await publishedTemplate();
+    const response = await trackedResponse(template.key);
+    await saveAnswersService(actor, { responseId: response.id, answers: PASSING });
+    await completeResponseService(actor, {
+      responseId: response.id,
+      signedByName: "R. Cruz",
+    });
+
+    await expect(deleteResponseService(actor, { responseId: response.id })).rejects.toThrow(
+      /cannot be deleted/,
+    );
+    await expect(deleteResponseService(actor, { responseId: response.id })).rejects.toThrow(
+      /fill in a new one/,
+    );
+  });
+
+  /** Soft, so half a day of answers is not destroyed by clicking the wrong row. */
+  it("keeps the row so a mistaken discard is recoverable", async () => {
+    const template = await publishedTemplate();
+    const response = await trackedResponse(template.key);
+    await saveAnswersService(actor, {
+      responseId: response.id,
+      answers: { earth: { value: "pass" } },
+    });
+
+    await deleteResponseService(actor, { responseId: response.id });
+
+    const row = await db.checklistResponse.findUnique({ where: { id: response.id } });
+    expect(row).not.toBeNull();
+    expect(row!.deletedAt).not.toBeNull();
+    expect(row!.answers).toMatchObject({ earth: { value: "pass" } });
   });
 });
 
