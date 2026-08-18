@@ -3706,3 +3706,58 @@ the emit call rather than from the spec's prose. That is the only check that wou
 one, and the test for `on_installation` names the trap explicitly so that "correcting" the trigger
 back to the spec's literal name fails a test rather than going quiet.
 
+---
+
+## #110 — Two documents, because the invoice is the taxable event
+
+**2026-08-19, module 05 §3.** The company confirmed one fact and it reshapes the module: **AIES
+issues a Service Invoice upon payment, not upon billing.**
+
+So there are two documents and they are not the same record:
+
+| | Billing statement | Service invoice |
+| --- | --- | --- |
+| What it does | Demands payment | Evidences the sale to the BIR |
+| When | The milestone is billable | **The money arrives** |
+| VAT | None | **Yes** |
+| Cancellable | Freely | Never deleted; cancelled and retained |
+
+Collapsing them — issuing an invoice when the bill goes out — hands the BIR twelve per cent of money
+the customer has not sent, months before it turns up, if it ever does. That is not a modelling
+preference; it is a cheque written for a bookkeeping convenience.
+
+### Three things that follow, each a place the arithmetic goes quietly wrong
+
+**Withholding is computed on sales net of VAT.** EWT is a tax on income and the VAT is not AIES's
+income — it is collected on the BIR's behalf. Withholding 2% of a VAT-inclusive total over-deducts,
+and the difference is money AIES never sees and cannot credit. It is the most common arithmetic
+error in Philippine billing and it always favours the customer.
+
+**An inclusive price already contains the VAT.** It is extracted, not added: adding 12% to an
+inclusive price overcharges by twelve per cent, and treating the whole amount as the net understates
+output VAT. Both are invisible until an examination.
+
+**A post-dated cheque is not cash.** It is recorded and allocated — the customer has said what they
+are paying — but no statement settles and **no invoice is issued** until it clears. §11 asks that a
+bounced cheque "reverses cleanly without leaving an orphaned invoice number", and holding the PDC is
+what makes that free: there is no number to orphan. A cheque that bounces *after* clearing is a
+different act, and there the invoice is cancelled and **retained**, because a missing number in a
+BIR series is something nobody can explain years later.
+
+### Ageing runs on statements, never on invoices
+
+§5 says so and the consequence deserves stating plainly: receivables aged off service invoices would
+report a debt of **zero** however much is owed, because an unpaid bill has no invoice behind it. The
+system would look healthiest exactly when it was not.
+
+### The two-way rule
+
+§3.1: "A payment cannot be recorded without producing an invoice, and an invoice cannot exist without
+a payment." The schema holds one direction — `ServiceInvoice.paymentId` is required and unique — and
+`recordPaymentService` holds the other by being the only place either row is created, writing the
+payment, the allocations and the invoice in one transaction or none of them.
+
+A payment without its invoice is unbilled revenue that looks collected. An invoice without its
+payment is a declaration to the government that a sale happened. Both are worse than the write
+failing, which is the same lesson as #105 arriving from a different direction.
+

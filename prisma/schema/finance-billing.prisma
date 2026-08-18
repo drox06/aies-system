@@ -1,0 +1,234 @@
+/// Module 05 §3 — the two-document model.
+///
+/// Split from finance.prisma because §3 calls itself "the most important section" and it is: the
+/// whole module turns on one confirmed fact, and a reader who needs to understand billing should be
+/// able to open one file and find it.
+///
+/// **AIES issues a Service Invoice upon payment, not upon billing.** So there are two documents and
+/// they are not the same record. The thing that goes to the customer asking for money is a
+/// *statement*: it creates a receivable and triggers no VAT. The BIR document is issued when the
+/// money actually arrives. Collapsing them would create a VAT liability on money that has not
+/// turned up — a real cost paid to the BIR for a bookkeeping convenience.
+
+/// The document that demands payment for a milestone.
+///
+/// Freely cancellable, because nothing has been declared to anybody yet. That is the mirror of the
+/// service invoice, which can never be deleted.
+model BillingStatement {
+  id     String @id @default(cuid())
+  /// AIESBS-{YY}{####}.
+  number String @unique
+
+  /// downpayment | progress | final | service | credit_note
+  type String @default("progress")
+
+  accountId    String
+  salesOrderId String?
+  projectId    String?
+  ticketId     String?
+  /// The milestone this bills, when it came from a schedule. Null for an ad-hoc statement.
+  milestoneId  String?
+
+  statementDate DateTime @default(now())
+  dueDate       DateTime
+  currency      String   @default("PHP")
+
+  /// Integer centavos throughout, like every money field in the platform.
+  subtotal  Int
+  vatMode   String @default("exclusive")
+  vatAmount Int    @default(0)
+  total     Int
+
+  /// What the account's EWT setting says will be withheld, and what should therefore arrive.
+  ///
+  /// Computed and stored rather than derived at read time. §3.2 wants the statement to show the net
+  /// collectible "so nobody is surprised when less money arrives than the statement said", and a
+  /// figure recomputed later from a changed account setting would not be the figure the customer was
+  /// actually shown.
+  expectedWithholdingAmount Int @default(0)
+  expectedNetCollectible    Int @default(0)
+
+  amountPaid Int @default(0)
+  balance    Int
+
+  /// draft | issued | partially_paid | paid | overdue | cancelled | written_off
+  status String @default("draft")
+
+  /// §3's supporting references, carried on the statement because a collections conversation is won
+  /// by naming the documents rather than by insisting.
+  poReference      String?
+  drReferences     String[] @default([])
+  srReferences     String[] @default([])
+  tcCertificateRef String?
+
+  notes String?
+  terms String?
+
+  issuedById String?
+  issuedAt   DateTime?
+
+  cancelledById   String?
+  cancelledAt     DateTime?
+  cancelledReason String?
+
+  version   Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  lines       BillingStatementLine[]
+  allocations PaymentAllocation[]
+
+  @@index([accountId, status])
+  @@index([status, dueDate])
+  @@index([salesOrderId])
+}
+
+model BillingStatementLine {
+  id          String @id @default(cuid())
+  statementId String
+  lineNo      Int
+
+  salesOrderLineId String?
+  description      String
+  quantity         Decimal @default(1) @db.Decimal(14, 3)
+  unit             String  @default("pc")
+  /// Integer centavos.
+  unitPrice        Int
+  lineTotal        Int
+  /// §3.3 reports zero-rated and exempt sales separately on the invoice, so a line has to say which
+  /// it is rather than the statement assuming one answer for all of them.
+  vatable          Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  statement BillingStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, lineNo])
+}
+
+/// The BIR document, issued when the money arrives.
+///
+/// ## The two rules that cannot bend
+///
+/// §3.1: "A payment cannot be recorded without producing an invoice, and an invoice cannot exist
+/// without a payment. Enforce both directions in the service layer." `paymentId` is required and
+/// unique, so the schema holds one direction; `recordPaymentService` holds the other by being the
+/// only way either row comes into existence.
+///
+/// **Never deleted, never renumbered.** §3: "Cancelled or voided invoices are retained and marked."
+/// A gap in the series is something the BIR expects to be able to account for; a *missing* number is
+/// something nobody can explain years later. So this model has no `deletedAt` — deliberately, and it
+/// is the only business model in the platform without one.
+model ServiceInvoice {
+  id     String @id @default(cuid())
+  /// AIESSI-{YY}{#####}. Strict sequence.
+  number String @unique
+
+  accountId String
+  /// The payment that caused it. One payment, one invoice.
+  paymentId String @unique
+
+  /// The statements this invoice settles. Several, when one payment covers two.
+  billingStatementIds String[] @default([])
+
+  /// The date the payment was received — not the date somebody typed it in. An invoice dated when it
+  /// was entered would put the sale in the wrong VAT period.
+  invoiceDate DateTime
+
+  /// §3.3's breakdown, all integer centavos.
+  vatableSales   Int @default(0)
+  vatExemptSales Int @default(0)
+  zeroRatedSales Int @default(0)
+  vatAmount      Int @default(0)
+
+  grossAmount          Int
+  withholdingTaxAmount Int @default(0)
+  netAmountReceived    Int
+
+  /// issued | cancelled
+  status String @default("issued")
+
+  cancellationReason String?
+  cancelledById      String?
+  cancelledAt        DateTime?
+
+  pdfFileId  String?
+  issuedById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([accountId, invoiceDate])
+  @@index([status])
+}
+
+/// Money arriving. §3.3's post-dated cheque is why `clearedAt` exists.
+model Payment {
+  id     String @id @default(cuid())
+  /// AIESPMT-{YY}{#####}.
+  number String @unique
+
+  accountId  String
+  receivedAt DateTime
+
+  /// bank_transfer | check | cash | online | gcash
+  method    String
+  reference String?
+
+  /// Integer centavos.
+  amount   Int
+  currency String @default("PHP")
+
+  /// §3.3: "A received PDC is *not* collected cash." It sits until `clearedAt`, and only clearing
+  /// settles the statement and issues the invoice. Getting this wrong overstates collections and
+  /// issues a BIR document against money that may still bounce.
+  checkNumber  String?
+  checkDate    DateTime?
+  clearedAt    DateTime?
+  bouncedAt    DateTime?
+  bounceReason String?
+
+  /// §3.2. Withholding recorded with no 2307 on file is real money left on the table — creditable
+  /// against income tax, and worthless if never collected.
+  withholdingTaxAmount Int       @default(0)
+  form2307FileId       String?
+  form2307ReceivedAt   DateTime?
+
+  proofFileId  String?
+  recordedById String
+  notes        String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  invoice     ServiceInvoice?
+  allocations PaymentAllocation[]
+
+  @@index([accountId, receivedAt])
+  @@index([clearedAt])
+  @@index([withholdingTaxAmount, form2307ReceivedAt])
+}
+
+/// How one payment is spread across the statements it settles.
+///
+/// §3 models this as many-to-many through the payment, because both directions really happen: one
+/// payment covering two statements, and one statement paid in instalments.
+model PaymentAllocation {
+  id                 String @id @default(cuid())
+  paymentId          String
+  billingStatementId String
+  /// Integer centavos.
+  amount             Int
+
+  createdAt DateTime @default(now())
+
+  payment   Payment          @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  statement BillingStatement @relation(fields: [billingStatementId], references: [id])
+
+  @@unique([paymentId, billingStatementId])
+  @@index([billingStatementId])
+}

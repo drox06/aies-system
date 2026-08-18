@@ -7,6 +7,18 @@ import {
   generateScheduleService,
   getScheduleService,
 } from "@/server/core/finance/billing-service";
+import {
+  bounceChequeService,
+  cancelInvoiceService,
+  cancelStatementService,
+  clearChequeService,
+  issueStatementService,
+  outstanding2307sService,
+  raiseStatementService,
+  receivablesService,
+  recordPaymentService,
+} from "@/server/core/finance/invoice-service";
+import { PAYMENT_METHODS, STATEMENT_TYPES, VAT_MODES } from "@/server/core/finance/invoice-rules";
 
 /**
  * Module 05's procedures. Session 1 covers §2's billing schedule only.
@@ -45,4 +57,88 @@ export const financeRouter = router({
   cancelMilestone: p("billing_schedule.manage")
     .input(z.object({ milestoneId: z.string(), reason: z.string().min(5).max(1000) }))
     .mutation(({ ctx, input }) => cancelMilestoneService(actorMeta(ctx), input)),
+
+  // ---- §3's two documents -----------------------------------------------------------------------
+
+  /** §5's ageing, run on statements rather than invoices — see receivablesService for why. */
+  receivables: p("ar.view").query(() => receivablesService()),
+
+  /** §3.2's chase list. Unrecovered 2307s are money AIES has already earned and not collected. */
+  outstanding2307s: p("ar.view").query(() => outstanding2307sService()),
+
+  raiseStatement: p("billing_statement.create")
+    .input(
+      z.object({
+        accountId: z.string(),
+        type: z.enum(STATEMENT_TYPES).optional(),
+        salesOrderId: z.string().nullish(),
+        projectId: z.string().nullish(),
+        ticketId: z.string().nullish(),
+        milestoneId: z.string().nullish(),
+        dueDate: z.coerce.date(),
+        vatMode: z.enum(VAT_MODES).optional(),
+        lines: z
+          .array(
+            z.object({
+              description: z.string().min(1).max(500),
+              quantity: z.union([z.string(), z.number()]),
+              unitPrice: z.number().int(),
+              vatable: z.boolean().optional(),
+            }),
+          )
+          .min(1),
+        poReference: z.string().max(120).nullish(),
+        drReferences: z.array(z.string()).optional(),
+        srReferences: z.array(z.string()).optional(),
+        tcCertificateRef: z.string().max(120).nullish(),
+        notes: z.string().max(2000).nullish(),
+        terms: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => raiseStatementService(actorMeta(ctx), input)),
+
+  issueStatement: p("billing_statement.issue")
+    .input(z.object({ statementId: z.string() }))
+    .mutation(({ ctx, input }) => issueStatementService(actorMeta(ctx), input)),
+
+  cancelStatement: p("billing_statement.issue")
+    .input(z.object({ statementId: z.string(), reason: z.string().min(5).max(1000) }))
+    .mutation(({ ctx, input }) => cancelStatementService(actorMeta(ctx), input)),
+
+  /**
+   * Recording a payment issues a BIR document. See the permission's note in the manifest — this is
+   * the heaviest procedure in the module and it does not look it.
+   */
+  recordPayment: p("payment.record")
+    .input(
+      z.object({
+        accountId: z.string(),
+        receivedAt: z.coerce.date(),
+        method: z.enum(PAYMENT_METHODS),
+        amount: z.number().int().positive(),
+        reference: z.string().max(200).nullish(),
+        checkNumber: z.string().max(60).nullish(),
+        checkDate: z.coerce.date().nullish(),
+        withholdingTaxAmount: z.number().int().nonnegative().optional(),
+        form2307FileId: z.string().nullish(),
+        proofFileId: z.string().nullish(),
+        notes: z.string().max(2000).nullish(),
+        allocations: z
+          .array(z.object({ billingStatementId: z.string(), amount: z.number().int().positive() }))
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordPaymentService(actorMeta(ctx), input)),
+
+  clearCheque: p("payment.record")
+    .input(z.object({ paymentId: z.string(), clearedAt: z.coerce.date().optional() }))
+    .mutation(({ ctx, input }) => clearChequeService(actorMeta(ctx), input)),
+
+  bounceCheque: p("payment.record")
+    .input(z.object({ paymentId: z.string(), reason: z.string().min(3).max(500) }))
+    .mutation(({ ctx, input }) => bounceChequeService(actorMeta(ctx), input)),
+
+  cancelInvoice: p("invoice.cancel")
+    .input(z.object({ serviceInvoiceId: z.string(), reason: z.string().min(5).max(1000) }))
+    .mutation(({ ctx, input }) => cancelInvoiceService(actorMeta(ctx), input)),
 });

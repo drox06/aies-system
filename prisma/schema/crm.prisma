@@ -15,18 +15,33 @@
 // can actually be useful.
 
 model CustomerAccount {
-  id          String  @id @default(cuid())
+  id        String  @id @default(cuid())
   // ACC-{####} from the numbering service (§2). Permanent: the counter has no year segment.
-  code        String  @unique
-  name        String
-  legalName   String?
-  tin         String?
-  industry    String?
+  code      String  @unique
+  name      String
+  legalName String?
+  tin       String?
+
+  /// §3.2 of module 05: withholding is **per account, because it varies**.
+  ///
+  /// Some AIES customers withhold expanded withholding tax and issue a BIR 2307; some do not. A
+  /// single company-wide setting would either surprise finance with less money than the statement
+  /// said, or show a deduction that never happens.
+  ///
+  /// `ewtRate` is a percentage to four places, defaulting to the 2% ordinary rate for services. It
+  /// is a per-account override precisely because a government agency withholds differently and also
+  /// withholds VAT — §3.2 asks for the override rather than an assumption.
+  withholdsEWT Boolean @default(false)
+  ewtRate      Decimal @default(2) @db.Decimal(7, 4)
+  /// Government agencies withhold at different rates and also withhold VAT. Flagged rather than
+  /// inferred from the name, because "Corporation" in a name proves nothing either way.
+  isGovernment Boolean @default(false)
+  industry     String?
   // customer | prospect | both
-  accountType String  @default("prospect")
-  website     String?
-  phone       String?
-  email       String?
+  accountType  String  @default("prospect")
+  website      String?
+  phone        String?
+  email        String?
 
   // Json rather than columns: Philippine addresses do not decompose cleanly into the usual
   // fields (barangay, subdivision, building), and every downstream consumer — PDF headers,

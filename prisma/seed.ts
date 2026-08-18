@@ -356,6 +356,14 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // several tickets say which one they roll up to.
   { documentType: "project", format: "AIESPRJ-{YY}{####}", label: "Project" },
   { documentType: "cash_advance", format: "AIESCA-{YY}{####}", label: "Cash Advance" },
+  // specs/05-finance-billing.md §3's two documents, and the payment that connects them.
+  //
+  // Five digits on the service invoice rather than four: §3 requires a strict, gapless-tracked
+  // sequence that the BIR can account for number by number, and a series that wraps at 9,999 in a
+  // busy year is a series that has to be explained.
+  { documentType: "billing_statement", format: "AIESBS-{YY}{####}", label: "Billing Statement" },
+  { documentType: "service_invoice", format: "AIESSI-{YY}{#####}", label: "Service Invoice" },
+  { documentType: "payment", format: "AIESPMT-{YY}{#####}", label: "Payment" },
   // specs/04-operations-projects.md §6.1. Not in Spec.md §5's table either, and it needs one for the
   // same reason `project` did: an inspection report is a document the company hands to a customer
   // when the survey changes the scope, and "the one from last Tuesday" is not a reference.

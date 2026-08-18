@@ -39,6 +39,11 @@ const UI_SAFE_SERVER_MODULES = [
   "@/server/core/order/supplier-rules",
   "@/server/core/order/supplier-po-rules",
   "@/server/core/order/goods-receipt-rules",
+  // Module 05's two rules files. Both are pure — no Prisma, no node builtins — and the screens need
+  // them for the same reason every other entry here exists: the labels and buckets a person reads
+  // must be the ones the service computed, not a second copy that drifts.
+  "@/server/core/finance/billing-rules",
+  "@/server/core/finance/invoice-rules",
   "@/server/core/operations/ticket-rules",
   "@/server/core/operations/cash-advance-rules",
   "@/server/core/operations/site-inspection-rules",

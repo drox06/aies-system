@@ -35,7 +35,15 @@ export const financeManifest = defineManifest({
   name: "Finance",
   version: "0.1.0",
 
-  models: ["BillingSchedule", "BillingMilestone"],
+  models: [
+    "BillingSchedule",
+    "BillingMilestone",
+    "BillingStatement",
+    "BillingStatementLine",
+    "ServiceInvoice",
+    "Payment",
+    "PaymentAllocation",
+  ],
 
   permissions: [
     {
@@ -71,6 +79,41 @@ export const financeManifest = defineManifest({
        */
       defaultRoles: ["president", "vice_president", "finance_officer"],
     },
+    {
+      key: "billing_statement.issue",
+      label: "Send a billing statement to a customer",
+      group: "Finance",
+      // Separate from drafting one. Drafting is arithmetic somebody can check; issuing creates a
+      // receivable and puts a demand in front of a customer, which is the act with consequences.
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
+    {
+      key: "payment.record",
+      label: "Record a payment received",
+      group: "Finance",
+      /**
+       * The heaviest permission in this module, and it does not look it.
+       *
+       * §3.1: recording a payment **issues a BIR document**. Whoever holds this can create a service
+       * invoice, and a service invoice is a declaration to the government that a sale happened. It is
+       * not a bookkeeping note and it is not reversible by deleting anything.
+       */
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
+    {
+      key: "invoice.cancel",
+      label: "Cancel a service invoice",
+      group: "Finance",
+      // The officers only. A cancelled BIR document is retained forever with its reason attached,
+      // and the reason is the company's answer if anybody asks about the gap in the series.
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
+      key: "ar.view",
+      label: "See what customers owe",
+      group: "Finance",
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
   ],
 
   emits: [
@@ -78,6 +121,11 @@ export const financeManifest = defineManifest({
     // for is done. The payload carries the reason, so whoever raises the bill knows what happened
     // without going to look — which is the point of §2.
     "milestone.ready_to_bill",
+    // §3's two documents and the money between them.
+    "billing_statement.issued",
+    "payment.received",
+    "payment.cleared",
+    "service_invoice.issued",
   ],
 
   /**
@@ -141,5 +189,8 @@ export const financeManifest = defineManifest({
     },
   ],
 
-  nav: [{ label: "Ready to bill", href: "/finance/billing", icon: "receipt", order: 1 }],
+  nav: [
+    { label: "Ready to bill", href: "/finance/billing", icon: "receipt", order: 1 },
+    { label: "Receivables", href: "/finance/receivables", icon: "wallet", order: 2 },
+  ],
 });
