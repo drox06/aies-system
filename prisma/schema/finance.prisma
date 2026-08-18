@@ -1,0 +1,92 @@
+/// Module 05 — Finance, Billing and Collections (specs/05-finance-billing.md).
+///
+/// Session 1 builds §2: the billing schedule, and the milestone triggers that tell finance a
+/// milestone is billable without anybody having to ask operations whether the work is done. §1 of
+/// the spec is explicit that this module is **not** double-entry accounting, so there is no chart of
+/// accounts here and there will not be one.
+
+/// `PaymentTerm` is **module 02's model**, extended there rather than duplicated here.
+///
+/// It already existed with `downpaymentPct`, `balanceTrigger` and `netDays`, and its own comment
+/// anticipated this: "module 05 reads it for billing". A second finance-owned payment term would
+/// have meant two answers to "what did this customer agree to", and the one a quotation printed
+/// would not have been the one an invoice billed.
+///
+/// What module 05 adds there is `milestones` — the richer expression of the same fact. See the note
+/// on that field for which one governs billing.
+
+/// One order's billing plan, fixed at the moment it was generated.
+///
+/// It records `termSnapshot` as well as `paymentTermId`. A term is a piece of configuration somebody
+/// can edit, and an order billed under the old 50/50 must not silently re-plan itself when the term
+/// becomes 30/70 next year. The snapshot is what this order agreed to; the id is where it came from.
+model BillingSchedule {
+  id            String @id @default(cuid())
+  salesOrderId  String @unique
+  paymentTermId String
+
+  /// The term's milestones as they stood when this schedule was generated.
+  termSnapshot Json
+
+  generatedAt   DateTime @default(now())
+  generatedById String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  paymentTerm PaymentTerm        @relation(fields: [paymentTermId], references: [id])
+  milestones  BillingMilestone[]
+
+  @@index([paymentTermId])
+}
+
+/// A slice of an order's value, and the event that makes it billable.
+model BillingMilestone {
+  id           String @id @default(cuid())
+  scheduleId   String
+  salesOrderId String
+
+  /// Position in the schedule, so "the downpayment" is identifiable without matching on its label.
+  sequence Int
+  label    String
+
+  /// Percentage of the order value, to four places. Kept alongside `amount` rather than replaced by
+  /// it: the percentage is what was agreed, the amount is what that came to at generation time, and
+  /// a variation order changes the second without changing the first.
+  pct    Decimal @db.Decimal(7, 4)
+  /// Integer centavos, like every other money field in the platform.
+  amount Int
+
+  /// See BILLING_TRIGGERS in billing-rules.ts.
+  trigger String
+
+  /// pending | ready_to_bill | invoiced | cancelled
+  status String @default("pending")
+
+  /// When the trigger fired. Null while pending — and null is the honest answer, not a date nobody
+  /// has earned.
+  readyAt     DateTime?
+  /// Why it became billable: the event that did it, for the person asking "why is this on my list".
+  readyReason String?
+  dueDate     DateTime?
+
+  /// Set when a billing statement is raised against it. §3 keeps the statement and the invoice
+  /// separate documents; this points at the first.
+  billingStatementId String?
+
+  cancelledAt     DateTime?
+  cancelledReason String?
+
+  version   Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  schedule BillingSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, sequence])
+  @@index([salesOrderId, status])
+  @@index([status, trigger])
+  @@index([status, dueDate])
+}

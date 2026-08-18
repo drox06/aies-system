@@ -10,6 +10,7 @@ import { customFieldsRouter } from "@/server/api/routers/custom-fields";
 import { filesRouter } from "@/server/api/routers/files";
 import { notifyRouter } from "@/server/api/routers/notify";
 import { operationsRouter } from "@/server/api/routers/operations";
+import { financeRouter } from "@/server/api/routers/finance";
 import { orderRouter } from "@/server/api/routers/order";
 import { numberingRouter } from "@/server/api/routers/numbering";
 import { searchRouter } from "@/server/api/routers/search";
@@ -29,6 +30,7 @@ export const appRouter = router({
   search: searchRouter,
   crm: crmRouter,
   quotation: quotationRouter,
+  finance: financeRouter,
   order: orderRouter,
   operations: operationsRouter,
 });

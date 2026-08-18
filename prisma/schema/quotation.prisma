@@ -410,10 +410,26 @@ model PaymentTerm {
   netDays        Int     @default(0)
   description    String?
 
+  /// Module 05 §2's milestones: `[{ label, pct, trigger, daysAfter? }]`.
+  ///
+  /// The same commercial fact as `downpaymentPct` + `balanceTrigger`, expressed richly enough to
+  /// bill from: a term can have three milestones rather than two, and each names the **domain event**
+  /// that makes it billable rather than a phrase somebody has to interpret.
+  ///
+  /// **This is what billing reads.** The two older fields stay because module 02's quotation document
+  /// prints from them and a quotation must keep saying what it said. Where they could disagree,
+  /// prisma/seed.ts derives both from one definition so they cannot — see `PAYMENT_TERMS` there.
+  ///
+  /// Empty on a term nobody has given milestones to yet, and `generateScheduleService` refuses to
+  /// plan from an empty one rather than inventing a 100%-on-completion default. A term that cannot
+  /// be billed should say so when somebody tries, not quietly bill everything at the end.
+  milestones Json @default("[]")
+
   isActive Boolean @default(true)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  billingSchedules BillingSchedule[]
 }
 
 // §8: "Status `under_negotiation` with a structured log: each round records the customer's

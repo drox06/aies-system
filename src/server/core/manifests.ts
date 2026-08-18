@@ -1,5 +1,6 @@
 import { buildModuleRegistry, type ModuleManifest } from "./module-registry";
 import { crmManifest } from "./modules/crm.manifest";
+import { financeManifest } from "./modules/finance.manifest";
 import { foundationManifest } from "./modules/foundation.manifest";
 import { operationsManifest } from "./modules/operations.manifest";
 import { orderManifest } from "./modules/order.manifest";
@@ -11,6 +12,7 @@ const manifests: readonly ModuleManifest[] = [
   foundationManifest,
   crmManifest,
   quotationManifest,
+  financeManifest,
   orderManifest,
   operationsManifest,
 ];
