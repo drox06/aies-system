@@ -67,9 +67,20 @@ export function ProposeTickets({
 
   const data = proposal.data;
   const chosen = drafts.filter((draft) => draft.include);
+  /**
+   * Lines nothing would cover — excluding the ones that legitimately need nothing.
+   *
+   * Travel, freight and fees used to be proposed as *deliveries*, with §13's whole lane behind them:
+   * a receipt to issue, a driver, a customer signature to chase for something that never arrived in
+   * a van. They now propose no ticket at all, and are reported separately here — because lumping
+   * them into "these lines have no ticket" trains the reviewer to ignore that warning, and then a
+   * genuinely dropped line goes unnoticed.
+   */
+  const needsNothing = new Set((data?.needsNoTicket ?? []).map((line) => line.salesOrderLineId));
   const uncovered = (data?.lines ?? []).filter(
     (line) =>
       !line.alreadyCovered &&
+      !needsNothing.has(line.salesOrderLineId) &&
       !chosen.some((draft) => draft.salesOrderLineIds.includes(line.salesOrderLineId)),
   );
 
@@ -269,7 +280,10 @@ export function ProposeTickets({
                     <Label htmlFor={`tkt-lines-${index}`}>Which lines does it cover</Label>
                     <div id={`tkt-lines-${index}`} className="mt-1 space-y-1">
                       {(data.lines ?? [])
-                        .filter((line) => !line.alreadyCovered)
+                        .filter(
+                          (line) =>
+                            !line.alreadyCovered && !needsNothing.has(line.salesOrderLineId),
+                        )
                         .map((line) => (
                           <label
                             key={line.salesOrderLineId}
@@ -297,6 +311,14 @@ export function ProposeTickets({
               )}
             </div>
           ))}
+
+          {(data.needsNoTicket ?? []).length > 0 && (
+            <p className="rounded-md border border-border bg-surface-2 p-2.5 text-xs text-text-muted">
+              {data.needsNoTicket.length} line(s) need no ticket — nobody goes anywhere and nothing
+              is delivered:{" "}
+              {data.needsNoTicket.map((line) => `${line.lineNo}. ${line.description}`).join("; ")}.
+            </p>
+          )}
 
           {uncovered.length > 0 && (
             // Reported, never refused: leaving a line off is sometimes right, and only the reviewer

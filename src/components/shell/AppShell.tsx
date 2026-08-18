@@ -25,6 +25,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { BackButton } from "@/components/shell/BackButton";
 import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/cells";
@@ -193,6 +194,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             ☰
           </Button>
+
+          {/* Only renders in the installed app, which has no browser back button of its own. */}
+          <BackButton />
 
           {/* The search field is a button: the actual search UI is the Cmd/Ctrl+K palette from
               session 4, and having two search entry points that behave differently is worse than

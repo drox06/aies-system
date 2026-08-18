@@ -6,6 +6,7 @@ import { emit } from "@/server/core/events/emit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
 import type { AuthedUser } from "@/server/core/rbac/types";
 import {
+  linesNeedingNoTicket,
   proposeTickets,
   ticketNeedsProject,
   uncoveredLines,
@@ -86,6 +87,11 @@ export async function proposeTicketsForSalesOrderService(salesOrderId: string) {
       reference: order.number,
     }),
     existingTickets: order.tickets,
+    // Lines that legitimately need nothing — travel, freight, a fee. Named so the screen can say
+    // so, rather than reporting them as work somebody forgot to cover.
+    needsNoTicket: linesNeedingNoTicket(
+      lines.filter((line) => !covered.has(line.salesOrderLineId)),
+    ),
   };
 }
 

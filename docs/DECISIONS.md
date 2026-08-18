@@ -3634,3 +3634,41 @@ That is the third: the checklist sign-off button, the QA photo item, this. **A t
 fix** — these get used on a phone, where nothing hovers. The rule now: a disabled control states its
 condition in visible text, next to itself.
 
+---
+
+## #107 — Not everything on an order is a thing you hand over
+
+**2026-08-19, from the company's list.** §4's proposal read `!requiresExecution` as "goods", so
+anything that did not need somebody on site got a **delivery** ticket. `service` and `labour` route
+to execution correctly; `travel`, `freight` and `misc` did not, and each proposed a delivery.
+
+The cost was not a spare ticket. §13 holds a delivery at `delivered_unsigned` until a signature
+arrives, and **gates billing on it**. So a freight charge would sit unsigned forever, keeping a
+finished order looking incomplete and blocking the very invoice the freight was charged on. A lane
+built for handing over equipment, applied to a line item that was never going to arrive in a van.
+
+An **allow-list** now decides it: only `product` is physically deliverable. A new item type added
+later is not deliverable until somebody says so, which is the safe direction — a missing delivery
+ticket is visible on the proposal screen, whereas a spurious one is a lane somebody has to work out
+how to close.
+
+Lines needing no ticket are reported **separately** from lines nothing covers. Lumping them together
+would train the reviewer to ignore the "these lines have no ticket" warning, and then a genuinely
+dropped line goes unnoticed — which is the failure that warning exists to prevent.
+
+---
+
+## #108 — The installed app had no way back
+
+**2026-08-19.** A standalone PWA renders with no browser chrome: no address bar, no back button.
+That is the point of installing it, and it is also how somebody who taps into a ticket from the
+dispatch board ends up with no way back except the sidebar, which returns them to a list rather than
+to where they were. On iOS there is not even a system gesture for the first navigation of a session.
+
+Shown **only** when running standalone. In a browser it would be a second back button an inch from
+the real one — clutter at best, and a control that behaves differently from its neighbour whenever
+the two disagree about history.
+
+Disabled rather than hidden when there is nowhere to go back to, so the header does not jump the
+moment somebody navigates once. And it says why, per #106.
+

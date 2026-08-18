@@ -122,13 +122,55 @@ export interface ProposedTicket {
  * order line says which. The proposal offers `installation` and says so; the reviewer changes it.
  * Guessing would produce a wrong answer that looks authoritative, which is worse than an honest one.
  */
+/**
+ * Item types that are a thing somebody hands over and somebody else signs for.
+ *
+ * The vocabulary is `product | service | labour | travel | freight | misc` (see
+ * prisma/schema/quotation.prisma). `service` and `labour` already route to an execution ticket
+ * because somebody has to go and do them. What was wrong is everything else being treated as goods:
+ * a **travel** line, a **freight** charge or a **misc** fee would each propose a delivery ticket,
+ * with §13's whole lane behind it — a delivery receipt to issue, a driver to dispatch, a customer
+ * signature to chase — for something that was never going to arrive in a van.
+ *
+ * The company put it plainly: "if goods receive is not an item but service, this should be able to
+ * bypass booking a delivery since this does not require any inspection or there is nothing to be
+ * physically delivered."
+ *
+ * The cost of the old behaviour was not just a spare ticket. §13 holds a delivery at
+ * `delivered_unsigned` until a signature arrives, and gates billing on it — so a freight line would
+ * sit unsigned forever, keeping a finished order looking incomplete and blocking the very invoice
+ * the freight was charged on.
+ *
+ * **An allow-list, not a deny-list.** A new item type added later is not physically deliverable
+ * until somebody says so, which is the safe direction: a missing delivery ticket is visible on the
+ * proposal screen, whereas a spurious one is a lane somebody has to work out how to close.
+ */
+const PHYSICALLY_DELIVERABLE_ITEM_TYPES = new Set(["product"]);
+
+export function isPhysicallyDeliverable(itemType: string): boolean {
+  return PHYSICALLY_DELIVERABLE_ITEM_TYPES.has(itemType);
+}
+
+/**
+ * Lines that need no ticket of any kind: nobody goes anywhere, nothing gets delivered.
+ *
+ * Reported separately so the "these lines would have no ticket" warning stays meaningful. Lumping
+ * them in would train the reviewer to ignore that warning, and then a genuinely dropped line goes
+ * unnoticed — the exact failure the warning exists to prevent.
+ */
+export function linesNeedingNoTicket(lines: readonly ProposalLine[]): ProposalLine[] {
+  return lines.filter((line) => !line.requiresExecution && !isPhysicallyDeliverable(line.itemType));
+}
+
 export function proposeTickets(input: {
   lines: readonly ProposalLine[];
   /** For the titles — a ticket called "Installation" tells a technician nothing. */
   reference: string;
 }): ProposedTicket[] {
   const execution = input.lines.filter((line) => line.requiresExecution);
-  const goods = input.lines.filter((line) => !line.requiresExecution);
+  const goods = input.lines.filter(
+    (line) => !line.requiresExecution && isPhysicallyDeliverable(line.itemType),
+  );
 
   const proposed: ProposedTicket[] = [];
 

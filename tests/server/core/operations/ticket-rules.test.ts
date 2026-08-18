@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  linesNeedingNoTicket,
   proposeTickets,
   ticketNeedsProject,
   uncoveredLines,
@@ -128,5 +129,71 @@ describe("lines nobody was asked to do", () => {
   it("reports none when everything is covered", () => {
     const lines = [line({ salesOrderLineId: "a" })];
     expect(uncoveredLines(lines, [{ salesOrderLineIds: ["a"] }])).toEqual([]);
+  });
+});
+
+/**
+ * The company's report, 2026-08-19: "if goods receive is not an item but service, this should be
+ * able to bypass booking a delivery since this does not require any inspection or there is nothing
+ * to be physically delivered."
+ *
+ * The old rule was `!requiresExecution` means goods, so a travel line, a freight charge and a misc
+ * fee each proposed a **delivery** ticket. The cost was not a spare ticket: §13 holds a delivery at
+ * `delivered_unsigned` until a signature arrives and gates billing on it, so a freight line would
+ * sit unsigned forever — keeping a finished order incomplete and blocking the invoice the freight
+ * was charged on.
+ */
+describe("what actually needs delivering", () => {
+  const line = (lineNo: number, itemType: string, requiresExecution: boolean) => ({
+    salesOrderLineId: `line-${lineNo}`,
+    lineNo,
+    description: `${itemType} line`,
+    requiresExecution,
+    itemType,
+  });
+
+  it("proposes a delivery for products and nothing else", () => {
+    const proposed = proposeTickets({
+      lines: [
+        line(1, "product", false),
+        line(2, "freight", false),
+        line(3, "travel", false),
+        line(4, "misc", false),
+      ],
+      reference: "AIESSO-260001",
+    });
+
+    const delivery = proposed.filter((ticket) => ticket.type === "delivery");
+    expect(delivery).toHaveLength(1);
+    // Only the product line is on it.
+    expect(delivery[0]!.salesOrderLineIds).toEqual(["line-1"]);
+  });
+
+  it("proposes no ticket at all for an order of nothing but charges", () => {
+    const proposed = proposeTickets({
+      lines: [line(1, "freight", false), line(2, "misc", false)],
+      reference: "AIESSO-260002",
+    });
+    expect(proposed).toEqual([]);
+  });
+
+  it("names the lines that need nothing, so they are not mistaken for dropped work", () => {
+    const lines = [
+      line(1, "product", false),
+      line(2, "service", true),
+      line(3, "freight", false),
+      line(4, "travel", false),
+    ];
+    expect(linesNeedingNoTicket(lines).map((l) => l.lineNo)).toEqual([3, 4]);
+  });
+
+  it("still sends service and labour to an execution ticket", () => {
+    const proposed = proposeTickets({
+      lines: [line(1, "service", true), line(2, "labour", true)],
+      reference: "AIESSO-260003",
+    });
+    expect(proposed).toHaveLength(1);
+    expect(proposed[0]!.type).toBe("installation");
+    expect(linesNeedingNoTicket([line(1, "service", true)])).toEqual([]);
   });
 });
