@@ -8,6 +8,7 @@ import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
 import { allocateNumber } from "@/server/core/numbering/numbering";
 import { registerFileAccessChecker } from "@/server/core/storage/access";
+import { formatAddress } from "@/lib/address";
 import { BUSINESS_DAY_MS, businessMsBetween } from "@/server/core/calendar/business-days";
 import {
   DELIVERY_FLOW_ENTITY_TYPE,
@@ -725,6 +726,96 @@ export async function deliverableLinesForTicketService(ticketId: string) {
       outstanding: line.quantity.minus(line.qtyDelivered).toString(),
     })),
   };
+}
+
+/**
+ * §14's delivery mode: "today's drops", and nothing else.
+ *
+ * Scoped to flows that are actually still moving. A completed delivery is not a drop, and a driver
+ * scrolling past yesterday's finished work to find this morning's is the reason §14 asks for a
+ * *stripped-down* screen rather than the ticket list with bigger buttons.
+ *
+ * Deliberately not scoped to the caller's assignments. Delivery crews swap runs, a driver covers for
+ * somebody who called in sick, and a screen that shows an empty list because the dispatcher never
+ * reassigned the ticket is worse than useless at 7am in a yard. `delivery.execute` is the gate that
+ * matters here; §19's per-technician scoping is about *project* tickets, where the confidentiality
+ * argument is real.
+ */
+export async function todaysDropsService() {
+  const flows = await db.deliveryTicketFlow.findMany({
+    where: {
+      deletedAt: null,
+      status: { in: ["dr_issued", "mobilized", "attempting", "in_transit", "delivered_unsigned"] },
+    },
+    orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+    take: 100,
+    select: {
+      id: true,
+      ticketId: true,
+      mode: true,
+      status: true,
+      deliveredAt: true,
+      drIssuedAt: true,
+      attempts: true,
+      courierName: true,
+      waybillNumber: true,
+      deliveryReceiptId: true,
+      ticket: {
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          account: { select: { name: true } },
+          site: { select: { name: true, address: true, accessNotes: true } },
+        },
+      },
+    },
+  });
+
+  const receiptIds = flows.map((flow) => flow.deliveryReceiptId).filter((id): id is string => !!id);
+  const receipts = receiptIds.length
+    ? await db.deliveryReceipt.findMany({
+        where: { id: { in: receiptIds } },
+        select: {
+          id: true,
+          number: true,
+          lines: { select: { description: true, quantity: true, unit: true } },
+        },
+      })
+    : [];
+  const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]));
+
+  return flows.map((flow) => {
+    const attempts = readAttempts(flow.attempts);
+    const receipt = flow.deliveryReceiptId ? byId.get(flow.deliveryReceiptId) : null;
+    return {
+      flowId: flow.id,
+      ticketId: flow.ticketId,
+      ticketNumber: flow.ticket.number,
+      title: flow.ticket.title,
+      customer: flow.ticket.account?.name ?? null,
+      siteName: flow.ticket.site?.name ?? null,
+      // The two things a driver needs before setting off, and the two most often missing.
+      address: formatAddress(flow.ticket.site?.address),
+      accessNotes: flow.ticket.site?.accessNotes ?? null,
+      mode: flow.mode,
+      status: flow.status,
+      receiptNumber: receipt?.number ?? null,
+      // Decimal and Json do not cross to a client component. Serialised here rather than at the
+      // screen, so one place decides what a quantity looks like.
+      lines: (receipt?.lines ?? []).map((line) => ({
+        description: line.description,
+        quantity: line.quantity.toString(),
+        unit: line.unit,
+      })),
+      attemptCount: attempts.length,
+      lastFailure:
+        (attempts.filter((entry) => !entry.itemDelivered).at(-1)?.failureReason as
+          AttemptFailureCause | undefined) ?? null,
+      courierName: flow.courierName,
+      waybillNumber: flow.waybillNumber,
+    };
+  });
 }
 
 export async function getDeliveryFlowService(ticketId: string) {

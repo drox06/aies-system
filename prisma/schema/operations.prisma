@@ -1323,3 +1323,68 @@ model ProjectCloseOut {
 
   @@index([status])
 }
+
+/// specs/04-operations-projects.md §14's outbox, server side.
+///
+/// **The correctness requirement of the whole section.** §14: "every field write queues locally with
+/// a client-generated UUID. Server operations are idempotent on that UUID." A technician in a plant
+/// with no signal queues an afternoon of work; the phone reconnects on the drive home and replays
+/// it, possibly twice if the first reply was lost on a dying connection. Without this table the
+/// second replay creates a second delivery attempt, a second progress log, a second everything.
+///
+/// It also carries §14's conflict policy, which is the part that is easy to get wrong: "the server
+/// rejects only on business-rule violation and surfaces the conflict on next sync — **never silently
+/// discards work**". So a rejection is *recorded here* rather than only returned as an HTTP error.
+/// An error that exists solely in a response body is gone the moment the tab closes, and the
+/// technician learns that four hours of work vanished — which §14 calls out as the thing that
+/// destroys trust in the system permanently.
+model FieldSubmission {
+  id String @id @default(cuid())
+
+  /// Generated on the device, before the write is attempted, and never reused. The unique
+  /// constraint is the entire mechanism: a replay collides and returns the first result.
+  clientUuid String @unique
+
+  userId String
+
+  /// Which service this replays into — `delivery.attempt`, `progress.log`, and so on. Kept as a
+  /// string rather than an enum so a new field write does not need a migration to become syncable.
+  operation String
+
+  /// A digest of the payload as submitted. Two submissions sharing a UUID but differing in content
+  /// mean a client bug or a reused id, and answering the second with the first's result would hide
+  /// it. Recorded so it can be detected rather than assumed away.
+  payloadHash String
+
+  /// applied | rejected
+  ///
+  /// There is deliberately no `pending`: a row is written inside the same transaction as the work,
+  /// so it exists only once the outcome is known. A crash mid-write leaves no row and the replay
+  /// runs normally, which is the safe direction.
+  status String
+
+  /// What the write produced, so a replay can answer identically without doing the work twice.
+  result Json?
+
+  /// Why a business rule refused it, in the words the technician should see. Never null when
+  /// `status` is `rejected` — a rejection with no reason is the silent discard §14 forbids.
+  rejectionReason String?
+
+  /// What it touched, for the audit trail and for the client to navigate to.
+  entityType String?
+  entityId   String?
+
+  /// Set once the client confirms it has shown the outcome to the person. An applied write nobody
+  /// saw and a rejected one nobody saw are different problems, and only the second is urgent.
+  acknowledgedAt DateTime?
+
+  /// When the device recorded it, as distinct from when the server received it. The gap is how long
+  /// the work sat in a bag with no signal, and §14's storage guard needs it to reason about age.
+  capturedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, status])
+  @@index([userId, acknowledgedAt])
+  @@index([operation, createdAt])
+}

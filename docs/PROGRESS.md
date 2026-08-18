@@ -2509,8 +2509,62 @@ honest signal to read. A deal marked won on delivery of the box with the install
 would be a false claim in the one report the company reads about its own performance. See "Known
 issues" below.
 
+### Session 13 — §14's offline field application, the half that must not lose work
+
+§14 opens "the hardest technical requirement in the platform. Plants have no signal." This session
+built the part that has to be right rather than the part that is visible: exactly-once field writes,
+a queue that cannot be tidied away, and the driver screen §14 asks for by name.
+
+- [x] `FieldSubmission` + migration `field_submission_outbox` — one row per client-generated UUID,
+      `applied` or `rejected`, carrying the result to replay and the reason to show.
+- [x] `field-sync.ts` — `runFieldWrite` makes any service exactly-once on that UUID. 10/10.
+- [x] `logDeliveryAttempt` accepts an optional `clientUuid`, so the office and the phone go through
+      **one** procedure to the same business rules rather than two paths where the offline one is
+      the one nobody exercises.
+- [x] `src/lib/offline/` — Dexie store, outbox with `queued`/`sending`/`failed`/`rejected`, photo
+      compression at 1600px/80%, attachment upload-before-write, storage guard, `useSync`. 16/16.
+- [x] `/field` — §14's delivery mode. No shell, no sidebar, no search: today's drops, navigate, log
+      attempt, capture photos. Failure causes are buttons rather than a select, and the only
+      free-text field on the page is optional.
+- [x] `formatAddress` — sites store addresses as `Json` by design, and three screens were about to
+      each invent their own way to render one. 5/5.
+
+**§20's offline case is only half-testable today.** It reads "complete a checklist with three photos
+and a signature", and checklists are §15. The idempotency half — "replaying the same outbox twice
+creates no duplicates" — is tested now against delivery attempts, which is the field write that
+exists. The checklist half lands with §15 and the mechanism will not need to change for it.
+
+**Not built, and owed by §14:** the 7-day read cache (tickets, checklists, methodology, site data,
+equipment history, contacts, reference documents) and the service-worker changes to serve `/field`
+offline. Today the *writes* survive with no signal; the *reads* still need a connection to arrive.
+That is the honest state and it is the next session's work.
+
+**`/field` has not been seen rendered.** It builds, lints, typechecks and is correctly auth-gated —
+which is all that could be verified without seeding the e2e account, and that approval is
+per-instance and did not carry forward. It is first in line for the phone pass.
+
 ## Not started
 - [ ] Modules 05–10
+- [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
+      module. Two deliverables:
+      1. **Operations Manual** — the whole platform: how a deal travels from inquiry to closed
+         project, what each numbered document means, why the gates refuse what they refuse, the
+         nightly jobs, and the admin tasks.
+      2. **One manual per role**, all nine (`prisma/seed.ts`): president, vice_president,
+         admin_manager, operations_manager, marketing_manager, technician, sales, finance_officer,
+         viewer. Each answers, in order: what you own, what lands in your queue and where, what you
+         type and where, what you will be stopped from doing and why, what happens after you act.
+
+      **Reference, not training** — kept open while working and consulted at the moment of need, so
+      scannable headings, task-shaped sections and lookup tables rather than a narrative.
+      **Printable** — documents for a desk, not pages in the app: page-friendly widths, nothing that
+      depends on hover or interactivity, print CSS, and cross-references that work on paper.
+
+      **What this asks of the build in the meantime:** the manifests already make "what can this role
+      do" mechanical, and the specs give intended behaviour — but the *reasons* the gates exist live
+      only in `docs/DECISIONS.md`. Since the writing happens at the end, keeping DECISIONS complete
+      as each session lands is what separates a manual that teaches the business from a list of
+      buttons.
 - [ ] `po_received → won` **for orders with execution lines.** The supply-only half landed in
       session 12; this half needs something to move `executionStatus` off `pending`, which nothing
       currently does. §12's close-out is the natural signal, but `project.closed` carries no sales
@@ -2638,6 +2692,9 @@ issues" below.
   landing on the same shape makes it the default; `delivered_unsigned` is the one state whose cost
   runs daily, so it is said on screen, escalated once, and addressed to a person; prefill the
   receipt from the order because two people typing the same text is how two documents diverge).
+- docs/DECISIONS.md #86-#87: session 13 (a rejection that exists only in a response body is a lost
+  afternoon, so refusals are committed rows; and the outbox may not be tidied up by anybody,
+  including on sign-out, because it alone holds work that exists nowhere else).
 - docs/DECISIONS.md #85: session 12, found by its own integration tests (an attempt can never
   complete a delivery — the driver's tick is a claim, the uploaded receipt is the artefact, and
   stating a principle in a decision record does not implement it).
@@ -2805,6 +2862,12 @@ and function; nobody has judged how they *look*.
   acknowledgement SLA is already satisfied. The mechanism is built and tested because §10 asks for
   it by name and module 02's quotation-turnaround clock will be the first to use it. See
   docs/DECISIONS.md #21.
+- **Offline reads are not built.** §14's 7-day cache of tickets, checklists, site data and
+  reference documents does not exist yet, and `public/sw.js` still refuses to cache authenticated
+  HTML. So a driver who opens `/field` in the yard keeps their run in memory, but one who opens it
+  cold with no signal gets nothing. The write path survives; the read path does not.
+- **`photos.ts` has no test.** Compression needs `OffscreenCanvas`, which the node test environment
+  has not got. It has a caller and is exercised by hand only — the weakest artefact in session 13.
 - **`executionStatus` is written once and never advanced.** `sales-order-service.ts` sets it to
   `pending` when any line requires execution, and nothing anywhere moves it to a finished state. It
   is what blocks the second half of `po_received → won`, and it will also make any "what is still

@@ -2983,3 +2983,64 @@ POD not being a signature, and the rules file one directory away made the identi
 an own-vehicle delivery. **Stating a principle in a decision record does not implement it.** The
 integration tests caught it; neither the unit tests, which pinned the wrong answer, nor the
 typechecker could have.
+
+---
+
+## #86 — A rejection that only exists in a response body is a lost afternoon
+
+§14 states its conflict policy and then says why, in the strongest language anywhere in the spec
+pack: the server "surfaces the conflict on next sync — **never silently discards work**", because
+"losing a technician's afternoon destroys trust in the system permanently. Treat this as a
+correctness requirement."
+
+The natural implementation satisfies none of that. A service throws `TRPCError`, tRPC returns it,
+the client shows a toast. That works exactly when somebody is looking at the screen — which, for
+offline field work, is the one case that does not apply. The phone is replaying a queue from a
+pocket on a drive home. If the tab is closed, the OS backgrounds the app, or the connection drops
+while the error is in flight, then the refusal *and the fact that the work was ever attempted* are
+both gone.
+
+So `runFieldWrite` **commits** a `rejected` row carrying the reason, and the client reads it back and
+shows the technician what happened to their work. The error is still thrown, for the online caller
+who is watching; the row is what survives for the one who is not.
+
+Three consequences that are easy to get backwards:
+
+- **A crash is not a rejection.** A lost database connection recorded as `rejected` would tell
+  somebody their work was refused when the truth is that nobody knows whether it landed — and would
+  stop the retry that is the correct response. Only `BAD_REQUEST` is a decision.
+- **A refusal is final; a failure is not.** The client keeps them as separate states for the same
+  reason. Retrying a business rule forever is noise; giving up on a network blip is data loss.
+- **The record is written after the work, not before.** Claiming the id first would need a `pending`
+  state and an answer for a process that dies holding a claim. Recording after means a crash leaves
+  no row and the replay simply runs, which is the safe direction to fail in.
+
+---
+
+## #87 — The queue may not be tidied up, by anybody, including the user
+
+Everything else in the offline store can be rebuilt by reconnecting. The outbox cannot: it holds
+work that exists nowhere else in the world. That single asymmetry decided several things that
+otherwise look like over-caution.
+
+**Sign-out refuses to wipe while work is queued.** The obvious behaviour — clear local data on
+sign-out, for the next person who picks up a shared device — trades a *certain, irreversible* loss
+against a privacy *risk*. So `wipeOfflineData` returns `{ wiped: false, queued: n }` and the caller
+has to decide, with the honest options being "sync first" or "confirm you are throwing this away".
+
+**The storage guard only ever warns.** §14 asks for a warning at 80% of quota and says "never
+silently drop queued items". An eviction policy would be easy to add and would eventually, on a full
+device, delete a queued photograph — the exact failure the section exists to prevent. When space
+runs short the answer is to tell the person to sync, not to make room by discarding the one thing
+that cannot be recovered.
+
+**A drain stops at the first transport failure but continues past a refusal.** If the connection has
+gone, the rest of the queue will fail identically, and marching through fifty items turns one outage
+into fifty incremented counters and fifty copies of the same error. A refusal is specific to its
+item, so it is not a reason to stop.
+
+**Photos are compressed at capture, not at upload.** §14 asks for ~1600px/80% and the reason is
+quota rather than bandwidth: twelve uncompressed photographs is tens of megabytes of IndexedDB
+against a budget the browser may measure in the same units, and the eviction that follows takes the
+queue with it. They are also uploaded *before* the write that references them, so a record never
+points at files that may never arrive.

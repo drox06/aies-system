@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { p, router, type Context } from "@/server/api/trpc";
+import { p, protectedProcedure, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
   createStandaloneTicketService,
@@ -29,9 +29,15 @@ import {
 } from "@/server/core/operations/qa-service";
 import { ATTEMPT_FAILURE_CAUSES, DELIVERY_MODES } from "@/server/core/operations/delivery-rules";
 import {
+  acknowledgeSyncOutcomesService,
+  pendingSyncOutcomesService,
+  runFieldWrite,
+} from "@/server/core/operations/field-sync";
+import {
   bookCourierService,
   completeDeliveryService,
   deliverableLinesForTicketService,
+  todaysDropsService,
   getDeliveryFlowService,
   issueDeliveryReceiptService,
   logDeliveryAttemptService,
@@ -1234,6 +1240,9 @@ export const operationsRouter = router({
     .input(z.object({ ticketId: z.string() }))
     .query(({ input }) => deliverableLinesForTicketService(input.ticketId)),
 
+  /** §14's delivery mode. Everything a driver needs before setting off, and nothing else. */
+  todaysDrops: p("delivery.execute").query(() => todaysDropsService()),
+
   startDeliveryFlow: p("delivery.execute")
     .input(z.object({ ticketId: z.string(), mode: z.enum(DELIVERY_MODES).optional() }))
     .mutation(({ ctx, input }) => startDeliveryFlowService(actorMeta(ctx), input)),
@@ -1293,9 +1302,51 @@ export const operationsRouter = router({
         recipientName: z.string().max(200).nullish(),
         recipientPosition: z.string().max(200).nullish(),
         signatureFileId: z.string().nullish(),
+
+        /**
+         * §14's outbox id, generated on the device before the write is attempted.
+         *
+         * Optional, so the same procedure serves both callers: a dispatcher clicking in the office
+         * sends none and the write runs directly, while a phone replaying its queue sends one and
+         * gets exactly-once semantics. Two procedures would have meant two code paths to the same
+         * business rules, and the offline one would be the one nobody exercised until it mattered.
+         */
+        clientUuid: z.string().uuid().optional(),
+        capturedAt: z.coerce.date().optional(),
       }),
     )
-    .mutation(({ ctx, input }) => logDeliveryAttemptService(actorMeta(ctx), input)),
+    .mutation(async ({ ctx, input }) => {
+      const { clientUuid, capturedAt, ...attempt } = input;
+      if (!clientUuid) return logDeliveryAttemptService(actorMeta(ctx), attempt);
+
+      return runFieldWrite({
+        clientUuid,
+        userId: ctx.user.id,
+        operation: "delivery.attempt",
+        payload: attempt,
+        capturedAt,
+        run: async () => {
+          const result = await logDeliveryAttemptService(actorMeta(ctx), attempt);
+          return { result, entityType: "DeliveryTicketFlow", entityId: attempt.ticketId };
+        },
+      });
+    }),
+
+  /**
+   * What the device still has to tell its user about work it queued.
+   *
+   * Not gated on `delivery.execute` or any other field permission: this returns only rows belonging
+   * to the caller, and somebody whose permissions changed after they queued work still needs to be
+   * told what happened to it. Gating it would mean the one person who must see a rejection is the
+   * one who cannot.
+   */
+  pendingSyncOutcomes: protectedProcedure.query(({ ctx }) =>
+    pendingSyncOutcomesService(ctx.user.id),
+  ),
+
+  acknowledgeSyncOutcomes: protectedProcedure
+    .input(z.object({ submissionIds: z.array(z.string()).max(200) }))
+    .mutation(({ ctx, input }) => acknowledgeSyncOutcomesService(ctx.user.id, input.submissionIds)),
 
   bookCourier: p("delivery.execute")
     .input(
