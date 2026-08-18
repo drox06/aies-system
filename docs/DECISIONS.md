@@ -3361,3 +3361,60 @@ unknown gate is a blocker everywhere else in this platform. And capacity counts 
 `ticket.execute` rather than everybody in the `technician` role: an operations manager who spends half
 their week in the field is real capacity, and counting by role name would hide them from the one
 number §17 says sales needs before promising a date.
+
+---
+
+## #99 — A Date built inline is a new React Query key every render
+
+`/dispatch` sat on "Loading the week…" indefinitely, on desktop and on a phone. The server answered
+the same query in 2.6 seconds every time it was asked, and it was being asked continuously.
+
+```tsx
+const weekDate = new Date(Date.now() + weekOffset * 7 * 24 * 60 * 60 * 1000);
+const board = trpc.operations.dispatchBoard.useQuery({ weekOf: weekDate });
+```
+
+`Date.now()` moves. A new `Date` object each render is a new query key each render, so the query
+refetched forever and `isPending` never became false. The screen was doing exactly what it was told
+and telling the truth about it.
+
+Two things make this worth writing down rather than just fixing:
+
+**Every automated check passed.** Typecheck, lint, build, 1416 tests. The bug lives in the identity of
+an object across renders, which is not a thing any of them look at. It needed somebody to open the
+page and wait.
+
+**The fix is a memo *and* a floor to midnight.** Memoising on `weekOffset` alone still produces a new
+key whenever the component remounts, and the value drifts by milliseconds between mounts for no
+reason a reader could see. Flooring to the day makes the key mean what it says: a week.
+
+The general rule: **anything that goes into a query key must be stable for as long as the query
+should be**. A date, an array literal, an object literal built in the render body — all the same trap.
+
+---
+
+## #100 — Seeding through the services still let a screen come up empty
+
+`sample-records-dispatch.ts` creates its records through the real services rather than `db.create`,
+for the reason `sample-records.ts` gives: a row inserted directly has no number, no audit row, no
+events, and has passed none of the rules.
+
+It still produced an empty `/field`. The script created a delivery *ticket*; the screen lists delivery
+*flows*, and a delivery ticket with no flow is not yet a drop. Reported as "delivery mode is still
+empty", which was exactly right.
+
+So the discipline was correct and insufficient. Going through the services guarantees each record is
+*valid*; it does not guarantee the set of records is what a screen actually reads. The check that
+would have caught it is the one that catches everything else in this project: **open the screen and
+look**, which is what the company did.
+
+Two smaller things the same script got wrong, both worth the same lesson:
+
+- Its `--remove` found accounts only through their tickets, so a run that failed before creating any
+  left an account and its site behind — and the account delete then failed on the site's foreign key
+  and said nothing useful. Sites go first now, and accounts are found by name independently of how far
+  the run got.
+- It tried to seed ₱2,450 of diesel and was refused: "anything over ₱500.00 needs its receipt". The
+  rule working. Rather than fake a receipt file that would 404 when clicked, the sample stops below
+  the line and the over-threshold case is a review step with a real photograph — a better test of it
+  than a seeded row could be.

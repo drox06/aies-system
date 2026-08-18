@@ -2696,6 +2696,29 @@ path*, and failed on two routes that are perfectly reachable: `/material-request
 `/store`, `/procurement/receipts/[id]` from `/procurement`. What matters is whether anything links to
 a screen, not where that thing lives. Corrected before it could teach anybody the wrong lesson.
 
+### Module 04 review — first round, five defects
+
+The company reviewed the seven new screens on 2026-08-18. Five findings, all real:
+
+1. **`/dispatch` never loaded**, desktop or phone. A `Date` built inline in the render body made a new
+   React Query key every render, so it refetched forever while the server answered in 2.6s each time.
+   Every automated check passed — the bug lives in object identity across renders.
+   docs/DECISIONS.md #99.
+2. **The Schedule panel could not assign anybody**, so scheduling produced no conflict and the
+   confirm-or-cancel step never fired. It now has a crew picker, reusing §6.1's assignee list.
+3. **Its date fields read as though they edited the customer's date.** They set the crew booking; the
+   form now says so above them. A form whose purpose has to be inferred is one people fill in wrongly.
+4. **`/field` was still empty.** The seed created a delivery ticket; the screen lists delivery
+   *flows*. Seeding through the services made every record valid and still did not make the set of
+   records match what a screen reads. docs/DECISIONS.md #100.
+5. **The Checklists panel was mistaken for §8's Mobilisation panel** — both sit on the ticket and both
+   talk about tools. Not a defect; the checklist was there and complete. Worth renaming one of them.
+
+**Answers to the six questions**, now in force: receipt threshold **₱499** (was my ₱500), four hour
+buckets confirmed, eight expense categories confirmed, 14-day PM lead time confirmed, renewal windows
+confirmed. The sixth — whether a double-booking should ever be refused outright — needs one more
+sentence from the company before it changes; "manually refused" reads two ways and they differ.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per

@@ -155,13 +155,16 @@ export const EXPENSE_STATUSES = [
 export type ExpenseStatus = (typeof EXPENSE_STATUSES)[number];
 
 /**
- * Above this, a receipt is required. Integer centavos, so ₱500.
+ * Above this, a receipt is required. Integer centavos, so ₱499.
  *
  * A threshold rather than "always", because a ₱20 gate fee with no receipt is a real thing that
  * happens and refusing it means the cost silently goes unrecorded — which is worse for the project's
  * margin than a small unreceipted line somebody can see and question.
+ *
+ * **₱499 is the company's number**, set 2026-08-18 in answer to the module 04 review. The draft used
+ * ₱500, which was mine; theirs is the one that governs what people actually have to photograph.
  */
-export const RECEIPT_REQUIRED_ABOVE = 50_000;
+export const RECEIPT_REQUIRED_ABOVE = 49_900;
 
 export interface ExpenseCheck {
   ok: boolean;

@@ -1,5 +1,6 @@
 import { db } from "../src/lib/db";
 import { createStandaloneTicketService } from "../src/server/core/operations/ticket-service";
+import { startDeliveryFlowService } from "../src/server/core/operations/delivery-service";
 import {
   recordUnavailabilityService,
   scheduleTicketService,
@@ -279,6 +280,17 @@ async function main() {
 
   // Scheduled, nobody on it — the board's third case.
   await scheduleTicketService(actor, { ticketId: survey.id, scheduledStart: inDays(4) });
+
+  /**
+   * §13's lane, opened.
+   *
+   * The first version of this script created the delivery ticket and stopped, and `/field` stayed
+   * empty — because `todaysDrops` lists *flows*, not tickets, and a delivery ticket with no flow is
+   * not yet a drop. Reported as "delivery mode is still empty", correctly. Creating the ticket and
+   * assuming the screen would show it was exactly the sort of thing seeding through the services is
+   * meant to prevent, and here it caught me one layer further down.
+   */
+  await startDeliveryFlowService(actor, { ticketId: delivery.id, mode: "own_vehicle" });
 
   // ---- §15: a checklist actually filled in ------------------------------------------------------
 

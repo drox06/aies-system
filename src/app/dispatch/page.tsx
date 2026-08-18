@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, PageHeader } from "@/components/ui/layout";
@@ -44,7 +44,22 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function DispatchPage() {
   const [weekOffset, setWeekOffset] = useState(0);
-  const weekDate = new Date(Date.now() + weekOffset * 7 * 24 * 60 * 60 * 1000);
+
+  /**
+   * Memoised, and floored to the day.
+   *
+   * `new Date(Date.now() + …)` computed inline produced a different value on every render, which
+   * made a different React Query key on every render, which refetched forever — the screen sat on
+   * "Loading the week…" indefinitely while the server answered in under three seconds each time.
+   * Reported by the company as "stuck loading, no change for 2 minutes", on both desktop and phone.
+   *
+   * Flooring to midnight matters as much as the memo: without it the key changes at every
+   * millisecond boundary the moment anything else triggers a re-render.
+   */
+  const weekDate = useMemo(() => {
+    const at = new Date(Date.now() + weekOffset * 7 * 24 * 60 * 60 * 1000);
+    return new Date(at.toISOString().slice(0, 10));
+  }, [weekOffset]);
 
   const board = trpc.operations.dispatchBoard.useQuery({ weekOf: weekDate });
   const capacity = trpc.operations.capacity.useQuery({ weeks: 4 });

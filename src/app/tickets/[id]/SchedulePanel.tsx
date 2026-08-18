@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { Card } from "@/components/ui/layout";
 import { trpc } from "@/lib/trpc/client";
 
@@ -38,6 +38,8 @@ interface PendingBooking {
 export function SchedulePanel({ ticketId }: { ticketId: string }) {
   const ticket = trpc.operations.getTicket.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  // Reuses the list §6.1 already built for inspections rather than adding a parallel query.
+  const people = trpc.operations.inspectionAttendees.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
 
   const canDispatch = (me.data?.permissions ?? []).includes("ticket.dispatch");
@@ -47,6 +49,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
   const [pending, setPending] = useState<PendingBooking | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [leadId, setLeadId] = useState("");
 
   const schedule = trpc.operations.scheduleTicket.useMutation({
     onSuccess: () => {
@@ -59,6 +62,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
 
   const data = ticket.data;
   const scheduled = data.scheduledStart;
+  const currentLead = leadId || data.assignedLeadId || "";
 
   const book = async (startDate: string, endDate: string | null) => {
     setPending(null);
@@ -67,6 +71,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
       ticketId,
       scheduledStart: new Date(startDate),
       scheduledEnd: endDate ? new Date(endDate) : null,
+      ...(currentLead ? { assignedLeadId: currentLead } : {}),
     });
     setSaved(endDate ? `${startDate} to ${endDate}` : startDate);
   };
@@ -79,6 +84,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
         ticketId,
         scheduledStart: new Date(start),
         scheduledEnd: end ? new Date(end) : null,
+        ...(currentLead ? { assignedLeadId: currentLead } : {}),
       });
 
       // Nothing in the way: book it. A dialog here would be noise, and noise is what makes people
@@ -113,40 +119,78 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
       </dl>
 
       {canDispatch && !pending && (
-        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <div className="w-40">
-            <Label htmlFor="sched-start">Start</Label>
-            <Input
-              id="sched-start"
-              type="date"
-              value={start}
-              onChange={(event) => setStart(event.target.value)}
-            />
-          </div>
-          <div className="w-40">
-            <Label htmlFor="sched-end">Finish (optional)</Label>
-            <Input
-              id="sched-end"
-              type="date"
-              value={end}
-              onChange={(event) => setEnd(event.target.value)}
-            />
-          </div>
-          <Button disabled={!start || checking || schedule.isPending} onClick={() => void check()}>
-            {checking ? "Checking…" : scheduled ? "Move it" : "Put it on the board"}
-          </Button>
+        <div className="mt-3 border-t border-border pt-3">
+          {/*
+            The company read the two dates above as editable and looked for a field to set "crew
+            booked for". These inputs are that field — the heading now says so, because a form whose
+            purpose you have to infer is a form people fill in wrongly.
+          */}
+          <p className="text-sm font-medium">Book the crew</p>
+          <p className="mt-0.5 text-xs text-text-muted">
+            Sets &ldquo;crew booked for&rdquo; above. The customer&rsquo;s date is set on the ticket
+            itself and is not changed here.
+          </p>
 
-          {scheduled && (
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <div className="w-52">
+              <Label htmlFor="sched-lead">Who is going</Label>
+              <Select
+                id="sched-lead"
+                value={currentLead}
+                onChange={(event) => setLeadId(event.target.value)}
+              >
+                <option value="">Nobody yet</option>
+                {(people.data ?? []).map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="w-40">
+              <Label htmlFor="sched-start">Start</Label>
+              <Input
+                id="sched-start"
+                type="date"
+                value={start}
+                onChange={(event) => setStart(event.target.value)}
+              />
+            </div>
+            <div className="w-40">
+              <Label htmlFor="sched-end">Finish (optional)</Label>
+              <Input
+                id="sched-end"
+                type="date"
+                value={end}
+                onChange={(event) => setEnd(event.target.value)}
+              />
+            </div>
             <Button
-              variant="ghost"
-              disabled={schedule.isPending}
-              onClick={() => {
-                setSaved(null);
-                schedule.mutate({ ticketId, scheduledStart: null });
-              }}
+              disabled={!start || checking || schedule.isPending}
+              onClick={() => void check()}
             >
-              Take it off
+              {checking ? "Checking…" : scheduled ? "Move it" : "Put it on the board"}
             </Button>
+
+            {scheduled && (
+              <Button
+                variant="ghost"
+                disabled={schedule.isPending}
+                onClick={() => {
+                  setSaved(null);
+                  schedule.mutate({ ticketId, scheduledStart: null });
+                }}
+              >
+                Take it off
+              </Button>
+            )}
+          </div>
+
+          {!currentLead && (
+            <p className="mt-2 text-xs text-text-muted">
+              Nobody is assigned, so nothing can clash. Pick who is going and the check becomes
+              meaningful.
+            </p>
           )}
         </div>
       )}
