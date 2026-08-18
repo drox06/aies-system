@@ -2875,6 +2875,11 @@ and function; nobody has judged how they *look*.
   `AuthedUser`, so no test reads those tables and the suite cannot see this class of gap. Options
   worth weighing: run the seed as a deploy step, or add a test that asserts every manifest
   permission has a row. The second is cheap and would have caught it.
+- **Nothing deployed between `ea3d725` and `7ca06e5`.** Vercel's cached Prisma Client predated the
+  new models, so every build failed on a type error and the live site stayed on `a549ecf`. Fixed by
+  `postinstall: prisma generate` (see docs/DEPLOYMENT.md). **Everything reported in the phone pass
+  was tested against pre-`ea3d725` code**, so those findings say nothing about the fixes that were
+  already committed — the pass needs repeating once a green deployment exists.
 - **The service worker has never run in production.** `manifest.webmanifest` and `sw.js` were
   caught by the middleware matcher and served a login redirect, so registration failed silently from
   the first deploy. Fixed 2026-08-18; **worth re-checking on the phone** that the app now installs

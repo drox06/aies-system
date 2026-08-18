@@ -3141,3 +3141,38 @@ Vercel section, which is where somebody changing the region would actually look.
 was still HTML was read as "the deploy has not landed yet" — a guess that happened to be true about
 the symptom and wrong about the cause, and which would have wasted the next round of testing. The
 check that settles it is the deployment's own status, and asking for it is cheaper than inferring it.
+
+---
+
+## #91 — Four commits of finished work, unreachable, because a build cache remembered an old schema
+
+Every deployment from `ea3d725` onward failed. The live site stayed on `a549ecf` while four commits
+of correct, tested, pushed work sat in GitHub doing nothing — including the fixes for the three
+defects the company had already reported.
+
+The cause: **`package.json` had no `postinstall: prisma generate`**. Vercel caches `node_modules`
+between builds and the Prisma Client lives inside it, so each build compiled today's code against
+whichever schema was current when the cache was last populated. From `ea3d725` that client predated
+`DeliveryReceipt`, `DeliveryTicketFlow` and `FieldSubmission`, and `next build` typechecked
+`db.fieldSubmission` against a client that had never heard of it.
+
+It builds on a developer machine because `prisma migrate dev` regenerates the client as a side
+effect of adding the migration. The failure needs a *cached* `node_modules` and a *new* model, and
+neither `npm run build` nor the full test suite reproduces that locally. Confirmed by restoring the
+pre-`ea3d725` schema, regenerating, and watching `tsc` produce the same errors.
+
+**The expensive part was not the missing line. It was three wrong diagnoses in a row**, each
+plausible, each acted on, none checked against the deployment's own status:
+
+1. *"The deploy has not landed yet"* — inferred from the manifest still returning HTML. Consistent
+   with the evidence and wrong.
+2. *"My `//regions` comment failed the schema validation"* — a real bug, worth fixing, and **not** the
+   cause: `ea3d725` and `348b5c4` had already failed before that key existed.
+3. *"Vercel has stopped seeing the repository"* — reached after the company reported not finding the
+   commits, when the deployments existed and were red.
+
+One screenshot of the Deployments tab ended it in seconds. The lesson is not "check the logs", which
+everybody already knows. It is that **an inference about a system you cannot see is a hypothesis, and
+stating it as a finding costs somebody else a testing round**. Two of those three were reported to
+the company as conclusions. The right move, available from the first symptom, was to say the deploy
+status was unknown and ask for it.

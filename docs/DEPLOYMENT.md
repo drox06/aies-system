@@ -87,6 +87,21 @@ and its migration history get out of sync, and Prisma cannot fix it for you afte
 
 ---
 
+### `postinstall: prisma generate` is what keeps deployments building
+
+Vercel caches `node_modules` between builds, and the Prisma Client lives inside it. Without a
+`postinstall` hook the cached client is restored as-is — so a build compiles today's code against
+whichever schema was current the last time the cache was populated.
+
+That is not theoretical. Every deployment from `ea3d725` onward failed, silently as far as the app was
+concerned, because the cached client predated `DeliveryReceipt`, `DeliveryTicketFlow` and
+`FieldSubmission`; `next build` typechecked `db.fieldSubmission` against a client that had never heard
+of it. Four commits of finished work sat unreachable while the live site stayed on `a549ecf`. It
+builds fine on a developer machine, where `prisma migrate dev` regenerates the client as a side
+effect — which is exactly why nobody noticed.
+
+**Do not remove the hook**, and be suspicious of any deployment failure that follows a schema change.
+
 ### The region is not optional
 
 `vercel.json` pins `"regions": ["sin1"]`. **Do not remove it, and keep it in step with wherever
