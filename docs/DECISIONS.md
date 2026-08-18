@@ -3474,7 +3474,18 @@ instead — fill in a new one, and the history shows both, which is what actuall
 
 **Soft, not hard.** A draft can be half-filled, and somebody clicking the wrong row should not destroy
 an afternoon of answers. §14's entire argument is that field work is not lost casually, and that
-argument does not stop applying because the work is unfinished. The row stays, hidden and recoverable.
+argument does not stop applying because the work is unfinished.
+
+**Be precise about what "soft" buys, because the first draft of this entry was not.** The row survives
+with `deletedAt` and `deletedBy` set, and the answers survive with it. **Nothing in the application
+can bring it back** — there is no restore anywhere in this platform except file re-upload (#81), and
+no screen or service that clears `deletedAt` on a checklist. Recovery today means somebody with
+database access running an update.
+
+So the guarantee is narrower than "recoverable" suggests: the work is *not destroyed*, and getting it
+back is a support task rather than a click. That is the right trade for a mistaken discard — the
+damage is bounded and reversible by someone — but writing "recoverable" without saying by whom was
+the same class of error as a comment that does not match its code.
 
 **The screen does not offer what the service would refuse.** Discard appears only on unfinished rows.
 The service refuses a completed one regardless of what any screen offers — but a button that exists
