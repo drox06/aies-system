@@ -166,6 +166,17 @@ describe("operations manifest", () => {
     expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).toContain("/checklists");
   });
 
+  /** §16's loop is only worth anything if the people who sell can see it. */
+  it("offers renewals and contracts to anybody who can see a ticket", () => {
+    const none = visibleNavFor(new Set<string>()).map((e) => e.href);
+    expect(none).not.toContain("/renewals");
+    expect(none).not.toContain("/contracts");
+
+    const viewer = visibleNavFor(new Set(["ticket.view"])).map((e) => e.href);
+    expect(viewer).toContain("/renewals");
+    expect(viewer).toContain("/contracts");
+  });
+
   it("offers delivery mode to whoever can run a delivery, and to nobody else", () => {
     expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/field");
     expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).not.toContain("/field");

@@ -477,6 +477,29 @@ export const operationsManifest = defineManifest({
       order: 43,
     },
     {
+      label: "Renewals",
+      href: "/renewals",
+      icon: "badge-check",
+      /**
+       * §16: "this is where the recurring revenue in this business lives".
+       *
+       * Gated on `ticket.view` rather than `contract.manage` — the point of the loop is that sales
+       * acts on it, and a screen only the people who write contracts can open would mean the leads
+       * are raised for an audience of three.
+       */
+      permission: "ticket.view",
+      group: "Sales",
+      order: 12,
+    },
+    {
+      label: "Maintenance contracts",
+      href: "/contracts",
+      icon: "clipboard-list",
+      permission: "ticket.view",
+      group: "Sales",
+      order: 13,
+    },
+    {
       label: "Cash advances",
       href: "/cash-advances",
       icon: "wallet",

@@ -2598,6 +2598,37 @@ already signed changes.
 
 Still at v1 with no responses recorded, so any later correction is still free.
 
+### Session 15 — §16's time, cost and installed base
+
+§16's renewal loop is the commercially loaded part of module 04: "contracts expiring in 90 days,
+calibrations due in 60, warranties expiring, and equipment past its service interval generate leads
+back into module 01. **This is where the recurring revenue in this business lives.**"
+
+- [x] `Timesheet`, `FieldExpense`, `MaintenanceContract`, migration `time_cost_installed_base`.
+      `Equipment` already existed from §11 with its §16 fields marked inert; it gained the indexes
+      the nightly sweeps read.
+- [x] `renewal-rules.ts` — four windows, four typed reasons, PM visit planning. 25/25.
+- [x] `timesheet-rules.ts` — four hour buckets, expense checks, the flow into §5's liquidation. 16/16.
+- [x] `renewal-service.ts` + `timesheet-service.ts`, with `AIESMC` numbering. 12/12 integration.
+- [x] Two nightly sweeps: renewals raise `renewal.due` for module 01; PM visits become
+      `after_sales` / `preventive` tickets fourteen days ahead.
+- [x] `timesheet.approve` and `contract.manage`; events `field_expense.approved`, `renewal.due`,
+      `pm.due`.
+- [x] Screens: `/renewals`, `/contracts`, `/contracts/[id]`, and an hours-and-spend panel on the
+      ticket. Both new nav entries pinned by a test — the lesson from #94 applied rather than
+      relearned.
+
+**Judgements worth knowing.** Nobody approves their own hours or expenses, whatever permissions they
+hold. Only *approved* expenses reduce a cash advance, otherwise somebody clears their own balance by
+typing. An overspend reports a negative outstanding rather than clamping at zero, because the company
+owes that person the difference. The four hour buckets stay apart because §8's standby is a cost
+somebody may owe and a total that absorbed it cannot answer "how much of this was waiting?" three
+weeks later.
+
+**Not built:** contract renewal into a successor contract (`renewedIntoId` exists and nothing sets
+it), and equipment editing — items are created by §10's commissioning and by hand through the
+warranty screen, with no dedicated installed-base register yet. §17's dispatch board will want one.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
@@ -2747,6 +2778,9 @@ Still at v1 with no responses recorded, so any later correction is still free.
   landing on the same shape makes it the default; `delivered_unsigned` is the one state whose cost
   runs daily, so it is said on screen, escalated once, and addressed to a person; prefill the
   receipt from the order because two people typing the same text is how two documents diverge).
+- docs/DECISIONS.md #95-#96: session 15 (four renewal reasons are four conversations, so each lead
+  carries the argument for its call; and the nightly job and the screen share one function, because
+  a dashboard that disagrees with the process behind it is consulted before it is doubted).
 - docs/DECISIONS.md #92-#93: session 14 ("not applicable" is an answer a template must authorise,
   expressed as a type rather than a field, because a field can be left off the next form; and a
   published procedure that can be edited is not a procedure — so publish freezes, revise copies, and

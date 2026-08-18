@@ -14,6 +14,7 @@ import { TcPanel } from "./TcPanel";
 import { ServiceReportPanel } from "./ServiceReportPanel";
 import { DeliveryPanel } from "./DeliveryPanel";
 import { ChecklistPanel } from "./ChecklistPanel";
+import { HoursPanel } from "./HoursPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -203,6 +204,9 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
 
           {/* §15 applies to every ticket type — a delivery has a checklist too. */}
           <ChecklistPanel ticketId={data.id} />
+
+          {/* §16. Last, because hours and spend are what the work above turns out to have cost. */}
+          <HoursPanel ticketId={data.id} />
 
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>

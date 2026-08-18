@@ -3262,3 +3262,54 @@ clue: if a document has to describe what is in the app, the app is not showing i
 
 Both screens now have a nav entry, each pinned by a test asserting it appears for the right
 permission and not otherwise.
+
+---
+
+## #95 — Four renewal reasons are four conversations, not one flag
+
+§16 names four things that should generate a lead: contracts expiring in 90 days, calibrations due in
+60, warranties ending, equipment past its service interval. And it says why they matter more than
+anything else in the section — "this is where the recurring revenue in this business lives".
+
+The obvious implementation is one `needsAttention` boolean and a date. It is wrong, and the reason is
+commercial rather than technical: **"your contract ends next quarter" and "your transmitter is out of
+calibration next month" are different calls, to different people, with different urgency.** Collapsing
+them produces a list somebody has to open each row to understand, which in practice means the list
+does not get worked.
+
+So `dueRenewals` returns a typed reason per item, one item can raise two leads, and each lead carries
+`pitch` — the argument for the call, in words a salesperson can read without opening the record. A
+lead that says only "AIESMC-260001 ends in 40 days" gets closed as noise by whoever picks it up three
+weeks later; one that says renewing before the lapse keeps the visits continuous is a conversation.
+
+Two consequences that look like details:
+
+**A warranty that has already ended raises nothing.** It is the past, not a renewal, and dressing it
+up as expiring would have the salesperson say something untrue on the call. The maintenance
+conversation it implies is real but different.
+
+**Colour on the screen comes from urgency, not from reason.** A calibration due tomorrow and a
+contract ending tomorrow are equally urgent. The reason is already the section heading; tinting by it
+would have said the opposite of what is true.
+
+---
+
+## #96 — What the nightly job acts on and what the screen shows are one function
+
+`dueRenewalsService` is called by the renewals page and by the sweep. That is deliberate and worth
+stating, because the natural build is two queries — one shaped for a list, one shaped for a job.
+
+Two queries drift. Not immediately: one gets a filter for a case the other never sees, or a window is
+tuned in one place. Then the dashboard says four things are due and the job raises five, and the
+next person cannot tell which is broken — so they stop trusting both. A dashboard that disagrees with
+the process behind it is worse than no dashboard, because it is consulted before it is doubted.
+
+The same reasoning already put `plannedVisitDates` in the rules layer rather than storing a schedule:
+the contract screen and the PM sweep compute the same visits from the same term, so editing the term
+cannot leave a stored schedule behind that nobody recalculated.
+
+**And the flags differ on purpose.** Contracts carry `renewalFlaggedAt` so a renewal is raised once —
+ninety nights of the same alert teaches sales to filter it, and then the ninety-first, a real lapse,
+is filtered too (#83's argument again). Equipment carries no such flag, because servicing an item
+moves its own `nextPMDueAt` and recalibrating moves `calibrationDueAt`. The work itself is the
+"handled" signal, which is truer than a marker somebody has to remember to clear.
