@@ -2716,8 +2716,15 @@ The company reviewed the seven new screens on 2026-08-18. Five findings, all rea
 
 **Answers to the six questions**, now in force: receipt threshold **₱499** (was my ₱500), four hour
 buckets confirmed, eight expense categories confirmed, 14-day PM lead time confirmed, renewal windows
-confirmed. The sixth — whether a double-booking should ever be refused outright — needs one more
-sentence from the company before it changes; "manually refused" reads two ways and they differ.
+confirmed. The sixth is **settled**: a double-booking is never refused by the system. It asks, names who is
+already booked and on what, and a *person* refuses by pressing Cancel. Confirmed twice — once from
+first principles (two nearby sites are knowledge the dispatcher has and the system cannot) and once
+against the built behaviour. Not to be revisited without a reason from the field.
+
+The fifth finding produced a small change rather than none: §8's panel is now headed **"Mobilisation
+readiness"** and §15's **"Checklists filled in on site"**, with a line saying the first is worked out
+by the system and the second is signed by a person. Two panels on one ticket both talking about tools
+is a collision worth one sentence each.
 
 ## Not started
 - [ ] Modules 05–10

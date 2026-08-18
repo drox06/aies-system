@@ -54,10 +54,11 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
 
   return (
     <Card className="p-4">
-      <h2 className="text-sm font-semibold">Checklists</h2>
+      <h2 className="text-sm font-semibold">Checklists filled in on site</h2>
       <p className="mt-1 text-xs text-text-muted">
-        §15&rsquo;s record of what was actually checked, against the version of the procedure that
-        was in force when it was checked.
+        What somebody actually checked and signed for, against the version of the procedure in force
+        at the time. Different from the Mobilisation readiness panel above, which the system works
+        out for itself from the gates.
       </p>
 
       {rows.data?.length === 0 && (

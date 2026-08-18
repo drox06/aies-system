@@ -64,7 +64,13 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Mobilisation</h2>
+        <h2 className="text-sm font-semibold">Mobilisation readiness</h2>
+        {/*
+          Renamed 2026-08-18. The company looked here for a checklist item and found a
+          readiness item with a similar name — two panels on one ticket both talking about
+          tools. This one is computed; §15's is signed. Saying which is which is cheaper than
+          moving either.
+        */}
         <StatusBadge tone={data.ready ? "approved" : "failed"}>
           {data.ready ? "Ready to mobilise" : `${data.blockers.length} blocking`}
         </StatusBadge>
