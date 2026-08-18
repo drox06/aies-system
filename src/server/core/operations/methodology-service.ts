@@ -385,6 +385,68 @@ export async function submitToClientService(actor: ActorMeta, methodologyId: str
 }
 
 /**
+ * Take it back — it was not really sent.
+ *
+ * ## Why an undo exists here and not everywhere
+ *
+ * "Send it to the client" is one press away from "Send for internal review" on the same panel, and
+ * it moves the method statement into a state with no way back: the only onward moves are recording
+ * the client's approval or their rejection, neither of which happened, because it was never sent.
+ * The company hit exactly that — "if client approval is clicked accidentally, what happens next
+ * cannot go back to previous choices."
+ *
+ * The general rule this platform follows is that a status somebody set is not undone, because the
+ * history of what happened is the point. This is the narrow exception, and it is narrow for a
+ * reason: **nothing happened.** No email left, no clock started that anybody outside AIES can see,
+ * no client was told anything. Undoing a mis-click on an internal status is not rewriting history;
+ * refusing to undo it would be recording an event that never occurred.
+ *
+ * The boundary is the client's answer. Once `client_approved` or `client_rejected` is recorded,
+ * somebody outside the company has spoken and there is no taking that back — those states are not
+ * reachable from here.
+ *
+ * The audit row says it was withdrawn rather than quietly deleting the trip, so a reader can still
+ * see somebody pressed it and changed their mind. That is the honest version of an undo.
+ */
+export async function withdrawFromClientService(actor: ActorMeta, methodologyId: string) {
+  const methodology = await loadOne(methodologyId);
+
+  if (methodology.status !== "submitted_to_client") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${methodology.number} is ${methodology.status.replace(/_/g, " ")}. Only one that is ` +
+        `sitting with the client, and has had no answer, can be brought back.`,
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.methodology.update({
+      where: { id: methodology.id },
+      data: {
+        status: "approved",
+        submittedToClientAt: null,
+        version: { increment: 1 },
+      },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "withdrawn_from_client",
+      entityType: METHODOLOGY_ENTITY_TYPE,
+      entityId: methodology.id,
+      summary: `Brought ${methodology.number} R${methodology.revision} back — it had not been sent`,
+      diff: { status: { from: "submitted_to_client", to: "approved" } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { status: "approved" as const };
+}
+
+/**
  * The client's answer.
  *
  * Approval demands the file. §6.2 gates mobilization on the document as well as the status, so

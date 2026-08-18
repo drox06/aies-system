@@ -178,6 +178,7 @@ import {
   saveMethodologyService,
   submitForInternalReviewService,
   submitToClientService,
+  withdrawFromClientService,
   waiveClientApprovalService,
 } from "@/server/core/operations/methodology-service";
 import {
@@ -635,6 +636,11 @@ export const operationsRouter = router({
   submitMethodologyToClient: p("methodology.prepare")
     .input(z.object({ methodologyId: z.string() }))
     .mutation(({ ctx, input }) => submitToClientService(actorMeta(ctx), input.methodologyId)),
+
+  /** The undo for a mis-click. Narrow by design — see withdrawFromClientService. */
+  withdrawMethodologyFromClient: p("methodology.prepare")
+    .input(z.object({ methodologyId: z.string() }))
+    .mutation(({ ctx, input }) => withdrawFromClientService(actorMeta(ctx), input.methodologyId)),
 
   recordClientDecision: p("methodology.prepare")
     .input(

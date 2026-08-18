@@ -243,7 +243,7 @@ function RequestForm({
             })
           }
         >
-          Send to the Vice President
+          Send Request
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel

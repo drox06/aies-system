@@ -215,6 +215,13 @@ function OverrideBlock({ ticketId, onDone }: { ticketId: string; onDone: () => v
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />
+      {reason.trim().length < 10 && (
+        <p className="mt-1 text-xs text-amber-900">
+          {reason.trim().length === 0
+            ? "Write the reason before you can override — at least 10 characters."
+            : `${10 - reason.trim().length} more character${10 - reason.trim().length === 1 ? "" : "s"} before you can override.`}
+        </p>
+      )}
       {override.error && <p className="mt-2 text-sm text-danger">{override.error.message}</p>}
       <div className="mt-2 flex gap-2">
         <Button
@@ -223,7 +230,7 @@ function OverrideBlock({ ticketId, onDone }: { ticketId: string; onDone: () => v
           disabled={override.isPending || reason.trim().length < 10}
           onClick={() => override.mutate({ ticketId, reason })}
         >
-          Override the gate
+          {override.isPending ? "Overriding…" : "Override the gate"}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Cancel

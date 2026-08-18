@@ -6,7 +6,7 @@ import { AuditTrail } from "@/components/AuditTrail";
 import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
-import { Input, Label, Textarea } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
@@ -665,6 +665,8 @@ function Lifecycle({
   const [approvalFileId, setApprovalFileId] = useState("");
   const [waiverReason, setWaiverReason] = useState("");
   const [showWaiver, setShowWaiver] = useState(false);
+  /** Sending is irreversible from the client's side, so it asks first. */
+  const [confirmSend, setConfirmSend] = useState(false);
 
   const submitReview = trpc.operations.submitMethodologyForReview.useMutation({
     onSuccess: onDone,
@@ -673,9 +675,21 @@ function Lifecycle({
   const toClient = trpc.operations.submitMethodologyToClient.useMutation({ onSuccess: onDone });
   const clientDecision = trpc.operations.recordClientDecision.useMutation({ onSuccess: onDone });
   const waive = trpc.operations.waiveClientApproval.useMutation({ onSuccess: onDone });
+  const withdraw = trpc.operations.withdrawMethodologyFromClient.useMutation({ onSuccess: onDone });
+
+  /** The attachments on this method statement, so the client's approval is picked, not typed. */
+  const files = trpc.files.forEntity.useQuery({
+    entityType: METHODOLOGY_ENTITY_TYPE,
+    entityId: data.id,
+  });
 
   const error =
-    submitReview.error ?? approve.error ?? toClient.error ?? clientDecision.error ?? waive.error;
+    submitReview.error ??
+    approve.error ??
+    toClient.error ??
+    clientDecision.error ??
+    waive.error ??
+    withdraw.error;
 
   if (data.status === "superseded") return null;
 
@@ -760,12 +774,34 @@ function Lifecycle({
             Approved internally. Sending it starts the clock that shows whose delay any wait was.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              disabled={toClient.isPending}
-              onClick={() => toClient.mutate({ methodologyId: data.id })}
-            >
-              Send it to the client
-            </Button>
+            {/*
+              Asked for, because the two buttons that move this thing forward sit next to each other
+              and one of them used to have no way back.
+            */}
+            {confirmSend ? (
+              <div className="w-full rounded-md border-2 border-amber-400 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-900">Send it to the client?</p>
+                <p className="mt-1 text-sm text-amber-900">
+                  It goes out and the clock starts. Nothing else can be recorded against it until
+                  they answer — or until somebody brings it back.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    disabled={toClient.isPending}
+                    onClick={() => toClient.mutate({ methodologyId: data.id })}
+                  >
+                    {toClient.isPending ? "Sending…" : "Yes, send it"}
+                  </Button>
+                  <Button variant="secondary" onClick={() => setConfirmSend(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button disabled={toClient.isPending} onClick={() => setConfirmSend(true)}>
+                Send it to the client
+              </Button>
+            )}
             {data.clientApprovalRequired && data.canApprove && !showWaiver && (
               <Button variant="ghost" onClick={() => setShowWaiver(true)}>
                 This client does not require approval
@@ -807,16 +843,53 @@ function Lifecycle({
           <p className="mt-1 text-sm text-text-muted">
             With the client. Record their answer when it comes.
           </p>
+
+          {/*
+            The way back from a mis-click. Narrow on purpose: this undoes an internal status when
+            nothing actually left the building, and it disappears the moment the client answers,
+            because their answer is not ours to take back. See withdrawFromClientService.
+          */}
+          <p className="mt-2">
+            <button
+              type="button"
+              className="text-sm underline text-text-muted hover:text-text"
+              disabled={withdraw.isPending}
+              onClick={() => withdraw.mutate({ methodologyId: data.id })}
+            >
+              {withdraw.isPending
+                ? "Bringing it back…"
+                : "It was not actually sent — bring it back"}
+            </button>
+          </p>
+          {/*
+            Pick the document, do not type its id.
+
+            This was a text box asking somebody to "paste the attachment id from above" — the fourth
+            instance of docs/DECISIONS.md #101 in this codebase, after the checklist photo item, the
+            delivery panel and the QA form. An identifier a person has to copy by eye is not a
+            control; it is a way to get the wrong file attached to a mobilisation gate.
+          */}
           <div className="mt-3">
-            <Label htmlFor="m-approval-file">
-              Their approval — paste the attachment id from above
-            </Label>
-            <Input
-              id="m-approval-file"
-              value={approvalFileId}
-              onChange={(e) => setApprovalFileId(e.target.value)}
-              placeholder="Upload it in Attachments first, then paste its id"
-            />
+            <Label htmlFor="m-approval-file">Their approval — which document is it?</Label>
+            {files.data && files.data.length > 0 ? (
+              <Select
+                id="m-approval-file"
+                value={approvalFileId}
+                onChange={(e) => setApprovalFileId(e.target.value)}
+              >
+                <option value="">Choose the file they signed…</option>
+                {files.data.map((file) => (
+                  <option key={file.id} value={file.id}>
+                    {file.filename}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <p className="mt-1 text-sm text-text-muted">
+                Nothing is attached yet. Upload what the client signed in{" "}
+                <strong>Attachments</strong> above, and it appears here.
+              </p>
+            )}
             <p className="mt-1 text-xs text-text-muted">
               {/* §6.2 gates mobilisation on the document as well as the status. */}
               Required to record an approval: a status is something we set, the document is
