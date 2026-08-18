@@ -110,12 +110,31 @@ export interface DecideApprovalRequestInput {
   approver: AuthedUser;
   decision: "approved" | "rejected";
   comment?: string;
+  /**
+   * Join the caller's transaction instead of opening one.
+   *
+   * ## Why this exists
+   *
+   * A decision is never only an engine fact. Approving a cash advance also sets the advance's own
+   * status; approving a quotation also moves the quotation. Callers were doing the second in a
+   * transaction of their own, *after* this one had already committed — two commits for one
+   * decision, with a window between them.
+   *
+   * AIESCA-260127 fell into that window on 2026-08-18: the approval request went to `approved` at
+   * 14:35:47 and the advance stayed `pending_approval`. Nothing could then act on it — approving
+   * refused because no request was pending, re-submitting refused because it was no longer a draft.
+   * A decision recorded against a record that could not receive it.
+   *
+   * Passing `tx` closes the window: the engine's decision and whatever it means for the business
+   * record commit together or not at all.
+   */
+  tx?: Prisma.TransactionClient;
 }
 
 export async function decideApprovalRequest(
   input: DecideApprovalRequestInput,
 ): Promise<ApprovalRequest> {
-  return db.$transaction(async (tx) => {
+  const run = async (tx: Prisma.TransactionClient): Promise<ApprovalRequest> => {
     const request = await tx.approvalRequest.findUniqueOrThrow({ where: { id: input.requestId } });
     if (request.status !== "pending") {
       throw new Error(`Approval request ${request.id} is already ${request.status}.`);
@@ -189,7 +208,9 @@ export async function decideApprovalRequest(
     }
 
     return updated;
-  });
+  };
+
+  return input.tx ? run(input.tx) : db.$transaction(run);
 }
 
 export async function listMyApprovalInbox(user: AuthedUser): Promise<ApprovalRequest[]> {

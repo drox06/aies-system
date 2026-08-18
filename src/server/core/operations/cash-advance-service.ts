@@ -468,6 +468,69 @@ async function openApproval(
   return request;
 }
 
+/**
+ * Writes a decision onto the advance itself: status, approved amount, reason, audit row.
+ *
+ * Shared by the normal path and by the repair branch above, because "what an approval does to a
+ * cash advance" must have exactly one definition. Two copies would drift, and the copy that drifted
+ * would be the one nobody reads — the repair path, which by definition only runs when something has
+ * already gone wrong.
+ */
+async function applyRecordedDecision(
+  actor: ActorMeta,
+  advance: { id: string; number: string; amountRequested: Prisma.Decimal; requestedById: string },
+  decision: "approved" | "rejected",
+  meta: { decidedById: string | null; comment: string | null },
+) {
+  const approvedAmount = advance.amountRequested;
+
+  await db.$transaction(async (tx) => {
+    await tx.cashAdvance.update({
+      where: { id: advance.id },
+      data: {
+        status: decision,
+        approvedById: meta.decidedById ?? actor.actorId,
+        approvedAt: new Date(),
+        amountApproved: decision === "approved" ? approvedAmount : null,
+        rejectionReason: decision === "rejected" ? meta.comment : null,
+        version: { increment: 1 },
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: decision === "approved" ? "approved" : "rejected",
+      entityType: CASH_ADVANCE_ENTITY_TYPE,
+      entityId: advance.id,
+      summary:
+        `Applied the decision already recorded against ${advance.number}: ` +
+        `${decision}. The approval was decided earlier and the advance had not caught up.`,
+      diff: { status: { from: "pending_approval", to: decision } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  await safeNotify({
+    recipientId: advance.requestedById,
+    type: CASH_ADVANCE_APPROVAL_DECIDED_NOTIFICATION_TYPE,
+    title:
+      decision === "approved"
+        ? `${advance.number} approved — waiting on release`
+        : `${advance.number} was sent back`,
+    body:
+      decision === "approved"
+        ? "The money still has to be released before anyone mobilizes."
+        : (meta.comment ?? ""),
+    entityType: CASH_ADVANCE_ENTITY_TYPE,
+    entityId: advance.id,
+  });
+
+  return { status: decision };
+}
+
 // ---- the Vice President's decision --------------------------------------------------------------
 
 export async function decideCashAdvanceService(
@@ -496,32 +559,82 @@ export async function decideCashAdvanceService(
   }
 
   const request = await findPendingCashAdvanceApproval(advance.id, "advance");
-  if (!request) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `${advance.number} has no open approval request.`,
-    });
-  }
 
-  // Eligibility — including whether the 4-hour fallback has put this in the President's hands —
-  // lives in the engine. Deciding it a second time here is how the two answers drift apart.
-  try {
-    await decideApprovalRequest({
-      requestId: request.id,
-      approver: user,
-      decision: input.decision,
-      comment: input.reason,
+  /**
+   * The advance says "waiting", the engine says "decided". Apply the decision that already exists.
+   *
+   * ## What happened to AIESCA-260127
+   *
+   * Its approval request was approved at 14:35:47 and the advance stayed `pending_approval`. The
+   * engine's decision and the advance's own update were two separate commits in one request, and
+   * only the first landed. Every retry then hit "has no open approval request" — because the
+   * request was no longer pending — and re-submitting was refused because the advance was no longer
+   * a draft. A record with a decision recorded against it and no way to act on that decision.
+   *
+   * The two commits are now one (below), so this cannot happen again. This branch is for the rows
+   * where it already did: rather than a repair script somebody has to know exists, the screen heals
+   * it the next time anybody presses the button.
+   *
+   * **It applies the recorded decision, it does not make a new one.** Whatever the approver decided
+   * is what happens — the person pressing the button now is completing an act, not performing one,
+   * and the audit trail says so.
+   */
+  if (!request) {
+    const decided = await db.approvalRequest.findFirst({
+      where: {
+        entityType: CASH_ADVANCE_ENTITY_TYPE,
+        entityId: advance.id,
+        status: { in: ["approved", "rejected"] },
+      },
+      orderBy: { decidedAt: "desc" },
     });
-  } catch (error) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: error instanceof Error ? error.message : "You cannot decide this approval.",
+
+    if (!decided) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `${advance.number} has no open approval request.`,
+      });
+    }
+
+    const action = await db.approvalAction.findFirst({
+      where: { requestId: decided.id },
+      orderBy: { at: "desc" },
+    });
+    return applyRecordedDecision(actor, advance, decided.status as "approved" | "rejected", {
+      decidedById: action?.approverId ?? null,
+      comment: action?.comment ?? null,
     });
   }
 
   const approvedAmount = advance.amountRequested;
 
+  /**
+   * The engine's decision and the advance's own update, in **one** transaction.
+   *
+   * They used to be two, in this order, with the engine committing first. AIESCA-260127 landed in
+   * the gap between them: request approved, advance still `pending_approval`, and no screen able to
+   * finish the job. Whatever interrupted it — a timeout, a dropped connection — the shape of the
+   * bug was that one decision needed two commits to be true.
+   *
+   * Eligibility, including whether the 4-hour fallback has put this in the President's hands, still
+   * lives in the engine. Deciding it a second time here is how two answers drift apart.
+   */
   await db.$transaction(async (tx) => {
+    try {
+      await decideApprovalRequest({
+        requestId: request.id,
+        approver: user,
+        decision: input.decision,
+        comment: input.reason,
+        tx,
+      });
+    } catch (error) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: error instanceof Error ? error.message : "You cannot decide this approval.",
+      });
+    }
+
     await tx.cashAdvance.update({
       where: { id: advance.id },
       data: {

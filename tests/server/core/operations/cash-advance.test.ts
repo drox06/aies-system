@@ -320,6 +320,115 @@ describe("§5 — approval routing", () => {
   });
 });
 
+/**
+ * The failure AIESCA-260127 hit in production on 2026-08-18.
+ *
+ * Its approval request reached `approved` and the advance stayed `pending_approval`, because the
+ * engine's decision and the advance's own update were two commits and only the first landed. Every
+ * route out was then closed: approving refused ("has no open approval request", since the request
+ * was no longer pending) and re-submitting refused ("not a draft").
+ *
+ * Two guarantees, and the second is the one that matters for rows already in that state — a fix
+ * that only prevents new occurrences leaves the existing record dead.
+ */
+describe("§5 — a decision that only half landed", () => {
+  it("finishes an advance whose approval was already decided", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
+    const vp = await makeUser("vice_president", ["cash_advance.approve"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    // Reproduce the stranded state exactly: the engine decided, the advance never caught up.
+    const request = await db.approvalRequest.findFirstOrThrow({
+      where: { entityType: CASH_ADVANCE_ENTITY_TYPE, entityId: advance.id, status: "pending" },
+    });
+    await db.approvalRequest.update({
+      where: { id: request.id },
+      data: { status: "approved", decidedAt: new Date() },
+    });
+    await db.approvalAction.create({
+      data: {
+        requestId: request.id,
+        step: 0,
+        approverId: vp.id,
+        decision: "approved",
+        isFallback: false,
+      },
+    });
+
+    const stranded = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(stranded.status).toBe("pending_approval");
+
+    // The screen now heals it instead of refusing.
+    const result = await decideCashAdvanceService(actorFor(vp), vp, {
+      cashAdvanceId: advance.id,
+      decision: "approved",
+    });
+    expect(result.status).toBe("approved");
+
+    const healed = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(healed.status).toBe("approved");
+    expect(healed.amountApproved).not.toBeNull();
+    // The decision belongs to whoever actually made it, not to whoever pressed the button after.
+    expect(healed.approvedById).toBe(vp.id);
+  });
+
+  it("applies a recorded rejection as a rejection, not as an approval", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
+    const vp = await makeUser("vice_president", ["cash_advance.approve"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    const request = await db.approvalRequest.findFirstOrThrow({
+      where: { entityType: CASH_ADVANCE_ENTITY_TYPE, entityId: advance.id, status: "pending" },
+    });
+    await db.approvalRequest.update({
+      where: { id: request.id },
+      data: { status: "rejected", decidedAt: new Date() },
+    });
+    await db.approvalAction.create({
+      data: {
+        requestId: request.id,
+        step: 0,
+        approverId: vp.id,
+        decision: "rejected",
+        comment: "Breakdown does not add up.",
+        isFallback: false,
+      },
+    });
+
+    // Note the caller asks to *approve*. What is applied is what was decided.
+    const result = await decideCashAdvanceService(actorFor(vp), vp, {
+      cashAdvanceId: advance.id,
+      decision: "approved",
+    });
+    expect(result.status).toBe("rejected");
+
+    const healed = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(healed.status).toBe("rejected");
+    expect(healed.rejectionReason).toBe("Breakdown does not add up.");
+    expect(healed.amountApproved).toBeNull();
+  });
+
+  it("still refuses when there is no decision anywhere", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
+    const vp = await makeUser("vice_president", ["cash_advance.approve"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    await db.approvalRequest.deleteMany({
+      where: { entityType: CASH_ADVANCE_ENTITY_TYPE, entityId: advance.id },
+    });
+
+    await expect(
+      decideCashAdvanceService(actorFor(vp), vp, {
+        cashAdvanceId: advance.id,
+        decision: "approved",
+      }),
+    ).rejects.toThrow(/no open approval request/);
+  });
+});
+
 describe("§5 — liquidation", () => {
   async function releasedAdvance(amountCentavos = 5_000_00) {
     const lead = await makeUser("technician", ["cash_advance.request", "ticket.view"]);
