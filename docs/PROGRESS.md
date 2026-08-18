@@ -2549,6 +2549,39 @@ Still unverified: the **populated** state. The database has no delivery flows, s
 the failure-cause buttons and the photo control have not been rendered with real content — only the
 empty state has.
 
+### Session 14 — §15's digital checklists
+
+§15 opens with what it replaces: "the undocumented, verbal way work is currently confirmed". A
+technician says the loop checked out, everybody believes them, and six months later there is nothing
+to read.
+
+- [x] `ChecklistTemplate` + `ChecklistResponse`, migration `checklists`.
+- [x] `checklist-rules.ts` — nine item types, tolerance limits, §15's conditional logic, and the
+      completeness check the screen and the service both run. 26/26.
+- [x] `checklist-service.ts` — publish freezes a version, revise creates the next, retire keeps the
+      old one because responses cite it. 15/15.
+- [x] Eleven seeded templates, the stages §15 names by hand, in `prisma/seed-checklists.ts`.
+      **Created, never updated** — a deploy must not rewrite a procedure somebody signed.
+- [x] `checklist.fill` and `checklist.manage`, and the `checklist.completed` / `checklist.failed`
+      events. The second is §15's "can auto-raise an NCR", decided here and raised by module 08.
+- [x] `ChecklistPanel` on the ticket, showing a failure's cause and action **the moment it fails**
+      rather than refusing at sign-off when the technician has left site.
+
+**§20's offline case is now written.** "Complete a checklist with three photos and a signature,
+restore, assert one server record with all attachments. Replaying the same outbox twice creates no
+duplicates." §14 built the outbox and could only test it against delivery attempts; this is the case
+the spec actually names, and it passes.
+
+**The permission test from session 13 earned itself immediately.** `checklist.fill` and
+`checklist.manage` were declared in the manifest and absent from the database, and the test said so
+by name with the command to fix it — the same gap that cost `/field` a broken deployment, caught in
+seconds this time.
+
+**Not built:** the template *builder* screen. Templates can be created, revised and published through
+the API and are covered by tests, but there is no admin UI for authoring them — the eleven seeded
+ones are what exists on screen today. That is the next session's work, and until then a new checklist
+needs a developer.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
@@ -2698,6 +2731,10 @@ empty state has.
   landing on the same shape makes it the default; `delivered_unsigned` is the one state whose cost
   runs daily, so it is said on screen, escalated once, and addressed to a person; prefill the
   receipt from the order because two people typing the same text is how two documents diverge).
+- docs/DECISIONS.md #92-#93: session 14 ("not applicable" is an answer a template must authorise,
+  expressed as a type rather than a field, because a field can be left off the next form; and a
+  published procedure that can be edited is not a procedure — so publish freezes, revise copies, and
+  the response keeps its own snapshot).
 - docs/DECISIONS.md #86-#87: session 13 (a rejection that exists only in a response body is a lost
   afternoon, so refusals are committed rows; and the outbox may not be tidied up by anybody,
   including on sign-out, because it alone holds work that exists nowhere else).
@@ -2915,6 +2952,10 @@ and function; nobody has judged how they *look*.
   silently from the first deploy. Both now serve correctly on the live site. **Still worth checking
   on the phone** that Chrome offers "Install app" rather than "Add to Home screen" — nothing
   automated can confirm a real WebAPK install.
+- **Checklist templates have no authoring screen.** Create, revise and publish exist as tRPC
+  procedures with tests behind them, but nothing renders them, so the eleven seeded templates are
+  the whole set until the builder lands. `checklist.manage` is granted and currently unusable from
+  the UI.
 - **Offline reads are not built.** §14's 7-day cache of tickets, checklists, site data and
   reference documents does not exist yet, and `public/sw.js` still refuses to cache authenticated
   HTML. So a driver who opens `/field` in the yard keeps their run in memory, but one who opens it

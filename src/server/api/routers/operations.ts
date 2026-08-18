@@ -28,6 +28,22 @@ import {
   recordQaService,
 } from "@/server/core/operations/qa-service";
 import { ATTEMPT_FAILURE_CAUSES, DELIVERY_MODES } from "@/server/core/operations/delivery-rules";
+// Aliased: `material-request-rules` exports its own `ITEM_TYPES`, and the two are unrelated —
+// one is what a store issues, the other is what a checklist asks.
+import { ITEM_TYPES as CHECKLIST_ITEM_TYPES } from "@/server/core/operations/checklist-rules";
+import {
+  activeTemplateService,
+  completeResponseService,
+  createTemplateService,
+  getResponseService,
+  listResponsesForTicketService,
+  listTemplatesService,
+  publishTemplateService,
+  reviseTemplateService,
+  saveAnswersService,
+  saveDraftService,
+  startResponseService,
+} from "@/server/core/operations/checklist-service";
 import {
   acknowledgeSyncOutcomesService,
   pendingSyncOutcomesService,
@@ -1383,6 +1399,127 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => completeDeliveryService(actorMeta(ctx), input)),
+
+  // ---- §15's checklists ---------------------------------------------------------------------
+
+  listChecklistTemplates: p("ticket.view")
+    .input(
+      z.object({ stage: z.string().optional(), includeRetired: z.boolean().optional() }).optional(),
+    )
+    .query(({ input }) => listTemplatesService(input ?? {})),
+
+  activeChecklistTemplate: p("ticket.view")
+    .input(z.object({ key: z.string() }))
+    .query(({ input }) => activeTemplateService(input.key)),
+
+  createChecklistTemplate: p("checklist.manage")
+    .input(
+      z.object({
+        key: z.string().min(1).max(80),
+        name: z.string().min(1).max(200),
+        stage: z.string().min(1).max(80),
+        description: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createTemplateService(actorMeta(ctx), input)),
+
+  /** Only a draft. A published version is the procedure of record and cannot be rewritten. */
+  saveChecklistDraft: p("checklist.manage")
+    .input(
+      z.object({
+        templateId: z.string(),
+        name: z.string().min(1).max(200).optional(),
+        description: z.string().max(2000).nullish(),
+        sections: z
+          .array(
+            z.object({
+              key: z.string().min(1).max(80),
+              title: z.string().min(1).max(200),
+              items: z.array(
+                z.object({
+                  key: z.string().min(1).max(80),
+                  label: z.string().min(1).max(300),
+                  type: z.enum(CHECKLIST_ITEM_TYPES),
+                  required: z.boolean().optional(),
+                  min: z.number().nullish(),
+                  max: z.number().nullish(),
+                  unit: z.string().max(30).nullish(),
+                  options: z.array(z.string().max(120)).optional(),
+                  help: z.string().max(500).nullish(),
+                }),
+              ),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveDraftService(actorMeta(ctx), input)),
+
+  publishChecklistTemplate: p("checklist.manage")
+    .input(z.object({ templateId: z.string() }))
+    .mutation(({ ctx, input }) => publishTemplateService(actorMeta(ctx), input)),
+
+  reviseChecklistTemplate: p("checklist.manage")
+    .input(z.object({ templateId: z.string() }))
+    .mutation(({ ctx, input }) => reviseTemplateService(actorMeta(ctx), input)),
+
+  startChecklist: p("checklist.fill")
+    .input(
+      z.object({
+        templateKey: z.string(),
+        ticketId: z.string().nullish(),
+        projectId: z.string().nullish(),
+        entityType: z.string().nullish(),
+        entityId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => startResponseService(actorMeta(ctx), input)),
+
+  saveChecklistAnswers: p("checklist.fill")
+    .input(z.object({ responseId: z.string(), answers: z.record(z.string(), z.unknown()) }))
+    .mutation(({ ctx, input }) => saveAnswersService(actorMeta(ctx), input)),
+
+  /**
+   * Takes an optional `clientUuid`, exactly as §13's delivery attempt does — this is the write
+   * §20's offline case names, and one procedure serves both the office and a phone replaying its
+   * queue rather than two paths to the same rules.
+   */
+  completeChecklist: p("checklist.fill")
+    .input(
+      z.object({
+        responseId: z.string(),
+        signatureFileId: z.string().nullish(),
+        signedByName: z.string().max(200).nullish(),
+        signedByPosition: z.string().max(200).nullish(),
+        clientUuid: z.string().uuid().optional(),
+        capturedAt: z.coerce.date().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { clientUuid, capturedAt, ...completion } = input;
+      if (!clientUuid) return completeResponseService(actorMeta(ctx), completion);
+
+      return runFieldWrite({
+        clientUuid,
+        userId: ctx.user.id,
+        operation: "checklist.complete",
+        payload: completion,
+        capturedAt,
+        run: async () => ({
+          result: await completeResponseService(actorMeta(ctx), completion),
+          entityType: "ChecklistResponse",
+          entityId: completion.responseId,
+        }),
+      });
+    }),
+
+  getChecklistResponse: p("ticket.view")
+    .input(z.object({ responseId: z.string() }))
+    .query(({ input }) => getResponseService(input.responseId)),
+
+  listChecklistsForTicket: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => listResponsesForTicketService(input.ticketId)),
 
   adjustStock: p("material_request.issue")
     .input(

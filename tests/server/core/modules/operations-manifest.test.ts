@@ -85,6 +85,8 @@ describe("operations manifest", () => {
       "delivery.attempt_failed",
       "delivery.dr_signed",
       "delivery.dr_unsigned_overdue",
+      "checklist.completed",
+      "checklist.failed",
       "sales_order.goods_delivered",
     ]);
   });

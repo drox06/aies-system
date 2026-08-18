@@ -1388,3 +1388,121 @@ model FieldSubmission {
   @@index([userId, acknowledgedAt])
   @@index([operation, createdAt])
 }
+
+/// specs/04-operations-projects.md §15's checklist template.
+///
+/// §15 opens by saying what this replaces: "the undocumented, verbal way work is currently
+/// confirmed". A technician says the loop checked out and everybody believes them, and six months
+/// later — when a customer disputes it, or an ISO auditor asks — there is nothing to read.
+///
+/// **A published version is immutable.** §15: "templates are versioned; responses permanently record
+/// the version used, so historical evidence reflects the procedure actually in force." That sentence
+/// only holds if a published version cannot be edited underneath the responses that cite it.
+/// Changing an active template means publishing a new version; the old one is retired, never
+/// rewritten. Otherwise a signed-off checklist could silently come to mean something its signer
+/// never agreed to, which is worse than having no checklist at all.
+model ChecklistTemplate {
+  id String @id @default(cuid())
+
+  /// Stable across versions — `site_inspection` stays `site_inspection` at v1 and v7, which is what
+  /// lets a screen ask for "the current site inspection checklist" without knowing the number.
+  key     String
+  version Int    @default(1)
+
+  name        String
+  description String?
+
+  /// Which stage of the flowchart this belongs to, from §15's seeded list. Used to offer the right
+  /// checklist on the right screen rather than making somebody pick from eleven.
+  stage String
+
+  /// [{ key, title, items: [{ key, label, type, required, ... }] }].
+  ///
+  /// Json rather than tables because a template is read and rendered whole, never queried by item —
+  /// and because the item shapes differ per type (a numeric has tolerances, a select has options).
+  /// Normalising that would mean a column per type, mostly null. See checklist-rules.ts for the
+  /// shapes and the parser that refuses a malformed one.
+  sections Json @default("[]")
+
+  /// draft | active | retired. Only `active` may be answered; `draft` is editable; `retired` is kept
+  /// because responses point at it.
+  status String @default("draft")
+
+  publishedAt   DateTime?
+  publishedById String?
+  retiredAt     DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  responses ChecklistResponse[]
+
+  /// One row per version of a key. The constraint is what makes "publish a new version" the only way
+  /// to change a published procedure.
+  @@unique([key, version])
+  @@index([key, status])
+  @@index([stage, status])
+}
+
+/// One filled-in checklist. §15's evidence, and the thing §12's service report assembles from.
+model ChecklistResponse {
+  id String @id @default(cuid())
+
+  templateId      String
+  /// Denormalised deliberately: a response has to say which procedure it followed even if the
+  /// template row is later soft-deleted, and reading it should not require a join to find out.
+  templateKey     String
+  templateVersion Int
+
+  /// The sections and items exactly as they were when this was answered.
+  ///
+  /// Belt and braces over the immutability rule above, and worth the duplication: this is ISO 9001
+  /// evidence, and evidence that can only be read by joining to another table is evidence that
+  /// depends on that table still being right. A snapshot can be read on its own in five years.
+  snapshot Json @default("{}")
+
+  /// What it was filled in against. Plain ids — a checklist attaches to a ticket, a project, or a
+  /// delivery flow, and hard relations to all three would be three nullable foreign keys and a
+  /// check constraint nobody maintains.
+  ticketId   String?
+  projectId  String?
+  entityType String?
+  entityId   String?
+
+  /// { [itemKey]: { value, na?, note?, photoFileIds?, cause?, action? } } — see checklist-rules.ts.
+  ///
+  /// An absent key and a recorded `na` are different facts, and §15 makes that a *type* distinction
+  /// by offering both `pass_fail` and `pass_fail_na`: on the first, "not applicable" is not an answer
+  /// anybody may give. docs/DECISIONS.md — the same principle as §7's diamond and §10's witness.
+  answers Json @default("{}")
+
+  /// draft | complete
+  status String @default("draft")
+
+  startedById   String?
+  startedAt     DateTime  @default(now())
+  completedById String?
+  completedAt   DateTime?
+
+  /// §15 lists `signature` as an item type; this is the checklist-level sign-off, which is a
+  /// different claim: not "this reading is 4.2mA" but "I certify this whole procedure was followed".
+  signatureFileId  String?
+  signedByName     String?
+  signedByPosition String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  template ChecklistTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([ticketId, status])
+  @@index([projectId, status])
+  @@index([templateKey, completedAt])
+  @@index([entityType, entityId])
+}

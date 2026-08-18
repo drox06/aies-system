@@ -3,6 +3,7 @@
 // one has dev-mode globalThis caching meant for the Next.js request lifecycle, which a one-shot
 // script doesn't need.
 import { hash } from "@node-rs/argon2";
+import { SEED_CHECKLISTS } from "./seed-checklists";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { registry } from "../src/server/core/manifests";
 import { SEED_REQUIREMENT_TEMPLATES } from "../src/server/core/crm/requirements";
@@ -443,6 +444,50 @@ async function seedQuotationApprovalWorkflow() {
   console.log(`Quotation approval workflow ready (${workflow.id}).`);
 }
 
+/**
+ * specs/04-operations-projects.md §15's eleven checklists.
+ *
+ * **Creates, never updates.** A published checklist version is the procedure a response cites as the
+ * one it followed, so rewriting its `sections` on the next deploy would silently change what
+ * somebody signed. The seed provides a version 1 where nothing exists under that key and then leaves
+ * the company's checklists alone forever — revisions happen in the app, which creates a new version
+ * rather than editing the old one.
+ *
+ * Published as `active` rather than `draft`: an empty Checklists screen on day one teaches people the
+ * feature is not ready, and these are the stages §15 names by hand.
+ */
+async function seedChecklists() {
+  let created = 0;
+
+  for (const checklist of SEED_CHECKLISTS) {
+    const existing = await db.checklistTemplate.findFirst({
+      where: { key: checklist.key },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    await db.checklistTemplate.create({
+      data: {
+        key: checklist.key,
+        version: 1,
+        name: checklist.name,
+        stage: checklist.stage,
+        description: checklist.description,
+        sections: checklist.sections as unknown as Prisma.InputJsonValue,
+        status: "active",
+        publishedAt: new Date(),
+      },
+    });
+    created += 1;
+  }
+
+  console.log(
+    created > 0
+      ? `Seeded ${created} checklist templates.`
+      : `Checklist templates already present — left untouched (${SEED_CHECKLISTS.length} keys).`,
+  );
+}
+
 async function main() {
   await seedRolesAndPermissions();
   await seedUsers();
@@ -450,6 +495,7 @@ async function main() {
   await seedQuotationApprovalWorkflow();
   await seedNumberingFormats();
   await seedRequirementTemplates();
+  await seedChecklists();
 }
 
 main()

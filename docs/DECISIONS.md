@@ -3176,3 +3176,60 @@ everybody already knows. It is that **an inference about a system you cannot see
 stating it as a finding costs somebody else a testing round**. Two of those three were reported to
 the company as conclusions. The right move, available from the first symptom, was to say the deploy
 status was unknown and ask for it.
+
+---
+
+## #92 — "Not applicable" is an answer somebody has to be allowed to give
+
+§15 lists `pass/fail` and `pass/fail/NA` as two separate item types. The easy reading is that one is
+a convenience variant of the other. It is not — it is the whole difference between a checklist and a
+formality.
+
+If N/A were universally available, every awkward item would get one. The document would still be
+signed, still be filed, still look like evidence, and say nothing: which is precisely "the
+undocumented, verbal way work is currently confirmed" that §15 opens by promising to replace, with
+extra steps. So **the template author decides, per item, whether "not applicable" is on offer at
+all**, and `checkResponse` refuses an N/A recorded against an item that never offered one. The
+refusal is not a validation nicety; it is the mechanism.
+
+Three consequences fall out:
+
+- **An unset answer is never read as N/A.** They are reported separately, because one is a decision
+  somebody made and the other is a question nobody reached.
+- **The screen shows the N/A button only where the template allows it.** A UI that offered it
+  everywhere would undo the rule without touching the rule.
+- **The seeded templates use it sparingly** — hot work permits, scaffolding, calibration certificates:
+  things a particular site can genuinely lack. Everything a technician must actually confirm is
+  `pass_fail`, which has no way out.
+
+This is the sixth appearance of the same principle (§7's diamond, §9's waiver, §10's witness, #65's
+default, #71's unknown coverage) and the first where it is a **type** rather than a field somebody
+remembered to add. That is the right place for it: a field can be left off the next form, a type
+cannot.
+
+---
+
+## #93 — A published procedure that can be edited is not a procedure
+
+§15: "templates are versioned; responses permanently record the version used, so historical evidence
+reflects the procedure actually in force."
+
+That sentence is only true if a published version cannot be changed. If it can, then a checklist
+somebody signed six months ago silently comes to mean whatever the template says today — which is
+strictly worse than having no checklist, because it looks like evidence and is not. Somebody would
+defend it in an audit before discovering that.
+
+So there is no code path that mutates the `sections` of anything published. `saveDraft` refuses
+anything but a draft; `publish` freezes; `revise` copies into the next version and retires the
+previous one rather than deleting it, because responses cite it as what they followed. The seed
+follows the same rule — it creates a version 1 where nothing exists and never touches an existing
+one, so a deploy cannot rewrite the company's procedures.
+
+**And the response keeps its own snapshot of the items it answered.** That is deliberate duplication.
+Evidence that can only be read by joining to another table depends on that table still being right,
+and this is the kind of record somebody opens in five years with no idea what else has changed since.
+The snapshot costs a few kilobytes and removes an entire class of "it looked fine at the time".
+
+The same reasoning already made `reviseTemplate` copy the previous items rather than start blank: a
+procedure somebody has to retype is a procedure that quietly stops being revised, and the version
+history then lies by omission.

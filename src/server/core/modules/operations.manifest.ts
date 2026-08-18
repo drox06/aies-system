@@ -232,6 +232,22 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager", "technician"],
     },
     {
+      key: "checklist.fill",
+      label: "Fill in and sign off a checklist",
+      group: "Operations",
+      // §15 replaces the verbal way work is confirmed, so the people doing the work hold this —
+      // a checklist only an officer can sign is a countersignature, not a record of what happened.
+      defaultRoles: ["president", "vice_president", "operations_manager", "technician"],
+    },
+    {
+      key: "checklist.manage",
+      label: "Write and publish checklist templates",
+      group: "Admin",
+      // Deliberately narrower than filling one in. A published version is immutable and becomes the
+      // procedure of record, so authoring it is a quality-system act rather than a field one.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
       key: "project.view",
       label: "See projects and their close-out state",
       group: "Operations",
@@ -342,6 +358,10 @@ export const operationsManifest = defineManifest({
     "delivery.attempt_failed",
     "delivery.dr_signed",
     "delivery.dr_unsigned_overdue",
+    "checklist.completed",
+    // §15: a fail "can auto-raise an NCR". Module 04 decides which failures are worth one and
+    // emits; specs/08-qms-iso9001.md §2 owns the register that raises them.
+    "checklist.failed",
     "sales_order.goods_delivered",
   ],
 
