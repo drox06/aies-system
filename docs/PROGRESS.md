@@ -2582,6 +2582,22 @@ the API and are covered by tests, but there is no admin UI for authoring them �
 ones are what exists on screen today. That is the next session's work, and until then a new checklist
 needs a developer.
 
+### Checklist content review — done 2026-08-18
+
+The company read all eleven seeded checklists and found nothing to change. They are the company's
+procedures as written, not a draft awaiting correction, and the loop check's tolerances —
+**3.9–4.1 mA at 0% and 19.9–20.1 mA at 100%** — are confirmed as the standard a reading is judged
+against.
+
+Worth knowing what that confirmation means operationally: those limits are ±0.1 mA, which is tight
+for a field check. Every reading outside them is a *failure*, and §15 makes a failure demand its cause
+and action before the checklist can be signed off. If field practice turns out to be looser, the
+symptom will be technicians blocked at sign-off on readings they consider fine — at which point widen
+the limits rather than working around the gate. Revising is one screen and creates a v2; nothing
+already signed changes.
+
+Still at v1 with no responses recorded, so any later correction is still free.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
