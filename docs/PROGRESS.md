@@ -2774,6 +2774,45 @@ standing test, and a screen that heals rows already stranded. docs/DECISIONS.md 
 **Module 04 is still untagged.** Per BUILD-PROTOCOL §7, the tag is the company's signature and I do
 not apply it. Waiting on their re-check of the above.
 
+## Module 05 — Finance, Billing and Collections
+
+### Session 1 — §2's billing schedule (2026-08-19)
+
+- [x] `BillingSchedule` + `BillingMilestone`, migrated. `PaymentTerm` **extended** rather than
+      duplicated: it was module 02's model, had never had a single row seeded, and its own comment
+      already anticipated this — "module 05 reads it for billing".
+- [x] `billing-rules.ts` — the eight triggers, each mapped to an event another module already emits;
+      milestone validation; the order split; due dates.
+- [x] `billing-service.ts` — plan a schedule, apply a trigger, the work list, cancel a milestone.
+- [x] `/finance/billing` — the work list, every row carrying **why it is billable in words**.
+- [x] The five payment terms from §2, seeded, with module 02's two older fields derived from the
+      milestones so they cannot drift.
+- [x] 29 tests. `permissions-are-seeded` caught the new permissions before I did.
+
+**Decisions worth remembering:**
+
+- **The schedule is not generated automatically on `sales_order.created`.** One line, and wrong:
+  `on_order` is billable immediately, so an automatic schedule raises a downpayment demand on an
+  order somebody is still checking — and an order on a term with no milestones would either fail
+  silently or default to "bill it all at the end", the most expensive possible guess.
+- **`termSnapshot` freezes what each order agreed to**, so renegotiating a term for new business does
+  not re-plan live orders. Tested.
+- **Milestones must sum to 100% or the term is refused**, not warned about. 90% leaves a tenth of the
+  contract with nothing to bill it on and nobody finds out until the final statement is short.
+- **The trigger transition is a guarded UPDATE**, so a redelivered event cannot notify twice or
+  overwrite the first due date. §11 asks for exactly-once by name.
+
+**Next concrete step — session 2, first half:** wire the subscribers. `project.closed`,
+`tc.completed`, `delivery.dr_signed`, `sales_order.goods_delivered`, `ticket.completed` and
+`supplier_po.sent` all exist and nothing listens to them yet, so **only `on_order` currently fires**.
+`applyTriggerToOrdersService` is the function they call. Declared as `consumes: []` in the manifest
+rather than half-wired, because a subscription reaching the wrong service would flip a milestone and
+tell finance with nothing behind it.
+
+**Then session 2's second half:** §3's two-document model — billing statement versus service invoice.
+The delicate one: AIES issues a Service Invoice **upon payment**, so getting it wrong creates a VAT
+liability on money that has not arrived.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
