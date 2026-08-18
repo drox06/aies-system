@@ -11,6 +11,7 @@ import { sweepOverdueRfqs } from "@/server/core/quotation/rfq-service";
 import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepOverdueLiquidationsService } from "@/server/core/operations/cash-advance-service";
 import { sweepExpiringWarrantiesService } from "@/server/core/operations/warranty-service";
+import { sweepUnsignedDeliveryReceipts } from "@/server/core/operations/delivery-service";
 import { sweepUnactionedScopeChanges } from "@/server/core/quotation/scope-change-service";
 import {
   sweepDormantAccounts,
@@ -33,8 +34,8 @@ import {
 async function handle(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
 
-  // Absent in production is a refusal, not a pass — see /api/cron/drain for why. Fourteen sweeps that
-  // anybody can trigger is worse than fourteen sweeps that visibly are not running.
+  // Absent in production is a refusal, not a pass — see /api/cron/drain for why. A pile of sweeps
+  // anybody can trigger is worse than a pile of sweeps that visibly are not running.
   if (!cronSecret) {
     if (process.env.NODE_ENV === "production") {
       return NextResponse.json({ error: "cron_secret_not_configured" }, { status: 503 });
@@ -161,6 +162,16 @@ async function handle(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] expiring warranty sweep failed:", error);
     results.expiringWarranties = { error: String(error) };
+  }
+
+  // specs/04-operations-projects.md §13: goods delivered, nothing signed, nothing billable. The only
+  // sweep here whose inaction has a running cost rather than a compliance one — every day it goes
+  // unchased is a day of revenue AIES has earned and cannot invoice.
+  try {
+    results.unsignedDeliveryReceipts = await sweepUnsignedDeliveryReceipts();
+  } catch (error) {
+    console.error("[cron/nightly] unsigned delivery receipt sweep failed:", error);
+    results.unsignedDeliveryReceipts = { error: String(error) };
   }
 
   // specs/04-operations-projects.md §6.1's link, chased. The event fires once so the warning stays

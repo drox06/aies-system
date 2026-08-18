@@ -153,3 +153,39 @@ test("the quotations list opens a record with its panels in order", async ({ pag
     await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
   }
 });
+
+test("a ticket record opens with its panels, and the delivery lane appears only on a delivery", async ({
+  page,
+}) => {
+  await page.goto("/tickets");
+  await expect(page.getByText(/^Loading/).first()).toBeHidden({ timeout: 15_000 });
+
+  const open = page.getByRole("link", { name: "Open" }).first();
+  if (!(await open.isVisible({ timeout: 10_000 }).catch(() => false))) {
+    test.skip(true, "no tickets in this database");
+    return;
+  }
+
+  await open.click();
+  await expect(page).toHaveURL(/\/tickets\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: "Scope of work" })).toBeVisible();
+
+  /**
+   * The panel renders itself away on every ticket type but `delivery` — §13's lane and the project
+   * lane never meet. So the assertion is conditional on what this ticket actually is, and the
+   * *absence* is asserted too: a panel that showed up on an installation ticket would be a bug that
+   * a "is it visible" check alone would never catch.
+   */
+  const isDelivery = await page
+    .getByText(/Delivery ticket|Type\s*Delivery/i)
+    .first()
+    .isVisible({ timeout: 5_000 })
+    .catch(() => false);
+
+  const lane = page.getByRole("heading", { name: "Delivery", exact: true });
+  if (isDelivery) {
+    await expect(lane).toBeVisible();
+  } else {
+    await expect(lane).toBeHidden();
+  }
+});

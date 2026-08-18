@@ -21,7 +21,16 @@ export const orderManifest = defineManifest({
   key: "order",
   name: "Orders",
   version: "0.2.0",
-  models: ["CustomerPO", "Supplier", "SalesOrder", "SalesOrderLine"],
+  models: [
+    "CustomerPO",
+    "Supplier",
+    "SalesOrder",
+    "SalesOrderLine",
+    // §7's delivery receipt. The document is this module's; the lane that executes it is module
+    // 04 §13, which is why neither could be built without the other.
+    "DeliveryReceipt",
+    "DeliveryReceiptLine",
+  ],
 
   permissions: [
     {

@@ -436,13 +436,14 @@ model SalesOrder {
   deletedAt DateTime?
   deletedBy String?
 
-  account     CustomerAccount  @relation(fields: [accountId], references: [id])
-  site        Site?            @relation(fields: [siteId], references: [id])
-  quotation   Quotation        @relation(fields: [quotationId], references: [id])
-  customerPO  CustomerPO       @relation(fields: [customerPOId], references: [id])
-  lines       SalesOrderLine[]
-  supplierPOs SupplierPO[]
-  tickets     Ticket[]
+  account          CustomerAccount   @relation(fields: [accountId], references: [id])
+  site             Site?             @relation(fields: [siteId], references: [id])
+  quotation        Quotation         @relation(fields: [quotationId], references: [id])
+  customerPO       CustomerPO        @relation(fields: [customerPOId], references: [id])
+  lines            SalesOrderLine[]
+  supplierPOs      SupplierPO[]
+  tickets          Ticket[]
+  deliveryReceipts DeliveryReceipt[]
 
   @@index([accountId, status])
   @@index([ownerId, status])
@@ -455,6 +456,80 @@ model SalesOrder {
 /// then partial delivery keeps qtyOrdered/Received/Delivered consistent; over-receipt and
 /// over-delivery are rejected". They are stored rather than derived because they are summed from
 /// records in three different modules, and a derived value would mean every screen re-deriving it.
+/// The delivery receipt (specs/03-order-procurement.md §7).
+///
+/// §7 draws the boundary and it is worth restating: **this module owns the document**, module 04 §13
+/// owns the execution lane. This is generated, numbered, signed and stored here; what happened when
+/// somebody tried to deliver against it lives in `DeliveryTicketFlow`.
+///
+/// A DR is never issued without a delivery ticket to execute it — §7 calls the flowchart's `DR REQ`
+/// box "a real gate" that stops DRs floating around unassigned, so `ticketId` is required.
+model DeliveryReceipt {
+  id     String @id @default(cuid())
+  /// AIESDR-{YY}{####}.
+  number String @unique
+
+  salesOrderId String
+  /// The module 04 delivery ticket that asked for this. Required — §7's gate.
+  ticketId     String
+  accountId    String
+  siteId       String?
+
+  /// draft | issued | delivered | acknowledged | cancelled.
+  ///
+  /// §7: the DR is held at `delivered` rather than `acknowledged` until the signature arrives, and
+  /// billing that depends on a signed DR stays gated until then. That gap is the billing risk module
+  /// 04 §13 calls `delivered_unsigned`.
+  status String @default("draft")
+
+  issuedAt    DateTime?
+  issuedById  String?
+  deliveredAt DateTime?
+
+  /// §7's mobile capture at site. The signature is what turns `delivered` into `acknowledged` — a
+  /// courier's proof of delivery explicitly does not (§13.2 step 5).
+  recipientName     String?
+  recipientPosition String?
+  signatureFileId   String?
+  signedAt          DateTime?
+  photoFileIds      String[]  @default([])
+
+  remarks String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  salesOrder SalesOrder            @relation(fields: [salesOrderId], references: [id])
+  lines      DeliveryReceiptLine[]
+
+  @@index([salesOrderId, status])
+  @@index([ticketId])
+  @@index([status, deliveredAt])
+}
+
+/// What is on the DR. §7 supports partial deliveries, each generating its own DR.
+model DeliveryReceiptLine {
+  id                String @id @default(cuid())
+  deliveryReceiptId String
+  salesOrderLineId  String
+  lineNo            Int
+
+  description String
+  quantity    Decimal @default(1) @db.Decimal(14, 3)
+  unit        String  @default("pc")
+
+  createdAt DateTime @default(now())
+
+  receipt DeliveryReceipt @relation(fields: [deliveryReceiptId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryReceiptId, lineNo])
+  @@index([salesOrderLineId])
+}
+
 model SalesOrderLine {
   id           String @id @default(cuid())
   salesOrderId String

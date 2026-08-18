@@ -42,6 +42,7 @@ export const operationsManifest = defineManifest({
     "WarrantyClaim",
     "ServiceReport",
     "ProjectCloseOut",
+    "DeliveryTicketFlow",
   ],
 
   permissions: [
@@ -222,6 +223,15 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "delivery.execute",
+      label: "Run a delivery: request the receipt, log attempts, capture the signature",
+      group: "Operations",
+      // §19. The driver records what happened at the door, so this sits with the crew rather than
+      // with the officers — but the *document* is issued by procurement, and §7's gate means neither
+      // can act without the other.
+      defaultRoles: ["president", "vice_president", "operations_manager", "technician"],
+    },
+    {
       key: "project.view",
       label: "See projects and their close-out state",
       group: "Operations",
@@ -329,6 +339,10 @@ export const operationsManifest = defineManifest({
     "warranty.expiring",
     "service_report.approved",
     "project.closed",
+    "delivery.attempt_failed",
+    "delivery.dr_signed",
+    "delivery.dr_unsigned_overdue",
+    "sales_order.goods_delivered",
   ],
 
   /**

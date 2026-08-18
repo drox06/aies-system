@@ -27,6 +27,19 @@ import {
   listQaForTicketService,
   recordQaService,
 } from "@/server/core/operations/qa-service";
+import { ATTEMPT_FAILURE_CAUSES, DELIVERY_MODES } from "@/server/core/operations/delivery-rules";
+import {
+  bookCourierService,
+  completeDeliveryService,
+  deliverableLinesForTicketService,
+  getDeliveryFlowService,
+  issueDeliveryReceiptService,
+  logDeliveryAttemptService,
+  mobilizeDeliveryService,
+  recordCourierPodService,
+  setDeliveryModeService,
+  startDeliveryFlowService,
+} from "@/server/core/operations/delivery-service";
 import {
   CRITERION_SOURCES,
   LOOP_RESULTS,
@@ -1205,6 +1218,120 @@ export const operationsRouter = router({
   getProject: p("project.view")
     .input(z.object({ projectId: z.string() }))
     .query(({ input }) => getProjectService(input.projectId)),
+
+  // ---- §13's delivery lane ----------------------------------------------------------------------
+
+  /**
+   * The whole lane reads through one query, because the panel's shape depends on the mode and the
+   * status together and two round trips would let them disagree on screen.
+   */
+  getDeliveryFlow: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => getDeliveryFlowService(input.ticketId)),
+
+  /** What the DR should say, taken from the order rather than retyped. */
+  deliverableLines: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => deliverableLinesForTicketService(input.ticketId)),
+
+  startDeliveryFlow: p("delivery.execute")
+    .input(z.object({ ticketId: z.string(), mode: z.enum(DELIVERY_MODES).optional() }))
+    .mutation(({ ctx, input }) => startDeliveryFlowService(actorMeta(ctx), input)),
+
+  setDeliveryMode: p("delivery.execute")
+    .input(z.object({ ticketId: z.string(), mode: z.enum(DELIVERY_MODES) }))
+    .mutation(({ ctx, input }) => setDeliveryModeService(actorMeta(ctx), input)),
+
+  /** Module 03 §7's document, issued only through the ticket that will execute it. */
+  issueDeliveryReceipt: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        salesOrderId: z.string(),
+        siteId: z.string().nullish(),
+        lines: z
+          .array(
+            z.object({
+              salesOrderLineId: z.string(),
+              description: z.string().min(1).max(2000),
+              quantity: z.string().min(1).max(40),
+              unit: z.string().min(1).max(40),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .mutation(({ ctx, input }) => issueDeliveryReceiptService(actorMeta(ctx), input)),
+
+  mobilizeDelivery: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        vehicleRef: z.string().max(200).nullish(),
+        driverName: z.string().max(200).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => mobilizeDeliveryService(actorMeta(ctx), input)),
+
+  /**
+   * One visit, successful or not. `failureReason` is optional to the schema and required by the
+   * rules whenever the visit failed — the message a driver needs there is longer than
+   * "Required", and it belongs next to §13's list of causes rather than in a zod error.
+   */
+  logDeliveryAttempt: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        contactPersonSought: z.string().max(200).nullish(),
+        contactReached: z.boolean(),
+        itemDelivered: z.boolean(),
+        drSigned: z.boolean(),
+        failureReason: z.enum(ATTEMPT_FAILURE_CAUSES).nullish(),
+        photoFileIds: z.array(z.string()).optional(),
+        geo: z.object({ lat: z.number(), lng: z.number() }).nullish(),
+        notes: z.string().max(5000).nullish(),
+        recipientName: z.string().max(200).nullish(),
+        recipientPosition: z.string().max(200).nullish(),
+        signatureFileId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => logDeliveryAttemptService(actorMeta(ctx), input)),
+
+  bookCourier: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        courierName: z.string().min(1).max(200),
+        waybillNumber: z.string().min(1).max(120),
+        trackingUrl: z.string().url().max(2000).nullish(),
+        freightCost: z.number().int().nonnegative().nullish(),
+        insuredValue: z.number().int().nonnegative().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => bookCourierService(actorMeta(ctx), input)),
+
+  /** Deliberately not a completion. §13.2 step 5, and the reason the lane has nine statuses. */
+  recordCourierPod: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        courierPodFileId: z.string(),
+        courierRecipientName: z.string().max(200).nullish(),
+        deliveredAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordCourierPodService(actorMeta(ctx), input)),
+
+  completeDelivery: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        recipientName: z.string().min(1).max(200),
+        recipientPosition: z.string().max(200).nullish(),
+        signatureFileId: z.string(),
+      }),
+    )
+    .mutation(({ ctx, input }) => completeDeliveryService(actorMeta(ctx), input)),
 
   adjustStock: p("material_request.issue")
     .input(

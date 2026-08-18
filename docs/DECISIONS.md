@@ -2879,3 +2879,107 @@ None was a logic error. Each was a **boundary** — between the scheduler and th
 operations that were individually correct, between a queue and a consumer that does not exist. Test
 suites are good at logic and blind to boundaries, and the only cure found so far is to put the thing
 in the place where the boundary is real.
+
+---
+
+## #82 — A courier's proof of delivery is not a signature
+
+specs/04-operations-projects.md §13.2 says it in one line, and the line is the reason §13 exists as a
+separate section rather than a status field on the ticket. The temptation is obvious: the courier's
+POD is a document, it arrives with a name on it, and it says the box got there. Treating it as
+completion would close the ticket, release billing, and be wrong.
+
+What the POD establishes is that *a* box reached *an* address and *somebody* signed for it. What
+invoicing needs is that **this customer accepted these goods against this order**. The gap between
+those two claims is exactly where a disputed invoice lives, and it does not close by being ignored.
+
+So `recordCourierPodService` produces `delivered_unsigned` — the same state an own-vehicle delivery
+reaches when nobody signs — and `canComplete` refuses both modes without `drSignedAt`. The two modes
+converge deliberately: the clock that chases a missing signature should not have to know how the box
+travelled.
+
+This is the same shape as #57's approval document, §9's QA evidence and §12's service report. **A
+status AIES set and an artefact somebody else produced are different claims, and only the second
+survives an argument.** §13 is the fifth section to land on it, which is enough repetitions that it
+should be read as the platform's default rather than as five coincidences.
+
+---
+
+## #83 — The state that costs money every day it is ignored
+
+Most gates in this platform protect a record. `delivered_unsigned` protects revenue: the goods are
+with the customer, AIES has performed, and it cannot invoice. Every day in that state is earned money
+sitting uncollected — unlike a missing waiver or an unapproved methodology, doing nothing here has a
+*running* cost rather than a compliance one.
+
+Three consequences followed, and none of them would have been obvious from the model:
+
+**It says so on the screen, not only in a nightly job.** The panel shows the billing consequence in
+the state where it applies. A driver who knows the invoice is blocked will go back for the signature;
+one who sees a neutral status badge will not.
+
+**The escalation fires once.** `unsignedEscalatedAt` is the marker. A nightly job that renotified
+every night would be filtered into a mail rule inside a week, and then the one that mattered would be
+filtered too — the same reasoning as #70's warning that always fires.
+
+**The notification names a person, not a queue.** It goes to whoever issued the DR, because they are
+the one who cannot bill. Deliberately *not* to the driver: `driverName` is free text, since a hired
+driver has no account here, and inventing a user from a name would be a guess.
+
+The last point is worth stating plainly because the sweep almost shipped as an `emit` alone. Several
+sweeps in this codebase emit an event that nothing subscribes to — which is fine as a record and
+useless as an escalation. **An escalation nobody sees is not an escalation**, and the event and the
+notification answer different questions.
+
+---
+
+## #84 — Prefill the receipt, because the alternative is two people typing the same thing
+
+`deliverableLinesForTicketService` reads the sales order lines and hands them to the DR form already
+filled in. The obvious version asks the person issuing the receipt to type the descriptions.
+
+A delivery receipt whose lines do not match the sales order is a document a customer can sign
+perfectly honestly and still leave the invoice arguable — "we received two flow meters" against an
+order for "Flow meter DN150, qty 2" is a discrepancy somebody has to reconcile later, from memory.
+The only reliable way to keep two documents identical is to never ask anybody to type them twice.
+
+Two details fall out of the same reasoning:
+
+- **Execution lines are excluded.** §7 already excludes them from `goods_delivered`; the receipt has
+  to agree, or it invites a signature against work that has not happened.
+- **The quantity offered is what is outstanding**, not what was ordered — a second delivery against a
+  partly-delivered line should not default to re-delivering the whole quantity.
+
+The file picker on the same panel is the same principle applied to the signature: the existing
+pattern in this codebase is a text input for a file id, which is unusable for the person this screen
+is actually for — a driver, on a phone, at a customer's gate. §14's offline PWA will make that worse
+before it makes it better.
+
+---
+
+## #85 — The same mistake §13.2 warns about, one layer down
+
+`statusAfterAttempt` returned `completed` when the driver ticked "delivered" and "signed". It read as
+obviously right and it was wrong twice over.
+
+The visible symptom was a collision: logging the successful visit closed the flow, so
+`completeDeliveryService` — the call actually carrying the signature file — was then refused as a
+duplicate. Two integration tests failed on "This delivery is already complete." Both would have
+passed if the assertion had only checked the final status.
+
+The real defect is the one underneath. **A driver ticking "signed" is the driver's account of what
+happened at the gate. The uploaded receipt is the artefact.** Between the two sits the case that
+happens constantly in the field: the paper genuinely was signed, and it is now in a folder in the van
+rather than in the system. A flow that reaches `completed` on the tick alone has a record claiming a
+delivery is closed with nothing to invoice against, and it silently drops out of the escalation sweep
+that exists to chase exactly that.
+
+So an attempt can never produce `completed`. Every delivery parks in `delivered_unsigned` until the
+signed receipt is uploaded, and the tick survives in the attempt history as evidence about the visit —
+which is what it is — and prefills the completion form.
+
+What makes this worth writing down is that #82 was authored in this same session, about a courier's
+POD not being a signature, and the rules file one directory away made the identical substitution for
+an own-vehicle delivery. **Stating a principle in a decision record does not implement it.** The
+integration tests caught it; neither the unit tests, which pinned the wrong answer, nor the
+typechecker could have.

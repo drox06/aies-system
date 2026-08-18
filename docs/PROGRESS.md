@@ -2464,14 +2464,57 @@ is clean; the next session's full run covers them properly.
 
 **Owed:** the phone pass, which is now possible for the first time — there is a URL.
 
+### Session 12 — §13's delivery lane, and module 03's document that was waiting for it
+
+**The pair that had blocked each other since module 03.** specs/03-order-procurement.md §7 gates a
+delivery receipt on a delivery ticket to execute it — "the flowchart's `DR REQ` box is a real gate and
+prevents DRs floating around unassigned". specs/04-operations-projects.md §13 gates movement on an
+issued DR. Neither could be built first. Both are built here, in one service that crosses the module
+boundary deliberately and in one place, rather than two services that have to agree and eventually
+would not.
+
+- [x] `DeliveryReceipt` + `DeliveryReceiptLine` (module 03's models) and `DeliveryTicketFlow`
+      (module 04's), migration `delivery_lane`. `AIESDR` numbering, and the counter-reset script
+      taught the new document type.
+- [x] `delivery-rules.ts` — two modes, nine statuses, seven failure causes, and `CAUSE_IS_OURS`
+      splitting the failures AIES caused from the ones it did not, as §8's standby and §11's fault
+      both do. 20/20.
+- [x] `delivery-service.ts` — request, issue, mobilise, log a visit, book a courier, record a POD,
+      complete on the signature. `sales_order.goods_delivered` fires **once per order**, guarded by
+      counting the remaining lines rather than by trusting that this delivery is the last.
+- [x] The nightly sweep for `delivered_unsigned`, escalating once per flow, with a notification to
+      the person who issued the DR — because an escalation nobody sees is not an escalation.
+- [x] `DeliveryPanel` on the ticket, arranged around the two gates rather than around the data.
+- [x] §20's two named cases, plus the mode lock, the line prefill, and the escalation. 11/11.
+
+**The integration tests earned their run.** `statusAfterAttempt` closed the flow when the driver
+ticked "signed", so the later call carrying the actual signature file was refused as a duplicate —
+and, worse, a delivery could reach `completed` with no receipt to invoice against and drop out of the
+sweep that chases exactly that. An attempt can no longer produce `completed`. docs/DECISIONS.md #85,
+which also notes that #82 was written in this same session about the identical substitution one
+directory away.
+
+**§13.2 is the rule the section exists for.** A courier's proof of delivery says a box arrived; a
+signed delivery receipt says this customer accepted these goods against this order. Only the second
+survives an argument about an invoice, so a POD produces `delivered_unsigned` — the same billing-risk
+state an own-vehicle delivery reaches when nobody signs, escalating on the same clock. This is the
+fifth section to land on the same shape (#57, §9, §12, §10, now §13); docs/DECISIONS.md #82 argues it
+should now be read as the platform's default rather than as five coincidences.
+
+**`po_received → won` is half-closed, deliberately.** §3's last open transition is now wired for
+supply-only orders: `sales_order.goods_delivered` moves the inquiry to `won`. An order with execution
+lines stays in `po_received`, and **not because it was forgotten** — `executionStatus` is set to
+`pending` when tickets are generated and nothing in the platform ever moves it off, so there is no
+honest signal to read. A deal marked won on delivery of the box with the installation still owed
+would be a false claim in the one report the company reads about its own performance. See "Known
+issues" below.
+
 ## Not started
 - [ ] Modules 05–10
-- [ ] Module 03's delivery half (§7) — `DeliveryReceipt`, `DeliveryReceiptLine`, the signature
-      capture, and `sales_order.goods_delivered` / `delivery.dr_signed`. **Blocked on module 04**,
-      not deferred by choice: §7 gates a DR on a delivery ticket that does not exist.
-      docs/DECISIONS.md #46. `delivery.create` is not declared in the manifest and neither are its
-      events — declare each in the change that emits it.
-- [ ] `po_received → won`, which is decidable only once delivery is.
+- [ ] `po_received → won` **for orders with execution lines.** The supply-only half landed in
+      session 12; this half needs something to move `executionStatus` off `pending`, which nothing
+      currently does. §12's close-out is the natural signal, but `project.closed` carries no sales
+      order id, so wiring it means deciding whether a project maps to one order or several.
 
 ## Decisions made this module
 - docs/DECISIONS.md #1-#3: session 1 (local DB deferred → real Supabase dev project instead;
@@ -2591,6 +2634,13 @@ is clean; the next session's full run covers them properly.
   already owns `Account` and its adapter calls `prisma.account` by name; accreditation records the
   outcome only — certificate and expiry — because AIES's own documents live on each customer's
   portal, and duplicating them made one mayor's permit into N expiry dates to maintain).
+- docs/DECISIONS.md #82-#84: session 12 (a courier POD is not a signature, and why five sections
+  landing on the same shape makes it the default; `delivered_unsigned` is the one state whose cost
+  runs daily, so it is said on screen, escalated once, and addressed to a person; prefill the
+  receipt from the order because two people typing the same text is how two documents diverge).
+- docs/DECISIONS.md #85: session 12, found by its own integration tests (an attempt can never
+  complete a delivery — the driver's tick is a claim, the uploaded receipt is the artefact, and
+  stating a principle in a decision record does not implement it).
 
 ## Not visually verified
 
@@ -2755,6 +2805,15 @@ and function; nobody has judged how they *look*.
   acknowledgement SLA is already satisfied. The mechanism is built and tested because §10 asks for
   it by name and module 02's quotation-turnaround clock will be the first to use it. See
   docs/DECISIONS.md #21.
+- **`executionStatus` is written once and never advanced.** `sales-order-service.ts` sets it to
+  `pending` when any line requires execution, and nothing anywhere moves it to a finished state. It
+  is what blocks the second half of `po_received → won`, and it will also make any "what is still
+  open" report over-count. §12's close-out knows the work is done; the missing link is that
+  `project.closed` carries no sales order id.
+- **The delivery lane has no list screen.** It is reachable only from its ticket. §13.3's report
+  (`deliveryReport`) is written and tested as a pure function but nothing calls it — failures by
+  cause, repeat-failure sites, and own-vehicle against courier cost are computed and unread until
+  module 09's dashboard or a dedicated screen lands.
 - **`quoted` / `won` / `lost` are unreachable until module 02.** Deliberate — §3 says the
   quotation sets them. Module 02 calls `transitionInquiryService` with `bySystem: true` from its
   `quotation.sent` / `accepted` / `rejected` subscribers.

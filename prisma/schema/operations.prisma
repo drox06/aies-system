@@ -111,6 +111,7 @@ model Ticket {
   qaApprovals           QAApproval[]
   testingCommissionings TestingCommissioning[]
   serviceReports        ServiceReport[]
+  deliveryFlow          DeliveryTicketFlow?
 
   @@index([accountId, status])
   @@index([salesOrderId])
@@ -343,6 +344,92 @@ model CashAdvanceLiquidation {
 
   @@index([cashAdvanceId, submittedAt])
   @@index([status])
+}
+
+/// The delivery lane (specs/04-operations-projects.md §13).
+///
+/// §13: "The flowchart's right-hand column. **Delivery tickets never enter the project lane.**" So
+/// this is not a cut-down project — it is its own flow, with its own mobilisation, its own loops and
+/// its own completion.
+///
+/// One per delivery ticket, which is why `ticketId` is unique: the retries are rows inside
+/// `attempts`, not repeated flows. Three failed visits and a successful fourth is **one** delivery
+/// with four attempts, and §20 asks for exactly that — one DR, three logged failures, and a single
+/// `sales_order.goods_delivered`.
+model DeliveryTicketFlow {
+  id       String @id @default(cuid())
+  ticketId String @unique
+
+  /// The document, which module 03 owns. Plain id across the module boundary, as everywhere else.
+  deliveryReceiptId String?
+
+  /// own_vehicle | courier. §13: "chosen when the ticket is generated and can be changed until
+  /// dispatch" — after that the choice has consequences in the world.
+  mode String @default("own_vehicle")
+
+  /// §13.1 step 1-2: no DR, no mobilisation. The gate is the reason these timestamps exist.
+  drRequestedAt   DateTime?
+  drRequestedById String?
+  drIssuedAt      DateTime?
+  drIssuedById    String?
+
+  // ---- own vehicle ----
+  mobilizedAt   DateTime?
+  demobilizedAt DateTime?
+  vehicleRef    String?
+  driverName    String?
+
+  /// [{ attemptNo, at, contactPersonSought, contactReached, itemDelivered, drSigned, failureReason,
+  ///    photoFileIds, geo }] (§13).
+  ///
+  /// §13.3 wants failed attempts counted by cause and by site, because "repeated failures at one site
+  /// are a fixable process problem, usually a wrong contact, and nobody currently counts them". That
+  /// only works if the cause is a code rather than a sentence — see delivery-rules.ts.
+  attempts Json @default("[]")
+
+  // ---- courier ----
+  courierName          String?
+  waybillNumber        String?
+  trackingUrl          String?
+  bookedAt             DateTime?
+  pickedUpAt           DateTime?
+  courierPodFileId     String?
+  courierDeliveredAt   DateTime?
+  courierRecipientName String?
+
+  /// §13.2 step 6: "Courier charges on bulk deliveries are material and routinely forgotten in
+  /// margin." Integer centavos, like every other money field.
+  freightCost  Int?
+  insuredValue Int?
+
+  /// dr_requested | dr_issued | mobilized | attempting | in_transit | delivered_unsigned |
+  /// completed | failed | rescheduled.
+  ///
+  /// `delivered_unsigned` is the one that earns its place. §13 calls it "its own state, and it is a
+  /// billing risk" — the goods are with the customer and AIES cannot bill. It is reached from both
+  /// modes and escalates on the same clock, because a courier's proof of delivery is not a signed
+  /// AIES delivery receipt.
+  status String @default("dr_requested")
+
+  /// When the goods reached the customer, whichever mode delivered them. Distinct from `completedAt`:
+  /// the gap between the two *is* the billing risk, and it is what the escalation measures.
+  deliveredAt         DateTime?
+  unsignedEscalatedAt DateTime?
+
+  finalOutcome String?
+  completedAt  DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+
+  @@index([status, deliveredAt])
+  @@index([mode, status])
 }
 
 /// §6.1's site inspection — the visit itself, as distinct from the ask.

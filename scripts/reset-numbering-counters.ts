@@ -139,6 +139,15 @@ async function highestInUse(documentType: string): Promise<number> {
       });
       return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
     }
+    // Added by module 04 session 12, which started issuing AIESDR numbers — module 03's document,
+    // finally reachable now that §13's ticket-gated lane exists to request it.
+    case "delivery_receipt": {
+      const rows = await db.deliveryReceipt.findMany({
+        where: { deletedAt: null },
+        select: { number: true },
+      });
+      return rows.reduce((max, r) => Math.max(max, tail(r.number) || 0), 0);
+    }
     // Added by module 04 session 11, which started issuing AIESSR numbers.
     case "service_report": {
       const rows = await db.serviceReport.findMany({

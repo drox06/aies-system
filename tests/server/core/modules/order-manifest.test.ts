@@ -116,8 +116,9 @@ describe("order manifest", () => {
     // fires — worse than a boot error, because it fails silently.
     //
     // Delivery is module 04's ticket-gated lane: §7 says "a DR is never issued without a ticket to
-    // execute it", and module 04 does not exist. So these two stay undeclared, and this pin names
-    // the work on the day it lands.
+    // execute it". Module 04 §13 landed on 2026-08-18 and now emits both, so the *assertion* still
+    // holds — this module still does not emit them — but the reason has changed from "nothing can"
+    // to "somebody else does". The document lives here; the execution that signs it does not.
     expect(orderManifest.emits).not.toContain("sales_order.goods_delivered");
     expect(orderManifest.emits).not.toContain("delivery.dr_signed");
     // §4's downpayment event needs module 05's `PaymentTerm` to have a percentage on it.

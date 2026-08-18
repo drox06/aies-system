@@ -28,7 +28,6 @@ describe("operations manifest", () => {
     const declared = new Set(operationsManifest.permissions.map((p) => p.key));
     for (const key of [
       "cash_advance.approve",
-      "delivery.execute",
       // Declared in session 1 and removed the same day: they gated nothing either.
       "ticket.cancel",
       // `project.view` came off this list in session 11, which gave it the /projects route §12's
@@ -83,6 +82,10 @@ describe("operations manifest", () => {
       "warranty.expiring",
       "service_report.approved",
       "project.closed",
+      "delivery.attempt_failed",
+      "delivery.dr_signed",
+      "delivery.dr_unsigned_overdue",
+      "sales_order.goods_delivered",
     ]);
   });
 

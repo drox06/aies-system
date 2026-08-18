@@ -136,6 +136,9 @@ export const crmManifest = defineManifest({
    * `quotation.rejected` follow when module 02's negotiation flow emits them — the registry rejects
    * a subscription to an event no module emits, which is the boot-time check that keeps this
    * honest rather than a list of hopeful strings.
+   *
+   * `sales_order.goods_delivered` is wired as of module 04 §13, and closes half of §3's last open
+   * transition. See the handler for which half, and why the other one cannot be closed yet.
    */
   consumes: [
     {
@@ -160,6 +163,57 @@ export const crmManifest = defineManifest({
           // way, and throwing here would dead-letter a job whose real work is done.
           console.warn(
             `[crm] quotation.sent could not move inquiry ${inquiryId} to quoted:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
+      },
+    },
+    {
+      /**
+       * §3's `po_received → won`, for the deals where "won" is now decidable.
+       *
+       * A received PO is not a won deal — module 01 made that call deliberately, against module 03
+       * §7's shorter reading, because the work still has to be performed. This is the event that
+       * says it has been.
+       *
+       * **Only for supply-only orders.** An order with execution lines is not finished when the
+       * goods arrive; somebody still has to install and commission them, and §12's close-out is what
+       * says that happened. That half cannot be wired yet: `executionStatus` is set to `pending`
+       * when tickets are generated and nothing in the platform ever moves it off, so there is no
+       * honest signal to read. Leaving those deals in `po_received` is the correct answer until
+       * there is — a deal marked won on delivery of the box, with the installation still owed, would
+       * be a false claim in the one report the company reads for its own performance.
+       */
+      event: "sales_order.goods_delivered",
+      handler: async (payload) => {
+        const { salesOrderId } = payload as { salesOrderId?: string | null };
+        if (!salesOrderId) return;
+
+        const { db } = await import("@/lib/db");
+        const order = await db.salesOrder.findUnique({
+          where: { id: salesOrderId },
+          select: {
+            executionStatus: true,
+            quotation: { select: { inquiryId: true } },
+          },
+        });
+
+        const inquiryId = order?.quotation?.inquiryId;
+        if (!inquiryId) return;
+        if (order.executionStatus !== "not_required") return;
+
+        const { transitionInquiryService } = await import("@/server/core/crm/inquiry-service");
+        try {
+          await transitionInquiryService(
+            { actorId: "system", actorLabel: "System (goods delivered)" },
+            { inquiryId, to: "won", bySystem: true },
+          );
+        } catch (error) {
+          // Same tolerance as `quotation.sent` above: the inquiry may have been disqualified, or
+          // this may be the second delivery on an order already marked won. The goods still
+          // arrived, and dead-lettering a job whose real work is done helps nobody.
+          console.warn(
+            `[crm] goods_delivered could not move inquiry ${inquiryId} to won:`,
             error instanceof Error ? error.message : error,
           );
         }
