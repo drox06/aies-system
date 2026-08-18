@@ -50,6 +50,22 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
   const [saved, setSaved] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [leadId, setLeadId] = useState("");
+  /**
+   * The rest of the crew, beyond the lead.
+   *
+   * `Ticket.assignedUserIds` and both dispatch procedures have taken a list since §17 was built; the
+   * form only ever offered one picker, so a two-person job could not be recorded as one. The
+   * company found it the first time they tried to book a real crew: "there are times multiple
+   * personnel need to be booked".
+   *
+   * It matters beyond data entry. The clash check reads *everybody* on the ticket, so a second
+   * technician who was never recorded cannot be double-booked — the warning that exists to catch
+   * exactly that stays silent, and the dispatcher is told nothing is wrong.
+   *
+   * `null` means "not touched yet", so an existing crew is preserved rather than wiped by anybody
+   * who opens the panel to change a date.
+   */
+  const [crew, setCrew] = useState<string[] | null>(null);
 
   const schedule = trpc.operations.scheduleTicket.useMutation({
     onSuccess: () => {
@@ -63,6 +79,9 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
   const data = ticket.data;
   const scheduled = data.scheduledStart;
   const currentLead = leadId || data.assignedLeadId || "";
+  const currentCrew = crew ?? data.assignedUserIds ?? [];
+  const toggleCrew = (id: string) =>
+    setCrew(currentCrew.includes(id) ? currentCrew.filter((x) => x !== id) : [...currentCrew, id]);
 
   const book = async (startDate: string, endDate: string | null) => {
     setPending(null);
@@ -72,6 +91,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
       scheduledStart: new Date(startDate),
       scheduledEnd: endDate ? new Date(endDate) : null,
       ...(currentLead ? { assignedLeadId: currentLead } : {}),
+      assignedUserIds: currentCrew,
     });
     setSaved(endDate ? `${startDate} to ${endDate}` : startDate);
   };
@@ -85,6 +105,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
         scheduledStart: new Date(start),
         scheduledEnd: end ? new Date(end) : null,
         ...(currentLead ? { assignedLeadId: currentLead } : {}),
+        assignedUserIds: currentCrew,
       });
 
       // Nothing in the way: book it. A dialog here would be noise, and noise is what makes people
@@ -131,9 +152,36 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
             itself and is not changed here.
           </p>
 
+          {/*
+            Ticks rather than a multi-select: a crew is a set, and a native multi-select is one of
+            the worst controls on a touch screen — it needs a modifier key nobody has on a phone.
+          */}
+          <div className="mt-2">
+            <Label htmlFor="sched-crew">Who else is going</Label>
+            <div id="sched-crew" className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              {(people.data ?? [])
+                .filter((person) => person.id !== currentLead)
+                .map((person) => (
+                  <label key={person.id} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={currentCrew.includes(person.id)}
+                      onChange={() => toggleCrew(person.id)}
+                    />
+                    {person.name}
+                  </label>
+                ))}
+            </div>
+            <p className="mt-1 text-xs text-text-muted">
+              Everybody ticked is checked for clashes, and everybody ticked clears §8&rsquo;s crew
+              gate. Somebody who is going and is not ticked cannot be warned about.
+            </p>
+          </div>
+
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <div className="w-52">
-              <Label htmlFor="sched-lead">Who is going</Label>
+              <Label htmlFor="sched-lead">Who leads it</Label>
               <Select
                 id="sched-lead"
                 value={currentLead}

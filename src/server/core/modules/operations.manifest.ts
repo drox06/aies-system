@@ -125,8 +125,15 @@ export const operationsManifest = defineManifest({
       group: "Finance",
       // §19 names this permission. §5 gives the liquidation a review cycle and it is finance's: the
       // app can record that receipts were filed, but only somebody holding the paper can say a BIR
-      // official receipt exists. The VP too, since a five-person company has no clean cover.
-      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
+      // official receipt exists.
+      //
+      // **Finance alone**, set by the company on 2026-08-18. The draft also gave it to the
+      // president, the VP and the admin manager on the reasoning that a five-person company has no
+      // clean cover. The company's answer: the reminder tells a technician to hand the paper to
+      // finance, so finance is who checks it. A control that four roles can perform is not really
+      // a control, and a screen that says one thing while the permissions allow another teaches
+      // people that the words do not matter.
+      defaultRoles: ["finance_officer"],
     },
     {
       key: "cash_advance.view_register",

@@ -209,6 +209,7 @@ function MobilizationDetail({
   onDone: () => void;
 }) {
   const query = trpc.operations.getMobilization.useQuery({ mobilizationId });
+  const people = trpc.operations.inspectionAttendees.useQuery(undefined, { retry: false });
   const [tools, setTools] = useState("");
   const [ppe, setPpe] = useState("");
   const [notes, setNotes] = useState("");
@@ -248,7 +249,14 @@ function MobilizationDetail({
           label="Planned"
           value={row.plannedAt ? <DateCell value={row.plannedAt} /> : "no date"}
         />
-        <Row label="Crew" value={`${row.crewIds.length} assigned`} />
+        <Row
+          label="Crew"
+          value={
+            row.crewIds.length === 0
+              ? "nobody yet"
+              : `${row.crewIds.length} ${row.crewIds.length === 1 ? "person" : "people"}`
+          }
+        />
         <Row label="Vehicle" value={row.vehicleRef ?? "—"} />
         <Row
           label="Tools ticked"
@@ -262,6 +270,50 @@ function MobilizationDetail({
 
       {canDispatch && row.status !== "returned" && (
         <div className="mt-3 space-y-3">
+          {/*
+            The control the readiness gate always assumed existed.
+
+            §8's `crew` gate fails while nobody is assigned — correctly, since "a mobilisation with
+            no crew is a van leaving empty" — and the panel said "correct it below once the row
+            exists" while offering nowhere to do it. So a ticket whose crew changed after scheduling
+            could never clear the gate from this screen. Reported by the company as "no place to
+            enter or book crew to clear this gate", and it is the fourth of its kind (DECISIONS
+            #101): a gate whose evidence has no control.
+
+            It writes to the mobilisation's own `crewIds` rather than to the ticket, because who is
+            actually in the van on the day is a different fact from who was booked a week ago, and
+            §8 wants the first.
+          */}
+          <div>
+            <Label htmlFor="mob-crew">Who is in the van</Label>
+            <div id="mob-crew" className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              {(people.data ?? []).map((person) => (
+                <label key={person.id} className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    disabled={update.isPending}
+                    checked={row.crewIds.includes(person.id)}
+                    onChange={() =>
+                      update.mutate({
+                        mobilizationId,
+                        crewIds: row.crewIds.includes(person.id)
+                          ? row.crewIds.filter((id) => id !== person.id)
+                          : [...row.crewIds, person.id],
+                      })
+                    }
+                  />
+                  {person.name}
+                </label>
+              ))}
+            </div>
+            {row.crewIds.length === 0 && (
+              <p className="mt-1 text-xs text-danger">
+                Readiness stays blocked until at least one person is going.
+              </p>
+            )}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="mob-gate">Gate pass</Label>
