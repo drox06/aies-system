@@ -48,6 +48,7 @@ import {
   listInquiryOwnersService,
   getInquiryService,
   listInquiriesService,
+  setInquiryArchivedService,
   listRequirementTemplatesService,
   overrideRequirementsService,
   setInquiryItemsService,
@@ -294,10 +295,16 @@ export const crmRouter = router({
           pageSize: z.number().int().positive().max(100).optional(),
           sortKey: z.string().nullish(),
           sortDir: z.enum(["asc", "desc"]).optional(),
+          archived: z.boolean().optional(),
         })
         .optional(),
     )
     .query(({ ctx, input }) => listInquiriesService(ctx.user, input ?? {})),
+
+  /** File a settled inquiry away, or bring it back. `crm.edit` — housekeeping, not a decision. */
+  setInquiryArchived: p("crm.edit")
+    .input(z.object({ inquiryId: z.string(), archived: z.boolean() }))
+    .mutation(({ ctx, input }) => setInquiryArchivedService(actorMeta(ctx), input)),
 
   getInquiry: p("crm.view")
     .input(z.object({ inquiryId: z.string() }))

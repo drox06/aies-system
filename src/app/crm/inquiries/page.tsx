@@ -58,8 +58,27 @@ const STATUS_TONE: Record<string, StatusTone> = {
   disqualified: "cancelled",
 };
 
+/**
+ * Live inquiries by default; the archive is its own screen.
+ *
+ * The list used to keep everything ever logged, mixed together, with no status filter on the screen
+ * at all. Harmless at twenty rows and useless at two thousand — the screen somebody opens each
+ * morning to see what needs attention would be mostly things that needed attention two years ago.
+ * The company asked for the split, and quotations had already solved it the same way.
+ */
+/** Mirrors ARCHIVABLE_STATUSES in inquiry-service.ts, which is what actually enforces it. */
+const ARCHIVABLE = ["po_received", "won", "lost", "disqualified"];
+
 export default function InquiriesPage() {
+  return <InquiryList archived={false} />;
+}
+
+export function InquiryList({ archived }: { archived: boolean }) {
   const router = useRouter();
+  const utils = trpc.useUtils();
+  const setArchived = trpc.crm.setInquiryArchived.useMutation({
+    onSuccess: () => void utils.crm.listInquiries.invalidate(),
+  });
   const [state, setState] = useState<DataTableState>(DEFAULT_TABLE_STATE);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -69,6 +88,7 @@ export default function InquiriesPage() {
     pageSize: state.pageSize,
     sortKey: state.sortKey,
     sortDir: state.sortDir,
+    archived,
   });
 
   const columns = useMemo<Column<InquiryRow>[]>(
@@ -169,25 +189,63 @@ export default function InquiriesPage() {
         header: "",
         align: "right",
         cell: (row) => (
-          <Button asChild variant="ghost" size="sm">
-            <Link href={`/crm/inquiries/${row.id}`} onClick={(e) => e.stopPropagation()}>
-              Open
-            </Link>
-          </Button>
+          <span className="flex justify-end gap-1">
+            {/*
+              Only offered on a settled inquiry, because the service refuses anything else and a
+              button that exists to be rejected teaches people the app argues with them.
+            */}
+            {(archived || ARCHIVABLE.includes(row.status)) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={setArchived.isPending}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setArchived.mutate({ inquiryId: row.id, archived: !archived });
+                }}
+              >
+                {archived ? "Bring it back" : "Archive"}
+              </Button>
+            )}
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/crm/inquiries/${row.id}`} onClick={(e) => e.stopPropagation()}>
+                Open
+              </Link>
+            </Button>
+          </span>
         ),
         exportValue: () => "",
       },
     ],
-    [],
+    [archived, setArchived],
   );
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Inquiries"
-        description="Every enquiry AIES has been asked to quote, and where each one has got to."
-        actions={<Button onClick={() => setDialogOpen(true)}>Log inquiry</Button>}
+        title={archived ? "Archived inquiries" : "Inquiries"}
+        description={
+          archived
+            ? "Settled and filed away. Nothing here is waiting on anybody — bring one back if it turns out otherwise."
+            : "Every enquiry still in play, and where each one has got to. Settled ones move to the archive."
+        }
+        actions={
+          archived ? (
+            <Button asChild variant="secondary">
+              <Link href="/crm/inquiries">Back to live inquiries</Link>
+            </Button>
+          ) : (
+            <span className="flex flex-wrap gap-2">
+              <Button asChild variant="secondary">
+                <Link href="/crm/inquiries/archive">See archives</Link>
+              </Button>
+              <Button onClick={() => setDialogOpen(true)}>Log inquiry</Button>
+            </span>
+          )
+        }
       />
+
+      {setArchived.error && <p className="mt-2 text-sm text-danger">{setArchived.error.message}</p>}
 
       <DataTable<InquiryRow>
         columns={columns}
@@ -201,14 +259,24 @@ export default function InquiriesPage() {
         onRowClick={(row) => router.push(`/crm/inquiries/${row.id}`)}
         emptyState={
           <EmptyState
-            title={state.search ? "No inquiries match that search." : "No inquiries yet."}
+            title={
+              state.search
+                ? "No inquiries match that search."
+                : archived
+                  ? "Nothing has been filed away yet."
+                  : "No inquiries yet."
+            }
             description={
               state.search
                 ? "Number, subject and account name are all searched."
-                : "Log the first one — it takes a subject and nothing else."
+                : archived
+                  ? "An inquiry can be archived once a PO is in, or once it is won, lost or disqualified."
+                  : "Log the first one — it takes a subject and nothing else."
             }
             action={
-              state.search ? null : <Button onClick={() => setDialogOpen(true)}>Log inquiry</Button>
+              state.search || archived ? null : (
+                <Button onClick={() => setDialogOpen(true)}>Log inquiry</Button>
+              )
             }
           />
         }

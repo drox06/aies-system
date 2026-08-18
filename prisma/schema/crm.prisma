@@ -307,8 +307,16 @@ model Inquiry {
 
   customFields Json @default("{}")
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// Settled and filed away, so the live list is the work that still needs somebody.
+  ///
+  /// Not a status: an inquiry is `won` or `lost` whether or not anybody has tidied it, and folding
+  /// the two together would mean the act of filing changed what happened. This is the shelf, not
+  /// the outcome.
+  archivedAt   DateTime?
+  archivedById String?
+
   deletedAt DateTime?
   deletedBy String?
 

@@ -35,6 +35,9 @@ const REACHED_ANOTHER_WAY: Record<string, string> = {
   "/enroll-totp": "Reached by the first-login gate.",
   "/change-password": "Reached by the forced-change gate.",
   "/notifications": "Reached from the bell in the top bar.",
+  "/crm/inquiries/archive":
+    "Reached from 'See archives' beside 'Log inquiry' on the live inquiries list. Deliberately not " +
+    "in the nav: a second Inquiries entry would compete with the one people actually work from.",
 };
 
 /** Every .tsx under a directory, with its contents, for link checking. */

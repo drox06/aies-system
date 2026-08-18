@@ -856,6 +856,8 @@ export interface ListInquiriesParams {
   pageSize?: number;
   sortKey?: string | null;
   sortDir?: "asc" | "desc";
+  /** The See archives view. Omitted or false means the live list. */
+  archived?: boolean;
 }
 
 /** Allow-list, because the sort key arrives from the query string. */
@@ -878,6 +880,10 @@ export async function listInquiriesService(
 
   const where: Prisma.InquiryWhereInput = {
     deletedAt: null,
+    // Archived rows are off the live list by default. `archived: true` is the See archives view;
+    // there is deliberately no "both", because a list that mixes settled work with live work is
+    // the thing being fixed.
+    ...(params.archived ? { archivedAt: { not: null } } : { archivedAt: null }),
     ...inquiryScopeWhere(user),
     ...(params.status ? { status: params.status } : {}),
     ...(params.ownerId ? { ownerId: params.ownerId } : {}),
@@ -986,4 +992,73 @@ export async function getInquiryService(
     // The templates that apply, so the form can render the questions without a second round-trip.
     templates: templates.filter((t) => completeness.applicableServiceTypes.includes(t.serviceType)),
   };
+}
+
+/**
+ * Files a settled inquiry away, and takes it back out.
+ *
+ * ## Why this is a shelf and not a status
+ *
+ * `won`, `lost` and `disqualified` are what happened. Archiving is what somebody did with the paper
+ * afterwards. Folding them together — auto-archiving on `won`, say — would mean the act of tidying
+ * changed the record of the deal, and would leave no way to keep a won deal in front of people who
+ * are still working on it.
+ *
+ * ## Why only settled ones
+ *
+ * The company asked for archive to activate at Received PO. The same argument covers `won`, `lost`
+ * and `disqualified`: each is a deal nobody is going to act on again. It deliberately does **not**
+ * cover anything earlier — archiving a live inquiry would hide work from the only screen that shows
+ * it, which is how things get forgotten rather than filed.
+ *
+ * Reversible on purpose. Filing is a housekeeping act, not a decision, and the cost of getting it
+ * wrong should be one press.
+ */
+const ARCHIVABLE_STATUSES = ["po_received", "won", "lost", "disqualified"] as const;
+
+export async function setInquiryArchivedService(
+  actor: ActorMeta,
+  input: { inquiryId: string; archived: boolean },
+) {
+  const inquiry = await db.inquiry.findFirst({
+    where: { id: input.inquiryId, deletedAt: null },
+    select: { id: true, number: true, status: true, archivedAt: true },
+  });
+  if (!inquiry) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That inquiry no longer exists." });
+  }
+
+  if (input.archived && !ARCHIVABLE_STATUSES.includes(inquiry.status as never)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${inquiry.number} is ${humanStatus(inquiry.status)} — still live, so it stays on the ` +
+        `list. An inquiry can be filed once a PO is in, or once it is won, lost or disqualified.`,
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.inquiry.update({
+      where: { id: inquiry.id },
+      data: {
+        archivedAt: input.archived ? new Date() : null,
+        archivedById: input.archived ? actor.actorId : null,
+      },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: input.archived ? "archived" : "unarchived",
+      entityType: INQUIRY_ENTITY_TYPE,
+      entityId: inquiry.id,
+      summary: input.archived
+        ? `Filed ${inquiry.number} away — ${humanStatus(inquiry.status)}`
+        : `Brought ${inquiry.number} back to the live list`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { archived: input.archived };
 }
