@@ -458,7 +458,6 @@ export function PrincipalPanel({
                   label="All files on this prospect"
                   hint="Catalogues, correspondence, and anything detached from the two roles above."
                   emptyText="Nothing uploaded yet."
-                  compact
                 />
               </section>
 

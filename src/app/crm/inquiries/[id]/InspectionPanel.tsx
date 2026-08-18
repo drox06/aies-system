@@ -189,7 +189,6 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               // §7.2's higher ceiling, for the case it names by hand: site video.
               category="operations"
               canUpload={item.status !== "cancelled"}
-              compact={item.status === "completed"}
             />
           </div>
           {(item.windowStart || item.windowEnd) && (

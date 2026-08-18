@@ -3116,3 +3116,28 @@ a scheduler and an app, a manifest and a database, a page and its layout, a midd
 the browser's own requests, a datacentre and its database. None was a logic error, and the suite is
 excellent at logic. The only method that has ever worked is putting the thing in the place where the
 boundary is real: deploy it, open it, hand it to somebody on the equipment they will actually use.
+
+---
+
+## #90 — A comment in a schema-validated JSON file is an outage
+
+The region fix in #89 was one line and correct. It shipped alongside a `"//regions"` key holding five
+lines explaining *why* Singapore, in the house style of putting the reasoning next to the decision.
+
+`vercel.json` is validated against its `$schema`, and Vercel **fails the entire deployment** on an
+unrecognised property. So the commit that was supposed to make the site fast instead stopped it
+deploying at all — and every fix travelling with it went nowhere: the manifest still returned a login
+page, `/field` still had no nav entry, and the company re-tested and correctly reported that nothing
+had changed.
+
+Two things worth keeping:
+
+**The habit was right and the target was wrong.** Reasoning belongs next to the decision *when the
+format has somewhere to put it*. JSON does not — it has no comments, and `"//key"` is a convention
+that only works where nothing validates. The reasoning now lives in `docs/DEPLOYMENT.md` under the
+Vercel section, which is where somebody changing the region would actually look.
+
+**"I pushed a fix" and "the fix is running" are different claims.** The fetch that proved the manifest
+was still HTML was read as "the deploy has not landed yet" — a guess that happened to be true about
+the symptom and wrong about the cause, and which would have wasted the next round of testing. The
+check that settles it is the deployment's own status, and asking for it is cheaper than inferring it.

@@ -1,13 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "//regions": [
-    "Singapore, because the database is. Supabase runs in ap-southeast-1 and Vercel defaults to",
-    "iad1 (Washington DC) when no region is set — so every query crossed the Pacific twice, on top",
-    "of the user in Manila reaching a US-East function in the first place. The root layout forces",
-    "dynamic rendering for the CSP nonce, so nothing was cached to hide it. Pages took 5-10s.",
-    "sin1 puts the function next to the database and near the people using it."
-  ],
   "regions": ["sin1"],
   "crons": [
     {

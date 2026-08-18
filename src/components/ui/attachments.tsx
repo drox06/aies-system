@@ -38,7 +38,6 @@ export function Attachments({
   category,
   emptyText = "Nothing attached yet.",
   canUpload = true,
-  compact = false,
   onChanged,
 }: {
   entityType: string;
@@ -50,13 +49,26 @@ export function Attachments({
   category?: "default" | "operations";
   emptyText?: string;
   canUpload?: boolean;
-  /** Hides the dropzone until asked for — for panels where uploading is the rare action. */
-  compact?: boolean;
   onChanged?: () => void;
 }) {
   const utils = trpc.useUtils();
   const [preview, setPreview] = useState<{ id: string; filename: string } | null>(null);
-  const [uploading, setUploading] = useState(!compact);
+  /**
+   * Closed until asked for, on every screen.
+   *
+   * This used to open by default unless a caller passed `compact`, which meant eight of the eleven
+   * upload areas rendered a `p-6` dashed rectangle whether or not anybody wanted to attach anything.
+   * On a desktop that reads as an affordance. On a phone it is a large blank box sitting in the
+   * middle of a record — reported as "the blank screen is still active and it divides the screen",
+   * which is exactly what it does.
+   *
+   * An earlier fix collapsed it *after* an upload and stopped there, because the panel it was found
+   * on happened to have a file in it. The empty case is the common one and was left alone.
+   *
+   * "Attach a file…" is one tap and says what it does, so `compact` no longer distinguished
+   * anything and is gone rather than left as a prop that reads as meaningful.
+   */
+  const [uploading, setUploading] = useState(false);
 
   const files = trpc.files.forEntity.useQuery({ entityType, entityId }, { retry: false });
   const remove = trpc.files.remove.useMutation();
@@ -159,13 +171,8 @@ export function Attachments({
               /**
                * Collapse the dropzone once something has landed, in every layout.
                *
-               * This used to be `if (compact)`, which left the drop target expanded on the full
-               * layouts — a tall empty panel under the thumbnails that looked like the page had
-               * grown a blank section, and only went away when the surrounding card unmounted.
-               * Reported against the goods receipt screen after uploading a photo.
-               *
                * Staying open only helps somebody attaching files one after another, and the
-               * dropzone already takes several at once; "Attach a file…" is one click away.
+               * dropzone already takes several at once; "Attach a file…" is one tap away.
                */
               setUploading(false);
               refresh();

@@ -619,7 +619,6 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
                 entityId={data.id}
                 label="POD"
                 category="operations"
-                compact
                 onChanged={() => void podFiles.refetch()}
               />
               <div className="mt-2 flex flex-wrap items-end gap-2">
@@ -679,7 +678,6 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
             entityId={data.deliveryReceiptId ?? data.id}
             label="Signed receipt"
             category="operations"
-            compact
             onChanged={() => void receiptFiles.refetch()}
           />
           <div className="mt-2 flex flex-wrap items-end gap-2">

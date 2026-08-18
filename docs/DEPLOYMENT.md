@@ -87,6 +87,25 @@ and its migration history get out of sync, and Prisma cannot fix it for you afte
 
 ---
 
+### The region is not optional
+
+`vercel.json` pins `"regions": ["sin1"]`. **Do not remove it, and keep it in step with wherever
+Supabase runs.**
+
+Vercel defaults to `iad1` (Washington DC) when no region is set. Supabase runs in `ap-southeast-1`
+(Singapore). With the default, a phone in Manila reached a function in the United States, which then
+crossed the Pacific again for every query — and because the root layout forces dynamic rendering for
+the CSP nonce, nothing was cached to soften it. Pages took five to ten seconds. Nobody noticed for
+weeks because on a developer machine the database is one hop away.
+
+If the Supabase project ever moves, move this with it. A function and its database in different
+oceans is the single most expensive mistake available in this configuration.
+
+**A note on `vercel.json` itself:** it is validated against `$schema`, and Vercel **fails the whole
+deployment** on an unrecognised property. There is no comment syntax in JSON and the usual `"//key"`
+trick does not survive that validation — an attempt to explain the region choice inline took the site
+down until it was removed. Reasoning about deployment config goes here, in this file.
+
 ## 3. Supabase
 
 > **Read this before step 1.** As decided on 2026-08-17, the company builds and tests against the
