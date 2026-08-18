@@ -785,7 +785,19 @@ export async function todaysDropsService() {
     : [];
   const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]));
 
-  return flows.map((flow) => {
+  /**
+   * Deliveries that exist but are not drops yet, because the delivery receipt has not been issued.
+   *
+   * Reported so the screen can tell a driver **why** it is empty. "No deliveries are waiting to go
+   * out" was a true sentence about this query and a false one about the world — the company looked
+   * at an empty screen while a delivery sat one step upstream, and had no way to tell an idle day
+   * from a broken app. The distinction costs one count.
+   */
+  const awaitingReceipt = await db.deliveryTicketFlow.count({
+    where: { deletedAt: null, status: "dr_requested" },
+  });
+
+  const drops = flows.map((flow) => {
     const attempts = readAttempts(flow.attempts);
     const receipt = flow.deliveryReceiptId ? byId.get(flow.deliveryReceiptId) : null;
     return {
@@ -816,6 +828,8 @@ export async function todaysDropsService() {
       waybillNumber: flow.waybillNumber,
     };
   });
+
+  return { drops, awaitingReceipt };
 }
 
 export async function getDeliveryFlowService(ticketId: string) {

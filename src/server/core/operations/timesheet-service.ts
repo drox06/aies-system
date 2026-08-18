@@ -10,6 +10,7 @@ import {
   TIMESHEET_ENTITY_TYPE,
   advanceStanding,
   checkExpense,
+  checkExpenseClaimable,
   checkHours,
   sumHours,
   type ExpenseCategory,
@@ -318,17 +319,70 @@ export async function saveExpenseService(actor: ActorMeta, input: ExpenseInput) 
   });
 }
 
+/**
+ * Submit expenses for approval — the point where the receipt rule bites.
+ *
+ * ## Where a receipt is counted from
+ *
+ * A receipt reaches an expense two ways: `receiptFileIds` passed when the row is created, or a file
+ * uploaded against the saved row afterwards, which is what the screen actually offers because the
+ * row has no id until it exists. Counting only the column made every uploaded receipt invisible, so
+ * this counts **both**, unioned, in this one place. One derived value computed once beats two
+ * sources of truth that drift — and the drift here would read as "I attached it and it still says
+ * missing", which is the kind of thing that makes people stop trusting the screen.
+ *
+ * ## Why a partial submit rather than a refusal
+ *
+ * Somebody submitting five days of spend with one receipt missing should get four submitted and one
+ * named, not five refused. A rejection that throws away the good rows teaches people to submit one
+ * at a time, and then the rule has made the platform slower without making anything more accurate.
+ */
 export async function submitExpensesService(actor: ActorMeta, input: { ids: string[] }) {
-  const result = await db.fieldExpense.updateMany({
+  const rows = await db.fieldExpense.findMany({
     where: {
       id: { in: input.ids },
       userId: actor.actorId,
       status: { in: ["draft", "rejected"] },
       deletedAt: null,
     },
-    data: { status: "submitted", version: { increment: 1 } },
+    select: { id: true, amount: true, description: true, receiptFileIds: true },
   });
-  return { submitted: result.count };
+
+  const attached = await db.fileObject.findMany({
+    where: {
+      entityType: FIELD_EXPENSE_ENTITY_TYPE,
+      entityId: { in: rows.map((row) => row.id) },
+      deletedAt: null,
+    },
+    select: { id: true, entityId: true },
+  });
+
+  const blocked: { id: string; description: string; reason: string }[] = [];
+  const allowed: string[] = [];
+
+  for (const row of rows) {
+    const receiptFileIds = [
+      ...new Set([
+        ...row.receiptFileIds,
+        ...attached.filter((file) => file.entityId === row.id).map((file) => file.id),
+      ]),
+    ];
+    const check = checkExpenseClaimable({ amount: row.amount, receiptFileIds });
+    if (check.ok) {
+      allowed.push(row.id);
+    } else {
+      blocked.push({ id: row.id, description: row.description, reason: check.errors.join(" ") });
+    }
+  }
+
+  const result = allowed.length
+    ? await db.fieldExpense.updateMany({
+        where: { id: { in: allowed } },
+        data: { status: "submitted", version: { increment: 1 } },
+      })
+    : { count: 0 };
+
+  return { submitted: result.count, blocked };
 }
 
 export async function decideExpenseService(
@@ -438,13 +492,20 @@ export async function advanceLiquidationService(cashAdvanceId: string) {
   };
 }
 
+/**
+ * Each row carries `receiptMissing` — whether *this* row is the one holding up a claim.
+ *
+ * Derived on the server from the same union `submitExpensesService` uses, so the badge on the screen
+ * and the refusal at submit can never disagree. A screen that says a receipt is attached while the
+ * submit says it is not is worse than either answer alone.
+ */
 export async function listExpensesService(filter: {
   ticketId?: string;
   projectId?: string;
   cashAdvanceId?: string;
   status?: string;
 }) {
-  return db.fieldExpense.findMany({
+  const rows = await db.fieldExpense.findMany({
     where: {
       deletedAt: null,
       ...(filter.ticketId ? { ticketId: filter.ticketId } : {}),
@@ -454,6 +515,29 @@ export async function listExpensesService(filter: {
     },
     orderBy: { date: "desc" },
     take: 200,
+  });
+
+  const attached = await db.fileObject.findMany({
+    where: {
+      entityType: FIELD_EXPENSE_ENTITY_TYPE,
+      entityId: { in: rows.map((row) => row.id) },
+      deletedAt: null,
+    },
+    select: { id: true, entityId: true },
+  });
+
+  return rows.map((row) => {
+    const receiptFileIds = [
+      ...new Set([
+        ...row.receiptFileIds,
+        ...attached.filter((file) => file.entityId === row.id).map((file) => file.id),
+      ]),
+    ];
+    return {
+      ...row,
+      receiptCount: receiptFileIds.length,
+      receiptMissing: !checkExpenseClaimable({ amount: row.amount, receiptFileIds }).ok,
+    };
   });
 }
 

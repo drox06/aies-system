@@ -292,6 +292,20 @@ async function main() {
    */
   await startDeliveryFlowService(actor, { ticketId: delivery.id, mode: "own_vehicle" });
 
+  /**
+   * The flow stops at `dr_requested`, so `/field` shows it as waiting for its delivery receipt
+   * rather than as a drop. That is deliberate, and it is the honest end of this script.
+   *
+   * `issueDeliveryReceiptService` needs a sales order, which needs a customer PO, which needs an
+   * approved quotation. Manufacturing that chain would put a fake quotation, a fake approval and a
+   * fake sales order into the **live** database, each carrying a real number from the AIESLQ /
+   * AIESSO sequences — commercial documents indistinguishable from real ones at a glance, and
+   * numbers that can never be reused. A populated demo screen is not worth that.
+   *
+   * So `/field` now explains itself instead: it names how many deliveries are waiting for the
+   * office to issue a receipt. Which is also what a driver sees on a real quiet morning.
+   */
+
   // ---- §15: a checklist actually filled in ------------------------------------------------------
 
   const response = await startResponseService(actor, {

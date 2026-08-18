@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -9,6 +10,7 @@ import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABELS,
+  FIELD_EXPENSE_ENTITY_TYPE,
   RECEIPT_REQUIRED_ABOVE,
   checkExpense,
   checkHours,
@@ -54,7 +56,19 @@ export function HoursPanel({ ticketId }: { ticketId: string }) {
   const saveHours = trpc.operations.saveTimesheet.useMutation({ onSuccess: refresh });
   const saveExpense = trpc.operations.saveExpense.useMutation({ onSuccess: refresh });
   const submitHours = trpc.operations.submitTimesheets.useMutation({ onSuccess: refresh });
-  const submitExpenses = trpc.operations.submitExpenses.useMutation({ onSuccess: refresh });
+  const submitExpenses = trpc.operations.submitExpenses.useMutation({
+    onSuccess: (result) => {
+      // A partial submit is the normal case, so what did NOT go has to be visible. Silently
+      // submitting four of five is how somebody discovers in payroll that one never went.
+      setBlocked(result.blocked);
+      refresh();
+    },
+  });
+
+  /** Which saved expense has its receipt drawer open. */
+  const [receiptFor, setReceiptFor] = useState<string | null>(null);
+  /** Rows the last submit would not take, and why. Kept until the next submit. */
+  const [blocked, setBlocked] = useState<{ id: string; description: string; reason: string }[]>([]);
 
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
@@ -282,8 +296,9 @@ export function HoursPanel({ ticketId }: { ticketId: string }) {
           )}
           {centavos > RECEIPT_REQUIRED_ABOVE && (
             <p className="mt-1 text-xs text-text-muted">
-              Over {pesos(RECEIPT_REQUIRED_ABOVE)} — attach the receipt to the expense once it is
-              saved, or it cannot be claimed.
+              Over {pesos(RECEIPT_REQUIRED_ABOVE)} — save it now, then press{" "}
+              <strong>Receipt</strong> on the saved row to attach the photograph. It is recorded
+              either way; it cannot be <em>claimed</em> until the receipt is on it.
             </p>
           )}
         </div>
@@ -292,13 +307,55 @@ export function HoursPanel({ ticketId }: { ticketId: string }) {
       {expenseRows.length > 0 && (
         <ul className="mt-3 space-y-1 text-sm">
           {expenseRows.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-baseline justify-between gap-2">
-              <span>
-                <DateCell value={row.date} /> — {pesos(row.amount)} ·{" "}
-                {EXPENSE_CATEGORY_LABELS[row.category as ExpenseCategory] ?? row.category} ·{" "}
-                {row.description}
-              </span>
-              <StatusBadge tone={TONE[row.status] ?? "draft"}>{row.status}</StatusBadge>
+            <li key={row.id}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span>
+                  <DateCell value={row.date} /> — {pesos(row.amount)} ·{" "}
+                  {EXPENSE_CATEGORY_LABELS[row.category as ExpenseCategory] ?? row.category} ·{" "}
+                  {row.description}
+                  {row.receiptMissing && (
+                    <span className="ml-1 text-danger">· receipt needed to claim it</span>
+                  )}
+                  {!row.receiptMissing && row.receiptCount > 0 && (
+                    <span className="ml-1 text-text-muted">· receipt attached</span>
+                  )}
+                </span>
+                <span className="flex items-center gap-2">
+                  {canRecord && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setReceiptFor(receiptFor === row.id ? null : row.id)}
+                    >
+                      Receipt
+                    </Button>
+                  )}
+                  <StatusBadge tone={TONE[row.status] ?? "draft"}>{row.status}</StatusBadge>
+                </span>
+              </div>
+
+              {/*
+                The control the rule always assumed existed. Attached to the saved expense rather
+                than to the ticket, so a receipt cannot end up filed against the job in general with
+                nothing saying which ₱800 it covers.
+              */}
+              {receiptFor === row.id && (
+                <div className="mt-1 rounded-md border border-border p-2">
+                  <Attachments
+                    entityType={FIELD_EXPENSE_ENTITY_TYPE}
+                    entityId={row.id}
+                    label="Receipt"
+                    category="operations"
+                    canUpload={row.status === "draft" || row.status === "rejected"}
+                    onChanged={refresh}
+                  />
+                  {row.status !== "draft" && row.status !== "rejected" && (
+                    <p className="mt-1 text-xs text-text-muted">
+                      Already submitted — the receipt on it can be read but not changed.
+                    </p>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -314,6 +371,25 @@ export function HoursPanel({ ticketId }: { ticketId: string }) {
         >
           Submit {draftExpenseIds.length} expense{draftExpenseIds.length === 1 ? "" : "s"}
         </Button>
+      )}
+
+      {blocked.length > 0 && (
+        <div className="mt-2 rounded-md border-2 border-amber-400 bg-amber-50 p-2">
+          <p className="text-sm font-semibold text-amber-900">
+            {blocked.length === 1 ? "One expense" : `${blocked.length} expenses`} stayed behind
+          </p>
+          <ul className="mt-1 space-y-1 text-sm text-amber-900">
+            {blocked.map((item) => (
+              <li key={item.id}>
+                <span className="font-medium">{item.description}</span> — {item.reason}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-amber-900">
+            Everything else went. Press <strong>Receipt</strong> on the row above, attach the
+            photograph, then submit again.
+          </p>
+        </div>
       )}
 
       {(saveHours.error ?? saveExpense.error) && (

@@ -144,6 +144,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ))}
       </div>
 
+      {/* Which build this is. Seven characters that answer "has my fix deployed yet?" */}
+      {!collapsed && (
+        <p className="shrink-0 border-t border-white/10 px-4 py-1.5 text-[11px] text-white/35">
+          build {process.env.NEXT_PUBLIC_BUILD_COMMIT}
+        </p>
+      )}
+
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}

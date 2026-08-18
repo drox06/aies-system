@@ -15,7 +15,7 @@ import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/root";
 
 /** Straight off the router, so the screen cannot drift from what the query actually returns. */
-type Drop = inferRouterOutputs<AppRouter>["operations"]["todaysDrops"][number];
+type Drop = inferRouterOutputs<AppRouter>["operations"]["todaysDrops"]["drops"][number];
 
 /**
  * specs/04-operations-projects.md §14's delivery mode.
@@ -148,12 +148,22 @@ export default function FieldPage() {
           </p>
         )}
 
-        {drops.data?.length === 0 && (
-          <p className="text-base">No deliveries are waiting to go out.</p>
+        {drops.data?.drops.length === 0 && (
+          <div className="text-base">
+            <p>Nothing to take out right now.</p>
+            {drops.data.awaitingReceipt > 0 && (
+              <p className="mt-2 border-2 border-black p-3 font-semibold">
+                {drops.data.awaitingReceipt} delivery
+                {drops.data.awaitingReceipt === 1 ? " is" : " deliveries are"} waiting for the
+                delivery receipt. The office issues it —{" "}
+                {drops.data.awaitingReceipt === 1 ? "it" : "they"} will appear here once it is out.
+              </p>
+            )}
+          </div>
         )}
 
         <ul className="space-y-3">
-          {(drops.data ?? []).map((drop) => (
+          {(drops.data?.drops ?? []).map((drop) => (
             <li key={drop.flowId} className="border-2 border-black">
               <button
                 type="button"

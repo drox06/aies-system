@@ -5,6 +5,7 @@ import {
   RECEIPT_REQUIRED_ABOVE,
   advanceStanding,
   checkExpense,
+  checkExpenseClaimable,
   checkHours,
   liquidationFromExpenses,
   sumHours,
@@ -118,18 +119,37 @@ describe("a field expense", () => {
     expect(checkExpense(expense({ description: "  " })).ok).toBe(false);
   });
 
-  it("requires a receipt above the threshold and merely notes its absence below", () => {
+  it("lets any amount be recorded, receipt or not", () => {
+    /**
+     * This test used to assert the opposite — that an expense over the threshold was refused — and
+     * it passed while the platform made ₱800 of real spend impossible to write down anywhere.
+     *
+     * Same shape as the `statusAfterAttempt` mistake in docs/DECISIONS.md #85: a unit test can only
+     * confirm the answer somebody already decided on. It cannot notice that the question was wrong.
+     */
     const big = checkExpense(expense({ amount: RECEIPT_REQUIRED_ABOVE + 1 }));
-    expect(big.ok).toBe(false);
-    expect(big.errors.join(" ")).toMatch(/needs its receipt attached/);
+    expect(big.ok).toBe(true);
+    expect(big.warnings.join(" ")).toMatch(/cannot be claimed until you do/);
 
-    const small = checkExpense(expense({ amount: 2_000 }));
+    const small = checkExpense(expense({ amount: RECEIPT_REQUIRED_ABOVE }));
     expect(small.ok).toBe(true);
     expect(small.warnings.join(" ")).toMatch(/taken on trust/);
   });
 
   it("is satisfied by a receipt", () => {
     expect(checkExpense(expense({ amount: 500_000, receiptFileIds: ["file-1"] })).ok).toBe(true);
+    expect(checkExpense(expense({ amount: 500_000, receiptFileIds: ["file-1"] })).warnings).toEqual(
+      [],
+    );
+  });
+
+  it("still refuses to let it be claimed without one", () => {
+    const claim = checkExpenseClaimable({ amount: RECEIPT_REQUIRED_ABOVE + 1 });
+    expect(claim.ok).toBe(false);
+    expect(claim.errors.join(" ")).toMatch(/needs its receipt attached/);
+
+    expect(checkExpenseClaimable({ amount: RECEIPT_REQUIRED_ABOVE }).ok).toBe(true);
+    expect(checkExpenseClaimable({ amount: 500_000, receiptFileIds: ["file-1"] }).ok).toBe(true);
   });
 });
 

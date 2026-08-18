@@ -193,9 +193,9 @@ export function checkExpense(expense: {
 
   const receipts = expense.receiptFileIds?.length ?? 0;
   if (expense.amount > RECEIPT_REQUIRED_ABOVE && receipts === 0) {
-    errors.push(
-      `Anything over ${formatPesos(RECEIPT_REQUIRED_ABOVE)} needs its receipt attached before it can ` +
-        `be claimed.`,
+    warnings.push(
+      `Over ${formatPesos(RECEIPT_REQUIRED_ABOVE)} — record it now, then attach the receipt to the ` +
+        `saved row. It cannot be claimed until you do.`,
     );
   }
   if (expense.amount <= RECEIPT_REQUIRED_ABOVE && receipts === 0) {
@@ -203,6 +203,47 @@ export function checkExpense(expense: {
   }
 
   return { ok: errors.length === 0, errors, warnings };
+}
+
+/**
+ * Whether an expense may be **claimed**, which is a different question from whether it may be
+ * **recorded**.
+ *
+ * ## Why the receipt rule moved here
+ *
+ * It used to be an error inside `checkExpense`, which is what the service calls before writing. The
+ * effect, found by the company in the module 04 review: an expense over the threshold could not be
+ * saved at all, and the form had no control to attach a receipt — so anything over ₱499 was simply
+ * unrecordable. The message even said "attach the receipt to the expense once it is saved", which
+ * described a sequence the rule made impossible.
+ *
+ * Same shape as docs/DECISIONS.md #101, one module across: a correct gate with no way through it.
+ *
+ * The split is also right on its own terms, whatever the screen offered:
+ *
+ *  - **What was spent is a fact.** A technician who paid ₱800 for a taxi paid it, receipt in hand or
+ *    lost in a jacket. Refusing to record it does not unspend the money; it moves the number
+ *    somewhere the company cannot see, which is how a job's true cost quietly stops being knowable.
+ *    Absent is not zero.
+ *  - **What may be claimed is a policy.** Company money leaving on somebody's say-so is exactly what
+ *    a receipt requirement is for, and that is a decision made at submit, by someone else, against a
+ *    record that already exists.
+ *
+ * So the rule still bites — a receiptless ₱800 is never reimbursed — but it bites at the claim
+ * rather than at the writing-down, and the person is told what to do about it while they still can.
+ */
+export function checkExpenseClaimable(expense: {
+  amount: number;
+  receiptFileIds?: readonly string[];
+}): ExpenseCheck {
+  const errors: string[] = [];
+  if (expense.amount > RECEIPT_REQUIRED_ABOVE && (expense.receiptFileIds?.length ?? 0) === 0) {
+    errors.push(
+      `Anything over ${formatPesos(RECEIPT_REQUIRED_ABOVE)} needs its receipt attached before it ` +
+        `can be claimed. Attach it to the saved row and submit again.`,
+    );
+  }
+  return { ok: errors.length === 0, errors, warnings: [] };
 }
 
 /**

@@ -18,6 +18,21 @@ const nextConfig: NextConfig = {
    * without disturbing a dev server. Prefer it over `npm run build` while developing.
    */
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
+
+  /**
+   * The commit this bundle was built from, shown in the sidebar.
+   *
+   * Read at build time from Vercel's own variable, so it cannot drift from what is actually
+   * deployed. Locally there is no such variable and it reads "dev".
+   *
+   * It exists because "is the fix live yet?" has cost real time twice: once as three wrong
+   * diagnoses of a failed deployment (docs/DECISIONS.md #91), and once as a review round where a
+   * fix was reported as not working because the tab predated it. Neither the reviewer nor I could
+   * answer the question from the screen — and the answer is seven characters long.
+   */
+  env: {
+    NEXT_PUBLIC_BUILD_COMMIT: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
+  },
   eslint: {
     // CI runs `npm run lint` as its own step; don't duplicate it during `next build`.
     ignoreDuringBuilds: true,

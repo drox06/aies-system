@@ -3505,3 +3505,68 @@ two look like the same pattern and are governed by opposite reasoning:
 
 The rule that generalises: *confirm when the action has a cost, not when the system is merely
 uncertain*. A dialog that fires on the safe path spends the user's attention and buys nothing.
+
+---
+
+## #103 — Recording what was spent, and claiming it, are two different permissions
+
+**2026-08-18, from the module 04 re-check.** The company asked one question: *"when above 499 and asks
+for receipt, how does the personnel comply with this request? there's no place to attach receipt."*
+
+The answer was that they could not, and it was worse than the question implied. `checkExpense` put
+the missing receipt in **errors**, and `saveExpenseService` throws on any error — so an expense over
+₱499 could not be **saved at all**. Not saved-and-flagged. Not saved-and-unclaimable. Refused. The
+hint under the field read "attach the receipt to the expense once it is saved", describing a
+sequence the rule made impossible; the file plumbing it needed (`FIELD_EXPENSE_ENTITY_TYPE`, a
+registered access checker, a `receiptFileIds` column) had existed since §16 and nothing ever called
+it.
+
+### The split
+
+- **Recording is now always allowed.** Missing receipt over the threshold is a warning that says
+  what to do next.
+- **Claiming is not.** `checkExpenseClaimable` runs at submit. Receiptless ₱800 is never reimbursed.
+
+The rule still bites. It bites at the claim rather than at the writing-down.
+
+### Why that is right independent of the screen
+
+What was spent is a **fact**; what may be claimed is a **policy**. A technician who paid ₱800 for a
+taxi paid it, receipt in hand or lost in a jacket, and refusing to record it does not unspend the
+money — it moves the number somewhere the company cannot see. The job's cost silently stops being
+knowable, which is the same failure as **absent ≠ zero**, arrived at from a different direction. And
+the control the receipt rule exists to be — company money leaving on somebody's say-so — is a
+decision made by a second person at submit, against a record that already exists.
+
+### Where a receipt is counted from
+
+Two places could hold one: the row's `receiptFileIds`, or a file uploaded against the saved row.
+Only the second is reachable from a screen, because the expense has no id until it exists. So both
+are unioned, in the two places that ask — `submitExpensesService` and `listExpensesService` — and
+the badge on the screen is derived from the same union as the refusal. A screen saying "receipt
+attached" while the submit says it is missing is worse than either answer alone.
+
+### The test that pinned the wrong answer
+
+`timesheet-rules.test.ts` asserted the old refusal and passed throughout. Same shape as #85: a unit
+test confirms the answer somebody already decided on and cannot notice the question was wrong. §16
+had rules tests and **no service test at all**, which is exactly the gap the defect lived in — a
+`timesheet.test.ts` now exists and covers the path a person actually walks.
+
+Third instance of #101 — a correct gate with no control to pass it. The first two were a checklist
+photo item and a delivery file-id box. The pattern is now specific enough to look for on purpose:
+**wherever a rule requires evidence, find the control that supplies it, and follow it end to end.**
+
+---
+
+## #104 — The screen says which build it is
+
+**2026-08-18.** "Is the fix live yet?" has cost real time twice — three wrong diagnoses of a failed
+deployment (#91), and a review round where a fix was reported as not working because the tab
+predated it. Neither the reviewer nor I could answer it from the screen.
+
+The sidebar now reads `build 3e770fe`, taken at build time from `VERCEL_GIT_COMMIT_SHA` so it cannot
+drift from what is deployed. Locally it reads `dev`.
+
+Seven characters. The alternative was continuing to answer an empirical question by argument.
+
