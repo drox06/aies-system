@@ -80,11 +80,20 @@ Then read Spec.md and the spec file for the current module.
 Continue from the "next concrete step" in PROGRESS.md.
 Do not re-do completed work. Do not start a different module.
 
+If that step is or leads to tagging a module, read docs/BUILD-PROTOCOL.md §7
+first and do what it says. Never tag a module yourself.
+
 Update PROGRESS.md before you finish, and commit as you go.
 ```
 
 This costs a few thousand tokens and replaces re-reading a 100,000-token conversation. On Pro,
 that difference is most of your window.
+
+The tag line is there because §7 is only binding if it gets read. A session that opens on
+`PROGRESS.md` saying "next step: tag module 04" will do exactly that and never open this file —
+which is how an unpassed module gets a tag that says it passed. "Never tag a module yourself" is
+the blunt half: the tag is the company's signature on a gate only the company can sign, so the
+session stops and asks rather than deciding it has met the bar.
 
 ---
 
