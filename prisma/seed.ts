@@ -383,6 +383,11 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   { documentType: "calibration_job", format: "AIESCAL-{YY}{####}", label: "Calibration Job" },
   { documentType: "ncr", format: "AIESNCR-{YY}{####}", label: "NCR" },
   {
+    documentType: "maintenance_contract",
+    format: "AIESMC-{YY}{####}",
+    label: "Maintenance Contract",
+  },
+  {
     documentType: "controlled_doc",
     format: "AIES-{DEPT}-{TYPE}-{###}",
     label: "Controlled Document",

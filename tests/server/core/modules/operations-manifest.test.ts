@@ -87,6 +87,9 @@ describe("operations manifest", () => {
       "delivery.dr_unsigned_overdue",
       "checklist.completed",
       "checklist.failed",
+      "field_expense.approved",
+      "renewal.due",
+      "pm.due",
       "sales_order.goods_delivered",
     ]);
   });

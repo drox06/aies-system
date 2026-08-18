@@ -44,6 +44,28 @@ import {
   saveDraftService,
   startResponseService,
 } from "@/server/core/operations/checklist-service";
+import { EXPENSE_CATEGORIES } from "@/server/core/operations/timesheet-rules";
+import {
+  advanceLiquidationService,
+  decideExpenseService,
+  decideTimesheetService,
+  expensesAwaitingService,
+  listExpensesService,
+  myTimesheetsService,
+  saveExpenseService,
+  saveTimesheetService,
+  submitExpensesService,
+  submitTimesheetsService,
+  ticketHoursService,
+  timesheetsAwaitingService,
+} from "@/server/core/operations/timesheet-service";
+import {
+  activateContractService,
+  createContractService,
+  dueRenewalsService,
+  getContractService,
+  listContractsService,
+} from "@/server/core/operations/renewal-service";
 import {
   acknowledgeSyncOutcomesService,
   pendingSyncOutcomesService,
@@ -1520,6 +1542,135 @@ export const operationsRouter = router({
   listChecklistsForTicket: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))
     .query(({ input }) => listResponsesForTicketService(input.ticketId)),
+
+  // ---- §16's hours, spend and installed base -----------------------------------------------------
+
+  saveTimesheet: p("ticket.execute")
+    .input(
+      z.object({
+        ticketId: z.string().nullish(),
+        projectId: z.string().nullish(),
+        date: z.coerce.date(),
+        regularHours: z.number().min(0).max(24),
+        overtimeHours: z.number().min(0).max(24).optional(),
+        travelHours: z.number().min(0).max(24).optional(),
+        standbyHours: z.number().min(0).max(24).optional(),
+        activity: z.string().max(200).nullish(),
+        notes: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveTimesheetService(actorMeta(ctx), input)),
+
+  submitTimesheets: p("ticket.execute")
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(({ ctx, input }) => submitTimesheetsService(actorMeta(ctx), input)),
+
+  /** Never your own — the service refuses that whatever permissions the caller holds. */
+  decideTimesheet: p("timesheet.approve")
+    .input(
+      z.object({
+        id: z.string(),
+        approve: z.boolean(),
+        reason: z.string().max(1000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => decideTimesheetService(actorMeta(ctx), input)),
+
+  myTimesheets: protectedProcedure
+    .input(z.object({ from: z.coerce.date(), to: z.coerce.date() }))
+    .query(({ ctx, input }) => myTimesheetsService(ctx.user.id, input.from, input.to)),
+
+  timesheetsAwaiting: p("timesheet.approve").query(({ ctx }) =>
+    timesheetsAwaitingService(ctx.user.id),
+  ),
+
+  ticketHours: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => ticketHoursService(input.ticketId)),
+
+  saveExpense: p("ticket.execute")
+    .input(
+      z.object({
+        ticketId: z.string().nullish(),
+        projectId: z.string().nullish(),
+        cashAdvanceId: z.string().nullish(),
+        date: z.coerce.date(),
+        category: z.enum(EXPENSE_CATEGORIES),
+        amount: z.number().int().positive(),
+        description: z.string().min(1).max(2000),
+        receiptFileIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => saveExpenseService(actorMeta(ctx), input)),
+
+  submitExpenses: p("ticket.execute")
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(({ ctx, input }) => submitExpensesService(actorMeta(ctx), input)),
+
+  decideExpense: p("timesheet.approve")
+    .input(
+      z.object({
+        id: z.string(),
+        approve: z.boolean(),
+        reason: z.string().max(1000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => decideExpenseService(actorMeta(ctx), input)),
+
+  expensesAwaiting: p("timesheet.approve").query(({ ctx }) => expensesAwaitingService(ctx.user.id)),
+
+  listExpenses: p("ticket.view")
+    .input(
+      z.object({
+        ticketId: z.string().optional(),
+        projectId: z.string().optional(),
+        cashAdvanceId: z.string().optional(),
+        status: z.string().optional(),
+      }),
+    )
+    .query(({ input }) => listExpensesService(input)),
+
+  /** §16's automatic flow into §5: released, less what has actually been approved. */
+  advanceLiquidation: p("cash_advance.view_register")
+    .input(z.object({ cashAdvanceId: z.string() }))
+    .query(({ input }) => advanceLiquidationService(input.cashAdvanceId)),
+
+  // ---- maintenance contracts and the renewal loop -------------------------------------------------
+
+  listContracts: p("ticket.view")
+    .input(z.object({ accountId: z.string().optional(), status: z.string().optional() }).optional())
+    .query(({ input }) => listContractsService(input ?? {})),
+
+  getContract: p("ticket.view")
+    .input(z.object({ contractId: z.string() }))
+    .query(({ input }) => getContractService(input.contractId)),
+
+  createContract: p("contract.manage")
+    .input(
+      z.object({
+        accountId: z.string(),
+        siteId: z.string().nullish(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
+        visitsPerYear: z.number().int().min(1).max(52),
+        equipmentIds: z.array(z.string()).optional(),
+        contractValue: z.number().int().nonnegative().optional(),
+        salesOrderId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createContractService(actorMeta(ctx), input)),
+
+  activateContract: p("contract.manage")
+    .input(z.object({ contractId: z.string() }))
+    .mutation(({ ctx, input }) => activateContractService(actorMeta(ctx), input)),
+
+  /**
+   * What the nightly sweep will act on, without acting on it.
+   *
+   * The screen and the job share one function so a dashboard can never disagree with the thing
+   * behind it — which is the failure mode of every "pending items" count built separately.
+   */
+  dueRenewals: p("ticket.view").query(() => dueRenewalsService()),
 
   adjustStock: p("material_request.issue")
     .input(

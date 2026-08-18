@@ -12,6 +12,10 @@ import { sweepUnsentDownloads } from "@/server/core/quotation/send-service";
 import { sweepOverdueLiquidationsService } from "@/server/core/operations/cash-advance-service";
 import { sweepExpiringWarrantiesService } from "@/server/core/operations/warranty-service";
 import { sweepUnsignedDeliveryReceipts } from "@/server/core/operations/delivery-service";
+import {
+  sweepPmTicketsService,
+  sweepRenewalsService,
+} from "@/server/core/operations/renewal-service";
 import { sweepUnactionedScopeChanges } from "@/server/core/quotation/scope-change-service";
 import {
   sweepDormantAccounts,
@@ -172,6 +176,27 @@ async function handle(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] unsigned delivery receipt sweep failed:", error);
     results.unsignedDeliveryReceipts = { error: String(error) };
+  }
+
+  // specs/04-operations-projects.md §16's renewal loop — "where the recurring revenue in this
+  // business lives". Contracts ending, calibrations due, warranties ending, equipment past its
+  // service interval. Each raised once, because an alert that fires nightly gets filtered and then
+  // the one that mattered is filtered too.
+  try {
+    results.renewals = await sweepRenewalsService();
+  } catch (error) {
+    console.error("[cron/nightly] renewal sweep failed:", error);
+    results.renewals = { error: String(error) };
+  }
+
+  // §16 again: a contract the company sold should not quietly go unserved. Visits become
+  // `after_sales` / `preventive` tickets ahead of schedule, in the same queue with the same gates as
+  // every other job.
+  try {
+    results.pmTickets = await sweepPmTicketsService();
+  } catch (error) {
+    console.error("[cron/nightly] PM ticket sweep failed:", error);
+    results.pmTickets = { error: String(error) };
   }
 
   // specs/04-operations-projects.md §6.1's link, chased. The event fires once so the warning stays

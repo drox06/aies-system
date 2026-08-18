@@ -248,6 +248,22 @@ export const operationsManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
+      key: "timesheet.approve",
+      label: "Approve hours and field expenses",
+      group: "Operations",
+      // Never your own — the service refuses it regardless of this permission. §16's claims on the
+      // company follow §5's rule about cash advances rather than inventing a second answer.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
+    },
+    {
+      key: "contract.manage",
+      label: "Write and run maintenance contracts",
+      group: "Sales",
+      // §16 calls the renewal loop "where the recurring revenue in this business lives", so this
+      // sits with the people who sell as well as the ones who deliver.
+      defaultRoles: ["president", "vice_president", "operations_manager", "marketing_manager"],
+    },
+    {
       key: "project.view",
       label: "See projects and their close-out state",
       group: "Operations",
@@ -362,6 +378,11 @@ export const operationsManifest = defineManifest({
     // §15: a fail "can auto-raise an NCR". Module 04 decides which failures are worth one and
     // emits; specs/08-qms-iso9001.md §2 owns the register that raises them.
     "checklist.failed",
+    "field_expense.approved",
+    // §16's renewal loop. Emitted for module 01 to turn into leads — this module knows when one
+    // is due, module 01 owns what a lead is.
+    "renewal.due",
+    "pm.due",
     "sales_order.goods_delivered",
   ],
 

@@ -65,19 +65,20 @@ model CustomerAccount {
   deletedAt DateTime?
   deletedBy String?
 
-  parent         CustomerAccount?      @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
-  children       CustomerAccount[]     @relation("AccountHierarchy")
-  sites          Site[]
-  contacts       Contact[]
-  accreditations AccreditationRecord[]
-  inquiries      Inquiry[]
-  quotations     Quotation[]
-  customerPOs    CustomerPO[]
-  salesOrders    SalesOrder[]
-  tickets        Ticket[]
-  projects       Project[]
-  equipment      Equipment[]
-  warrantyClaims WarrantyClaim[]
+  parent               CustomerAccount?      @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children             CustomerAccount[]     @relation("AccountHierarchy")
+  sites                Site[]
+  contacts             Contact[]
+  accreditations       AccreditationRecord[]
+  inquiries            Inquiry[]
+  quotations           Quotation[]
+  customerPOs          CustomerPO[]
+  salesOrders          SalesOrder[]
+  tickets              Ticket[]
+  projects             Project[]
+  equipment            Equipment[]
+  warrantyClaims       WarrantyClaim[]
+  maintenanceContracts MaintenanceContract[]
 
   @@index([ownerId, status])
   @@index([status, name])

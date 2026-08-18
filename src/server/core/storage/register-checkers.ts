@@ -43,6 +43,7 @@ import "@/server/core/crm/principal-lifecycle";
 import "@/server/core/operations/close-out-service";
 import "@/server/core/operations/delivery-service";
 import "@/server/core/operations/checklist-service";
+import "@/server/core/operations/timesheet-service";
 import "@/server/core/operations/daily-progress-service";
 import "@/server/core/operations/methodology-service";
 import "@/server/core/operations/qa-service";

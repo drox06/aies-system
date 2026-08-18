@@ -1138,6 +1138,10 @@ model Equipment {
   @@index([accountId, status])
   @@index([warrantyEnd])
   @@index([serialNumber])
+  /// §16's renewal loop sweeps these nightly. Without the indexes each sweep is a full scan of the
+  /// installed base, which is the one table that grows forever.
+  @@index([status, calibrationDueAt])
+  @@index([status, nextPMDueAt])
 }
 
 /// §11's warranty gate.
@@ -1505,4 +1509,154 @@ model ChecklistResponse {
   @@index([projectId, status])
   @@index([templateKey, completedAt])
   @@index([entityType, entityId])
+}
+
+/// specs/04-operations-projects.md §16's hours.
+///
+/// One row per person per day per ticket. The four buckets are separate columns rather than a total
+/// with a type, because §8's standby is already a fact the platform records and argues about — a
+/// crew waiting at a gate for a permit is a cost the customer may owe, and a total that has absorbed
+/// it cannot be broken back out when somebody asks.
+model Timesheet {
+  id String @id @default(cuid())
+
+  /// One or the other, usually both. Plain ids, like everything else that crosses a lane.
+  ticketId  String?
+  projectId String?
+
+  userId String
+  date   DateTime @db.Date
+
+  regularHours  Decimal @default(0) @db.Decimal(6, 2)
+  overtimeHours Decimal @default(0) @db.Decimal(6, 2)
+  travelHours   Decimal @default(0) @db.Decimal(6, 2)
+  /// §8's standby, which is why these are four columns and not one.
+  standbyHours  Decimal @default(0) @db.Decimal(6, 2)
+
+  activity String?
+  notes    String?
+
+  /// draft | submitted | approved | rejected
+  status         String    @default("draft")
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedReason String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  /// One sheet per person per day per ticket. A second row for the same day is an edit, not a new
+  /// fact, and without this a duplicate submission doubles somebody's week.
+  @@unique([userId, date, ticketId])
+  @@index([userId, date])
+  @@index([ticketId, status])
+  @@index([projectId, status])
+  @@index([status, date])
+}
+
+/// §16's field spend.
+///
+/// **The link to a cash advance is the point.** §16: "field expenses linked to a cash advance flow
+/// into its liquidation automatically." §5's liquidation currently asks somebody to retype what they
+/// spent from a pile of receipts; an expense recorded where it happened, against the advance it came
+/// from, is the same fact captured once.
+model FieldExpense {
+  id String @id @default(cuid())
+
+  ticketId      String?
+  projectId     String?
+  /// When set, this expense counts toward that advance's liquidation.
+  cashAdvanceId String?
+
+  userId String
+  date   DateTime @db.Date
+
+  /// See expense-rules.ts. Kept as a string so a new category does not need a migration.
+  category String
+
+  /// Integer centavos, like every other money field in the platform.
+  amount   Int
+  currency String @default("PHP")
+
+  description String
+
+  /// §5 requires a receipt for anything above its threshold; the rules layer decides which.
+  receiptFileIds String[] @default([])
+
+  /// draft | submitted | approved | rejected | reimbursed
+  status         String    @default("draft")
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedReason String?
+  reimbursedAt   DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  @@index([cashAdvanceId, status])
+  @@index([ticketId, status])
+  @@index([projectId, status])
+  @@index([userId, date])
+}
+
+/// §16's preventive maintenance contract — "where the recurring revenue in this business lives".
+///
+/// Two jobs, and they are different. It **generates work**: PM visits become `after_sales` tickets N
+/// days ahead of schedule, so a contract the company sold does not quietly go unserved. And it
+/// **generates leads**: a contract inside its last 90 days is a renewal conversation module 01 should
+/// be having, not a surprise when it lapses.
+model MaintenanceContract {
+  id     String @id @default(cuid())
+  number String @unique
+
+  accountId String
+  siteId    String?
+
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+
+  /// How many visits the contract owes per year. The scheduler divides the term by this.
+  visitsPerYear Int @default(1)
+
+  /// Reserved for §17's dispatch rules — "every second Tuesday", quarter-ends, plant shutdowns.
+  /// Empty means evenly spaced, which is what `plannedVisitDates` computes today.
+  scheduleRule Json @default("{}")
+
+  /// The installed items this covers. Plain ids: equipment moves between contracts on renewal, and a
+  /// join table would make that a migration rather than an edit.
+  equipmentIds String[] @default([])
+
+  /// Integer centavos.
+  contractValue Int    @default(0)
+  currency      String @default("PHP")
+
+  salesOrderId String?
+
+  /// draft | active | expired | cancelled | renewed
+  status String @default("draft")
+
+  /// Set when the renewal loop has already raised this one, so it is raised once rather than nightly.
+  renewalFlaggedAt DateTime?
+  /// The contract this was renewed into, so the history reads forward.
+  renewedIntoId    String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  account CustomerAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, status])
+  @@index([status, endDate])
 }
