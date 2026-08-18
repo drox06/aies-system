@@ -90,6 +90,7 @@ describe("operations manifest", () => {
       "field_expense.approved",
       "renewal.due",
       "pm.due",
+      "ticket.bumped",
       "sales_order.goods_delivered",
     ]);
   });
@@ -175,6 +176,11 @@ describe("operations manifest", () => {
     const viewer = visibleNavFor(new Set(["ticket.view"])).map((e) => e.href);
     expect(viewer).toContain("/renewals");
     expect(viewer).toContain("/contracts");
+  });
+
+  it("offers the dispatch board to anybody who can see a ticket", () => {
+    expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/dispatch");
+    expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).toContain("/dispatch");
   });
 
   it("offers delivery mode to whoever can run a delivery, and to nobody else", () => {

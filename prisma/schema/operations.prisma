@@ -63,6 +63,13 @@ model Ticket {
   assignedUserIds String[] @default([])
 
   requiredByDate DateTime?
+
+  /// §17's dispatch board. **Distinct from `requiredByDate`**, and the distinction matters: that is
+  /// when the customer needs it, this is when AIES has committed a crew. Conflating them is how a
+  /// board ends up showing the promise rather than the plan, and the gap between the two is exactly
+  /// what a dispatcher is managing.
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
   holdReason     String?
 
   /// §1's first gate. A boolean rather than a status because the *question* is asked of every
@@ -117,6 +124,8 @@ model Ticket {
   @@index([salesOrderId])
   @@index([status, requiredByDate])
   @@index([assignedLeadId, status])
+  /// §17's board reads a week at a time.
+  @@index([scheduledStart])
 }
 
 /// Which sales order lines a ticket covers (§4).
@@ -1659,4 +1668,35 @@ model MaintenanceContract {
 
   @@index([accountId, status])
   @@index([status, endDate])
+}
+
+/// specs/04-operations-projects.md §17's availability.
+///
+/// §17 asks the board to show "availability (leave, training, already assigned)". The third of those
+/// is derivable from the schedule; the first two are facts nothing in the platform knew, and without
+/// them a dispatcher books somebody who is on leave and finds out on the morning.
+///
+/// Deliberately not an approval workflow. §17 does not ask for one, module 08 owns competence and
+/// module 09 owns settings, and a leave *request* system is a different product from a scheduler
+/// knowing who is out. This records the fact so the board can show it.
+model TechnicianAvailability {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Inclusive both ends, which is how people say it: "off from Monday to Friday".
+  fromDate DateTime @db.Date
+  toDate   DateTime @db.Date
+
+  /// leave | training | sick | other — see dispatch-rules.ts.
+  kind  String
+  notes String?
+
+  recordedById String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId, fromDate])
+  @@index([fromDate, toDate])
 }

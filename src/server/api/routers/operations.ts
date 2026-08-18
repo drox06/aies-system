@@ -59,6 +59,18 @@ import {
   ticketHoursService,
   timesheetsAwaitingService,
 } from "@/server/core/operations/timesheet-service";
+import { UNAVAILABILITY_KINDS } from "@/server/core/operations/dispatch-rules";
+import {
+  bumpForEmergencyService,
+  capacityService,
+  dispatchBoardService,
+  previewScheduleService,
+  listUnavailabilityService,
+  recordUnavailabilityService,
+  removeUnavailabilityService,
+  scheduleTicketService,
+  travelBetweenTicketsService,
+} from "@/server/core/operations/dispatch-service";
 import {
   activateContractService,
   createContractService,
@@ -1671,6 +1683,87 @@ export const operationsRouter = router({
    * behind it — which is the failure mode of every "pending items" count built separately.
    */
   dueRenewals: p("ticket.view").query(() => dueRenewalsService()),
+
+  // ---- §17's dispatch board ----------------------------------------------------------------------
+
+  dispatchBoard: p("ticket.view")
+    .input(z.object({ weekOf: z.coerce.date().optional() }).optional())
+    .query(({ input }) => dispatchBoardService(input ?? {})),
+
+  /** §17's "the number sales needs before promising a date", so sales can see it too. */
+  capacity: p("ticket.view")
+    .input(z.object({ weeks: z.number().int().min(1).max(12).optional() }).optional())
+    .query(({ input }) => capacityService(input ?? {})),
+
+  /**
+   * Writes the schedule and returns what it broke. Conflicts are reported rather than refused —
+   * a scheduler that says no teaches people to schedule around it, and then the board is wrong
+   * about everything rather than about one day.
+   */
+  /**
+   * What a booking would collide with, before it happens.
+   *
+   * The company's instruction: let the scheduler confirm or cancel. That needs the answer before the
+   * write — an undo leaves a window where the board is wrong, and somebody who closes the tab
+   * mid-decision leaves it wrong for good.
+   */
+  previewSchedule: p("ticket.dispatch")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        scheduledStart: z.coerce.date(),
+        scheduledEnd: z.coerce.date().nullish(),
+        assignedLeadId: z.string().nullish(),
+        assignedUserIds: z.array(z.string()).optional(),
+      }),
+    )
+    .query(({ input }) => previewScheduleService(input)),
+
+  scheduleTicket: p("ticket.dispatch")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        scheduledStart: z.coerce.date().nullable(),
+        scheduledEnd: z.coerce.date().nullish(),
+        assignedLeadId: z.string().nullish(),
+        assignedUserIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => scheduleTicketService(actorMeta(ctx), input)),
+
+  bumpForEmergency: p("ticket.dispatch")
+    .input(
+      z.object({
+        emergencyTicketId: z.string(),
+        scheduledStart: z.coerce.date(),
+        bumpTicketIds: z.array(z.string()).min(1).max(50),
+      }),
+    )
+    .mutation(({ ctx, input }) => bumpForEmergencyService(actorMeta(ctx), input)),
+
+  listUnavailability: p("ticket.view")
+    .input(z.object({ from: z.coerce.date(), to: z.coerce.date() }))
+    .query(({ input }) => listUnavailabilityService(input)),
+
+  recordUnavailability: p("ticket.dispatch")
+    .input(
+      z.object({
+        userId: z.string(),
+        fromDate: z.coerce.date(),
+        toDate: z.coerce.date(),
+        kind: z.enum(UNAVAILABILITY_KINDS),
+        notes: z.string().max(500).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordUnavailabilityService(actorMeta(ctx), input)),
+
+  removeUnavailability: p("ticket.dispatch")
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => removeUnavailabilityService(actorMeta(ctx), input)),
+
+  travelBetweenTickets: p("ticket.view")
+    .input(z.object({ fromTicketId: z.string(), toTicketId: z.string() }))
+    .query(({ input }) => travelBetweenTicketsService(input)),
 
   adjustStock: p("material_request.issue")
     .input(

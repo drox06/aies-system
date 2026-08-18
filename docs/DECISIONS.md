@@ -3313,3 +3313,51 @@ ninety nights of the same alert teaches sales to filter it, and then the ninety-
 is filtered too (#83's argument again). Equipment carries no such flag, because servicing an item
 moves its own `nextPMDueAt` and recalibrating moves `calibrationDueAt`. The work itself is the
 "handled" signal, which is truer than a marker somebody has to remember to clear.
+
+---
+
+## #97 — A scheduler that refuses is a scheduler people work around
+
+§17's board reports conflicts. It does not prevent them, and `scheduleTicketService` writes the
+schedule and returns what that broke rather than throwing.
+
+The instinct is the opposite: the system knows the technician is already booked, so it should say no.
+But a dispatcher putting one person on two short jobs in the same industrial estate is doing their job
+well, and the system has no way to know that. Refuse it and the schedule moves somewhere the system
+cannot see — a whiteboard, a group chat, somebody's head — and then the board is wrong about
+*everything* rather than about one day. A tool that is wrong about one day is still worth reading.
+
+The same reasoning runs through the rest of §17:
+
+- **Scheduling somebody who is on leave is reported, not blocked.** People come back early, and a
+  dispatcher who knows that should not have to delete the leave record to do their job.
+- **The one thing genuinely refused is a window that ends before it starts.** That is not a judgement
+  call, it is a typo, and there is no legitimate intent behind it to respect.
+- **Conflicts appear at the top of the board**, because a rule that is enforced nowhere has to be
+  visible somewhere. Reported-but-buried would be the worst of both.
+
+---
+
+## #98 — The board renders §8's answer rather than forming its own
+
+§17: "gate status is visible on every card. A ticket that is scheduled but has no released cash
+advance or unissued materials shows red."
+
+The obvious build queries the advance and the materials and decides. That is a **second**
+implementation of §8's readiness check, and the two disagree within a month — one gets a case the
+other does not. Then the board shows green while mobilisation refuses, and nobody can tell which is
+right, because both look authoritative.
+
+So `cardStatus` takes §8's `Readiness` and renders it. The board contributes exactly one fact §8 does
+not have: whether a crew is committed to a date. That produces the distinction §17 is actually asking
+for — an unready ticket with no date is ordinary work-in-progress, the same ticket with three
+technicians booked on Thursday is the thing that ruins a week, and they must not look alike.
+
+It costs a query per scheduled card. That is the right trade at this size, and the alternative is a
+dispatch board that is confidently wrong about whether a crew can start.
+
+**Two related calls.** A ticket whose readiness cannot be read is shown blocked, not ready — an
+unknown gate is a blocker everywhere else in this platform. And capacity counts everybody holding
+`ticket.execute` rather than everybody in the `technician` role: an operations manager who spends half
+their week in the field is real capacity, and counting by role name would hide them from the one
+number §17 says sales needs before promising a date.

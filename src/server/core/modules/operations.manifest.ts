@@ -383,6 +383,7 @@ export const operationsManifest = defineManifest({
     // is due, module 01 owns what a lead is.
     "renewal.due",
     "pm.due",
+    "ticket.bumped",
     "sales_order.goods_delivered",
   ],
 
@@ -456,6 +457,18 @@ export const operationsManifest = defineManifest({
       permission: "delivery.execute",
       group: "Operations",
       order: 42,
+    },
+    {
+      label: "Dispatch board",
+      href: "/dispatch",
+      icon: "folder-kanban",
+      /**
+       * §17's board. Readable by anybody who can see a ticket — a technician checking their own week
+       * is the commonest use — while moving work needs `ticket.dispatch`.
+       */
+      permission: "ticket.view",
+      group: "Operations",
+      order: 40,
     },
     {
       label: "Checklists",

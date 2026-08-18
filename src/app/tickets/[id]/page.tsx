@@ -15,6 +15,7 @@ import { ServiceReportPanel } from "./ServiceReportPanel";
 import { DeliveryPanel } from "./DeliveryPanel";
 import { ChecklistPanel } from "./ChecklistPanel";
 import { HoursPanel } from "./HoursPanel";
+import { SchedulePanel } from "./SchedulePanel";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -167,6 +168,9 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
               </>
             )}
           </Card>
+
+          {/* §17. First of the panels, because a date is what everything below is racing. */}
+          <SchedulePanel ticketId={data.id} />
 
           <InspectionPanel
             ticketId={data.id}

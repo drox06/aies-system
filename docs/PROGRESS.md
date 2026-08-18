@@ -2629,6 +2629,45 @@ weeks later.
 it), and equipment editing — items are created by §10's commissioning and by hand through the
 warranty screen, with no dedicated installed-base register yet. §17's dispatch board will want one.
 
+### Session 16 — §17's scheduling and dispatch
+
+- [x] `Ticket.scheduledStart` / `scheduledEnd`, and `TechnicianAvailability`, migration
+      `dispatch_scheduling`. The scheduled window is **distinct from `requiredByDate`** — that is when
+      the customer needs it, this is when AIES committed a crew, and the gap between them is what a
+      dispatcher manages.
+- [x] `dispatch-rules.ts` — card status from §8's readiness, conflicts, capacity, travel. 26/26.
+- [x] `dispatch-service.ts` — the board, capacity, scheduling, §17's emergency injection. 10/10.
+- [x] `/dispatch` — technicians as rows, days as columns, conflicts at the top, four-week capacity
+      underneath. Nav entry pinned by a test.
+- [x] `ticket.bumped` event and notification.
+
+**Conflicts are reported, never refused** (docs/DECISIONS.md #97), and the card colour is §8's answer
+rather than a second opinion (#98).
+
+**Scheduling is on the ticket, with confirm-or-cancel.** The company asked for it in two steps on
+2026-08-18: first "don't make the system refuse it — rather just remind whoever is booking that the
+person is already assigned to a prior work", then "enable the person scheduling to either confirm the
+booking or cancel the booking". So the button previews before it writes: a free day books straight
+away, a clash names who and which job and waits. Their reasoning is the design — two jobs at
+*different* sites that happen to be close together is knowledge the dispatcher has and the system
+cannot.
+
+**A gap the company found by asking.** Until they asked how the reminder would reach the scheduler,
+**nothing in the app could schedule anything at all** — the board displayed schedules, the procedure
+was written and tested, and no screen called it. Third instance of the pattern in docs/DECISIONS.md
+#94, and the first found by a question about behaviour rather than by somebody failing to find a
+screen.
+
+**Not built: drag to reschedule.** §17 asks for it; the board is read-and-click instead. Drag-and-drop
+that works on a touch screen, keyboard-accessible, with a sensible failure when the drop is refused,
+is a real piece of work rather than an afternoon — and a board you can read correctly beats one you
+can drag but cannot trust. The scheduling procedure it would call already exists and is tested.
+
+**Not built: skills matching.** §17 reads module 08's competence matrix, which does not exist.
+Inventing a `skills String[]` would be guessing the shape module 08 then has to reconcile — the
+mistake docs/DECISIONS.md #46 warned about with the delivery receipt. Eligibility today is
+availability only, and the seam is named in `dispatch-rules.ts`.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
@@ -2778,6 +2817,10 @@ warranty screen, with no dedicated installed-base register yet. §17's dispatch 
   landing on the same shape makes it the default; `delivered_unsigned` is the one state whose cost
   runs daily, so it is said on screen, escalated once, and addressed to a person; prefill the
   receipt from the order because two people typing the same text is how two documents diverge).
+- docs/DECISIONS.md #97-#98: session 16 (a scheduler that refuses is one people work around, so
+  conflicts are reported and only a backwards window is rejected; and the board renders §8's
+  readiness rather than recomputing it, because two implementations of one gate disagree within a
+  month and both look authoritative).
 - docs/DECISIONS.md #95-#96: session 15 (four renewal reasons are four conversations, so each lead
   carries the argument for its call; and the nightly job and the screen share one function, because
   a dashboard that disagrees with the process behind it is consulted before it is doubted).
