@@ -146,13 +146,69 @@ After each module, before starting the next:
 - [ ] `npm test` passes
 - [ ] `npm run lint` passes
 - [ ] Migration applies cleanly to a fresh database
-- [ ] You have **manually used** the main feature the module added
+- [ ] Claude has **seeded realistic records** onto the module's screens
+- [ ] Claude has **written the review steps** — open X, expect Y, wrong if Z
+- [ ] The company has **walked those steps on a real screen**, desktop and phone
+- [ ] Every defect the pass found is fixed, or recorded in `PROGRESS.md` as deliberately deferred
 - [ ] `PROGRESS.md` and `DECISIONS.md` are current
-- [ ] Committed and tagged
+- [ ] Committed **and only then** tagged
 
 The manual check matters most. Tests pass on code that implements the wrong thing. Module 00's
 check is: log in, create a user, assign a role, confirm the audit log caught all three, and
 confirm a non-privileged role genuinely cannot see cost fields in the API response.
+
+### 7.1 Why the pass is a gate and not a nicety
+
+Through module 04, the score stood at:
+
+| Round | Found by the company's pass | Found by the test suite |
+| --- | --- | --- |
+| Module 01 gate | 3 | 0 |
+| Module 02 gate | 1 | 0 |
+| Navigation pass | 8 | 0 |
+| Phone pass | 3 | 0 |
+| Module 04 gate | 6 | 0 |
+| **Total** | **21** | **0** |
+
+Twenty-one defects, none of them caught by more than 1,400 automated tests — and not because the
+tests are weak. They catch logic and they have caught real things. Every one of these lived
+somewhere tests do not look: a query key that changed between renders so a screen loaded forever
+(#99), a finished screen with no menu entry (#94), a question with no control to answer it (#101),
+two panels with confusable names, a permission nobody seeded so the feature 403'd for everybody.
+
+Read the pattern before reading the rules: **the suite checks whether the code is right; the pass
+checks whether a person can get to it and finish.** Those are different questions and only the
+second one has a human in it.
+
+### 7.2 The three rules
+
+**1. The pass happens before the tag, never after.** A tag is a claim that the module is done, and a
+module with six unfound screen defects is not done. Once a tag exists, everything after it reads as
+a regression against a working baseline that was never working — which makes the history lie about
+where the fault entered.
+
+**2. The pass needs data on the screens.** Half of what module 04's pass found was only visible
+because there was something to look at; an empty board tells nobody anything. Seeding realistic
+records is part of preparing a gate, not an afterthought. Sample data is written by a script with
+its own `--remove`, guarded behind `ALLOW_DEMO_DATA=1` and prefixed so it can never be mistaken for
+real work (`scripts/sample-records-dispatch.ts` is the pattern) — and it comes back out before the
+tag.
+
+**3. Claude writes the review steps, including what should happen.** Not "have a look at dispatch"
+but *open the dispatch board, expect the week grid within about three seconds, it is wrong if it
+sits on "Loading the week"*. The company found that exact hang in seconds because the step said
+what correct looked like. A reviewer who has to infer the intended behaviour is doing Claude's job
+and will miss things Claude already knows.
+
+### 7.3 What the pass cannot be delegated to
+
+Claude may not sign its own gate. Playwright covering every screen is worth having and does not
+substitute: it proved all 30-odd screens rendered on the same afternoon `/field` was unreachable
+from the navigation, because it navigates by URL and a person navigates by looking. Where a check
+*can* be made mechanical, make it a standing test instead of a step in the list — that is what
+`tests/server/core/modules/every-screen-has-a-door.test.ts` and `permissions-are-seeded.test.ts`
+are, each one a defect from a pass turned into something that cannot recur silently. **A defect
+found by a human pass twice is a missing test, not bad luck.**
 
 ---
 
