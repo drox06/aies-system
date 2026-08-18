@@ -399,6 +399,24 @@ export const operationsManifest = defineManifest({
       order: 41,
     },
     {
+      label: "Delivery mode",
+      href: "/field",
+      icon: "truck",
+      /**
+       * §14's driver screen needs a door.
+       *
+       * It was built shell-free and deliberately kept out of the navigation, which left it reachable
+       * only by typing the URL — so the first person to look for it on a phone could not find it.
+       * Stripped-down is about what the *screen* shows, not about being unreachable.
+       *
+       * Gated on `delivery.execute`, the same permission the screen's own queries use, so nobody is
+       * offered a menu item that opens onto a 403.
+       */
+      permission: "delivery.execute",
+      group: "Operations",
+      order: 42,
+    },
+    {
       label: "Cash advances",
       href: "/cash-advances",
       icon: "wallet",

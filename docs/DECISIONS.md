@@ -3079,3 +3079,40 @@ about it, between a page and the layout that wraps it, between two labels that a
 separately and read together. Test suites are good at logic and blind to boundaries. The only cure
 found so far is to put the thing in the place where the boundary is real, which for a screen means
 looking at it.
+
+---
+
+## #89 — What a phone found that a green suite could not
+
+The company ran a review pass on their own phone, on the live site, and reported five things. Three
+were defects, and all three had been invisible to 1275 passing tests, a clean build, and a
+screenshot taken by an automated browser on the same screen an hour earlier.
+
+**"Loading takes 5 to 10 seconds."** Supabase runs in `ap-southeast-1` (Singapore). `vercel.json`
+set no `regions`, so Vercel defaulted to `iad1` — Washington DC. Every page meant a phone in Manila
+reaching a function in the United States, which then crossed the Pacific again for each query, and
+the root layout forces dynamic rendering for the CSP nonce (#5), so nothing was cached to hide it.
+Pinned to `sin1`. The fix is one line; finding it required somebody to say the app felt slow, because
+locally it never was.
+
+**"Install just made a bookmark."** `src/middleware.ts`'s matcher excluded `_next/static`,
+`favicon.ico` and `brand/` — and not `manifest.webmanifest` or `sw.js`. Both are fetched by the
+*browser* rather than by the page, so both were redirected to `/login`: Chrome asked for a manifest
+and got an HTML login page, so the app was never installable, and the service worker script was HTML,
+so registration failed and there has been **no offline shell in production since the first deploy**.
+Nothing in the app could notice — no page requests either file.
+
+**"I don't see the /field screen."** Correct: there was no way to reach it. It was built shell-free
+and left out of the navigation, so the only route in was typing the URL. Stripped-down describes what
+the screen *shows*; it is not a reason for the screen to be unreachable. It now has a nav entry gated
+on `delivery.execute`, pinned by a test.
+
+Two reports were good news and are worth recording as such: the screen is readable in full daylight,
+and navigation went where it said it would.
+
+**The pattern, for the third time.** #81 was the first hour on Vercel, #88 was the first look at a
+screen, and this is the first use on a phone. Every defect in all three was a **boundary** — between
+a scheduler and an app, a manifest and a database, a page and its layout, a middleware matcher and
+the browser's own requests, a datacentre and its database. None was a logic error, and the suite is
+excellent at logic. The only method that has ever worked is putting the thing in the place where the
+boundary is real: deploy it, open it, hand it to somebody on the equipment they will actually use.

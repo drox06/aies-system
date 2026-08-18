@@ -97,6 +97,7 @@ test("the sidebar offers the sections this user can reach", async ({ page }) => 
     "Suppliers",
     "Projects",
     "Tickets",
+    "Delivery mode",
   ]) {
     // `exact` matters: "Quotations for Approval" contains "Quotations", and Home links to My day with
     // a longer sentence. Without it the plain "Quotations" matcher resolves to three links and fails

@@ -144,6 +144,19 @@ describe("operations manifest", () => {
     expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/tickets");
     expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).toContain("/tickets");
   });
+
+  /**
+   * §14's driver screen needs a door.
+   *
+   * It shipped shell-free *and* unlisted, which left it reachable only by typing the URL — so the
+   * first person sent to look at it on a phone reported "I don't see the /field screen", correctly.
+   * Stripped-down describes what the screen shows, not whether anybody can get to it.
+   */
+  it("offers delivery mode to whoever can run a delivery, and to nobody else", () => {
+    expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/field");
+    expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).not.toContain("/field");
+    expect(visibleNavFor(new Set(["delivery.execute"])).map((e) => e.href)).toContain("/field");
+  });
 });
 
 describe("seeded numbering for module 04", () => {

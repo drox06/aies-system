@@ -44,7 +44,9 @@ describe("the database knows what the manifests declare", () => {
 
     const ungranted: string[] = [];
     for (const permission of registry.permissions) {
-      for (const roleKey of permission.defaultRoles) {
+      // `defaultRoles` is optional, and an empty one is a real answer: a permission nobody holds
+      // until an admin grants it by hand. Only what a manifest actually promises is checked.
+      for (const roleKey of permission.defaultRoles ?? []) {
         if (!held.has(`${roleKey}:${permission.key}`)) {
           ungranted.push(`${roleKey} lacks ${permission.key}`);
         }

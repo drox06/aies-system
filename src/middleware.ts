@@ -118,6 +118,24 @@ export default auth((req) => {
   return response;
 });
 
+/**
+ * What the middleware does **not** run on.
+ *
+ * `manifest.webmanifest` and `sw.js` were missing from this list, and their absence quietly broke
+ * the whole PWA. Both are fetched by the browser itself rather than by the page, so both were
+ * redirected to `/login` — Chrome asked for a manifest and got an HTML login page, so the app was
+ * never installable ("Add to Home screen" made a bookmark instead of installing), and the service
+ * worker script was HTML, so registration failed and there was no offline shell at all.
+ *
+ * Neither file is private: the manifest is a name, a colour and some icon paths, and `sw.js` is
+ * static code that caches brand assets. The thing worth guarding is the data behind them, which is
+ * still guarded.
+ *
+ * Found by the company on a phone: "clicked install… it just re-opened Chrome, looks like a bookmark
+ * not an install." No test could see this — the browser is the only thing that asks for these files.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|apple-touch-icon.png|brand/).*)",
+  ],
 };
