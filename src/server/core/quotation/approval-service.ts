@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import type { ApprovalRequest } from "@prisma/client";
 import { db } from "@/lib/db";
+import { registerApprovalDecisionHandler } from "@/server/core/approvals/decision-registry";
 import { createApprovalRequest, decideApprovalRequest } from "@/server/core/approvals/service";
 import { resolveStepEligibility } from "@/server/core/approvals/eligibility";
 import type { ApprovalStepDef } from "@/server/core/approvals/types";
@@ -622,3 +623,12 @@ export async function getQuotationApprovalStateService(
     })),
   };
 }
+
+/** The global inbox routes a quotation decision through this module's service. See #105. */
+registerApprovalDecisionHandler(QUOTATION_ENTITY_TYPE, (context) =>
+  decideQuotationApprovalService(context.actor, context.approver, {
+    quotationId: context.entityId,
+    decision: context.decision,
+    comment: context.comment,
+  }),
+);

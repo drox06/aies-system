@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import type { ApprovalRequest } from "@prisma/client";
 import { db } from "@/lib/db";
+import { registerApprovalDecisionHandler } from "@/server/core/approvals/decision-registry";
 import { createApprovalRequest, decideApprovalRequest } from "@/server/core/approvals/service";
 import { resolveStepEligibility } from "@/server/core/approvals/eligibility";
 import type { ApprovalStepDef } from "@/server/core/approvals/types";
@@ -433,3 +434,12 @@ export async function getSupplierPoApprovalStateService(
     })),
   };
 }
+
+/** The global inbox routes a supplier PO decision through this module's service. See #105. */
+registerApprovalDecisionHandler(SUPPLIER_PO_ENTITY_TYPE, (context) =>
+  decideSupplierPoApprovalService(context.actor, context.approver, {
+    supplierPOId: context.entityId,
+    decision: context.decision,
+    comment: context.comment,
+  }),
+);

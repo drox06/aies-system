@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { registerApprovalDecisionHandler } from "@/server/core/approvals/decision-registry";
 import { decideApprovalRequest } from "@/server/core/approvals/service";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
@@ -34,6 +35,7 @@ import {
 } from "./cash-advance-rules";
 import {
   CASH_ADVANCE_APPROVAL_DECIDED_NOTIFICATION_TYPE,
+  CASH_ADVANCE_EXTENSION_ENTITY_TYPE,
   CASH_ADVANCE_RELEASED_NOTIFICATION_TYPE,
   findPendingCashAdvanceApproval,
   notifyCashAdvanceApprovers,
@@ -1429,3 +1431,26 @@ export async function listLiquidationsAwaitingCheckService() {
     take: 100,
   });
 }
+
+/**
+ * What the global inbox does when somebody approves a cash advance from it.
+ *
+ * Both handlers call the module's own service — the same path the ticket panel uses. The inbox used
+ * to call the engine directly and leave the advance untouched, which is what stranded
+ * AIESCA-260127. See decision-registry.ts.
+ */
+registerApprovalDecisionHandler(CASH_ADVANCE_ENTITY_TYPE, (context) =>
+  decideCashAdvanceService(context.actor, context.approver, {
+    cashAdvanceId: context.entityId,
+    decision: context.decision,
+    reason: context.comment,
+  }),
+);
+
+registerApprovalDecisionHandler(CASH_ADVANCE_EXTENSION_ENTITY_TYPE, (context) =>
+  decideExtensionService(context.actor, context.approver, {
+    cashAdvanceId: context.entityId,
+    decision: context.decision,
+    comment: context.comment,
+  }),
+);

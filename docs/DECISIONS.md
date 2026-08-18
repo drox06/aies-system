@@ -3570,3 +3570,67 @@ drift from what is deployed. Locally it reads `dev`.
 
 Seven characters. The alternative was continuing to answer an empirical question by argument.
 
+---
+
+## #105 — The inbox decided approvals without telling anybody what they meant
+
+**2026-08-18. I got this wrong once before correcting it, and the correction matters.**
+
+My first reading of AIESCA-260127 was that its two commits — the engine's decision and the advance's
+own update — had been interrupted between them. That was wrong. The real cause is deterministic and
+much larger.
+
+`/approvals`, the global "Awaiting my approval" inbox, decided requests by calling
+`decideApprovalRequest` **and nothing else**. The engine updates its own row. It does not know that
+approving a cash advance releases it for payment, or that approving a quotation lets it be issued —
+that knowledge lives in each module's service. So the request went to `approved` and the business
+record stayed exactly where it was.
+
+Both exits then sealed: approving refused because no request was pending any more, re-submitting
+refused because it was no longer a draft. A decision recorded against a record that could not
+receive it.
+
+**It applied to every approval type** — quotations, supplier POs, cash advances, extensions. Nobody
+had decided one of the others from the inbox yet.
+
+### Why nothing caught it
+
+Each module's own approval path is correct and well tested. The inbox is a different path to the
+same act, and it is *the likely one* — the notification says something needs approval, and the inbox
+is where the notification points. The suite tested the path the code was written for and not the
+path the person takes.
+
+### The fix
+
+A decision handler registry, the same shape as `registerFileAccessChecker`: modules say what
+deciding their entity type means, the core holds a map, a barrel guarantees registration on a route
+whose bundle contains none of them. The router dispatches through it and **refuses an unregistered
+type** rather than half-deciding it — the old default was the dangerous one, because a decision that
+half-applies looks complete.
+
+Each handler calls the module's existing service. A handler that reimplemented the service would be
+a second definition of what approving means, and the second definition is the one that drifts.
+
+### The screen
+
+It showed `CashAdvance — cmsyrix32002pl5045aucx6ca` and two buttons. No number, no amount, no
+purpose, no requester, no link, and no box for a reason when sending something back. The company
+asked for the request to be viewable by the approver, which is right, and understates it: an
+approval **is** the control — the moment a second person is supposed to look. A screen that cannot
+show what is being decided turns that control into a formality, and a formality in an ISO-audited
+process is a finding waiting to be written.
+
+The readable facts were already stored. `entitySnapshot` is captured at request time and is
+deliberately immutable, so it is the honest record of what the approver was shown — exactly the
+property you want behind a decision somebody has to stand by. It was being written and never read.
+
+### #106 — Three silently disabled controls in one week
+
+The cash advance override "did not push thru" because its button is disabled below ten characters of
+reason and said nothing about it. The service was right, the permission was seeded, the control
+looked pressable and did nothing.
+
+That is the third: the checklist sign-off button, the QA photo item, this. **A tooltip is not a
+fix** — these get used on a phone, where nothing hovers. The rule now: a disabled control states its
+condition in visible text, next to itself.
+
