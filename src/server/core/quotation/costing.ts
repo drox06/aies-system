@@ -140,6 +140,12 @@ export interface CostingLineInput {
   /** Rate to convert `costCurrency` into the quotation's currency. 1 when they are the same. */
   costFxRate?: string | number;
   /**
+   * This line's own FX cushion. Null or absent means the header's figure applies.
+   *
+   * Zero is a real answer, not an absence — a peso line deliberately carrying no cushion.
+   */
+  fxBufferPct?: string | number | null;
+  /**
    * Markup on landed cost, as a percentage. When null the price was typed directly and the margin
    * is implied — §4 supports both because "engineers think in price, finance thinks in margin".
    */
@@ -184,8 +190,10 @@ export interface CostingLineResult {
 export interface CostingInput {
   lines: CostingLineInput[];
   /**
-   * §4's "quote at BSP rate + 3%" buffer, applied on top of each line's FX rate. Held at the header
-   * because it is one commercial decision about the whole quote, not a per-line fact.
+   * §4's "quote at BSP rate + 3%" buffer, applied on top of each line's FX rate.
+   *
+   * The house position for the whole quote, and the default every line inherits. A line may
+   * override it — see `CostingLineInput.fxBufferPct` for why that turned out to be necessary.
    */
   fxBufferPct?: string | number | null;
   /** §4: "Header-level discount distributes proportionally across lines and recomputes margin." */
@@ -244,7 +252,15 @@ export function computeCosting(input: CostingInput): CostingResult {
     // Landed cost: the principal's price, converted, then buffered. The buffer inflates *cost*
     // rather than discounting price, because §4 frames it as protection against the rate having
     // moved by the time the order is placed.
-    const landedFx = rate(line.costFxRate) * (1 + buffer / 100);
+    //
+    // The line's own buffer wins when it has one. Lines carry their own `costCurrency`, so one
+    // quotation can mix a USD line, a EUR line and a locally-sourced PHP line — and a single header
+    // figure gave all three the same cushion, including the PHP line, which has no exchange risk at
+    // all. `?? buffer` rather than `|| buffer` on purpose: a deliberate **0%** on a peso line is an
+    // answer, and `||` would throw it away and reapply the header's.
+    const lineBuffer =
+      line.fxBufferPct === null || line.fxBufferPct === undefined ? buffer : pct(line.fxBufferPct);
+    const landedFx = rate(line.costFxRate) * (1 + lineBuffer / 100);
     const unitCost = assertRepresentable(
       roundHalfUp(toCentavos(line.unitCost) * landedFx),
       "unit cost",

@@ -79,6 +79,59 @@ export function ProposeTickets({
     );
   }
 
+  /**
+   * One more ticket than the proposal suggested.
+   *
+   * The proposal groups lines by what it can infer, and it cannot know that three commissioning
+   * lines are three separate site visits a week apart. The company asked for the choice: "if there
+   * are multiple activities, there should be a choice to generate multiple operational tickets."
+   *
+   * It starts empty rather than copying a neighbour, because a duplicate somebody has to remember to
+   * edit is how two tickets end up with the same title and nobody can tell them apart on the board.
+   */
+  function addTicket() {
+    setDrafts((current) => [
+      ...current,
+      {
+        type: current[0]?.type ?? "installation",
+        title: "",
+        scopeOfWork: "",
+        salesOrderLineIds: [],
+        rationale: "Added by hand — the proposal did not suggest this one.",
+        include: true,
+      },
+    ]);
+  }
+
+  /**
+   * Moves a line onto this ticket, and off whichever one had it.
+   *
+   * A line covered twice would create two tickets that both claim the same work, and §2's
+   * `TicketSalesOrderLine` would then disagree with itself about what is outstanding. Exclusivity
+   * is enforced here so the reviewer never has to think about it.
+   */
+  function toggleLine(index: number, salesOrderLineId: string) {
+    setDrafts((current) =>
+      current.map((draft, i) => {
+        const has = draft.salesOrderLineIds.includes(salesOrderLineId);
+        if (i === index) {
+          return {
+            ...draft,
+            salesOrderLineIds: has
+              ? draft.salesOrderLineIds.filter((id) => id !== salesOrderLineId)
+              : [...draft.salesOrderLineIds, salesOrderLineId],
+          };
+        }
+        return has
+          ? {
+              ...draft,
+              salesOrderLineIds: draft.salesOrderLineIds.filter((id) => id !== salesOrderLineId),
+            }
+          : draft;
+      }),
+    );
+  }
+
   async function submit() {
     try {
       const result = await generate.mutateAsync({
@@ -210,6 +263,36 @@ export function ProposeTickets({
                       onChange={(e) => patch(index, { scopeOfWork: e.target.value })}
                     />
                   </div>
+
+                  {/* Which order lines this ticket covers. Ticking one here takes it off any other. */}
+                  <div>
+                    <Label htmlFor={`tkt-lines-${index}`}>Which lines does it cover</Label>
+                    <div id={`tkt-lines-${index}`} className="mt-1 space-y-1">
+                      {(data.lines ?? [])
+                        .filter((line) => !line.alreadyCovered)
+                        .map((line) => (
+                          <label
+                            key={line.salesOrderLineId}
+                            className="flex items-start gap-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 size-4"
+                              checked={draft.salesOrderLineIds.includes(line.salesOrderLineId)}
+                              onChange={() => toggleLine(index, line.salesOrderLineId)}
+                            />
+                            <span className="min-w-0">
+                              {line.lineNo}. {line.description}
+                            </span>
+                          </label>
+                        ))}
+                    </div>
+                    {draft.salesOrderLineIds.length === 0 && (
+                      <p className="mt-1 text-xs text-danger">
+                        No lines on this ticket — it would be work with nothing behind it.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -225,13 +308,27 @@ export function ProposeTickets({
             </p>
           )}
 
+          {/* My own rule from this week: never disable a control without saying why. */}
+          {chosen.some((draft) => !draft.title.trim()) && (
+            <p className="text-xs text-danger">
+              Every ticket needs a title before these can be generated.
+            </p>
+          )}
+
           <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={addTicket}>
+              Add another ticket
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button
               size="sm"
-              disabled={generate.isPending || chosen.length === 0}
+              disabled={
+                generate.isPending ||
+                chosen.length === 0 ||
+                chosen.some((draft) => draft.salesOrderLineIds.length === 0 || !draft.title.trim())
+              }
               onClick={() => void submit()}
             >
               {generate.isPending

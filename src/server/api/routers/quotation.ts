@@ -87,6 +87,8 @@ const lineInput = z.object({
   unitCost: z.string().optional(),
   costCurrency: z.string().optional(),
   costFxRate: z.string().optional(),
+  /** Per-line FX cushion; null means the quotation's applies. */
+  fxBufferPct: z.string().nullish(),
   markupPct: z.string().nullish(),
   unitPrice: z.string().nullish(),
   lineDiscountPct: z.string().nullish(),

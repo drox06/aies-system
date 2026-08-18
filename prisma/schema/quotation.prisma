@@ -230,6 +230,18 @@ model QuotationLine {
   costCurrency String  @default("PHP")
   costFxRate   Decimal @default(1) @db.Decimal(12, 6)
 
+  /// This line's own FX cushion, when the header's figure does not fit it.
+  ///
+  /// Null means "use the quotation's". The header stays the house position; this is the exception,
+  /// the same way `markupPct` works.
+  ///
+  /// It exists because lines already carry their own `costCurrency`: one quotation can hold a USD
+  /// line, a EUR line and a locally-sourced PHP line, and a single header buffer applied a USD-sized
+  /// cushion to all three — including the PHP line, which carries no exchange risk whatsoever. That
+  /// inflated its cost, crushed its apparent margin, and priced AIES out of local supply for a risk
+  /// that does not exist. Raised by the company on 2026-08-18.
+  fxBufferPct Decimal? @db.Decimal(7, 4)
+
   // §4 supports both pricing modes: markup on cost, or a directly entered price with implied
   // margin. `markupPct` is null when the price was typed rather than derived — which is itself
   // information, so it is not defaulted to zero.

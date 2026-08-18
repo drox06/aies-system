@@ -113,6 +113,7 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
       unitCost?: string;
       costCurrency?: string;
       costFxRate?: string;
+      fxBufferPct?: string | null;
       markupPct?: string | null;
       unitPrice: string;
       lineDiscountPct: string | null;
@@ -130,6 +131,7 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     unit: line.unit,
     unitCost: line.unitCost ?? "",
     costCurrency: line.costCurrency ?? "PHP",
+    fxBufferPct: line.fxBufferPct ?? "",
     costFxRate: line.costFxRate ?? "1",
     markupPct: line.markupPct ?? "",
     unitPrice: line.unitPrice,

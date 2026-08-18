@@ -33,6 +33,7 @@ import {
   type TcCertificatePdfProps,
   type TcCertificateTest,
 } from "./TcCertificateDocument";
+import { MethodStatementDocument, type MethodStatementPdfProps } from "./MethodStatementDocument";
 
 /**
  * Module 04's documents (specs/04-operations-projects.md §8, §10 and §12).
@@ -408,4 +409,113 @@ export async function buildCloseOutPackProps(projectId: string): Promise<CloseOu
 
 export async function renderCloseOutPackPdf(projectId: string): Promise<Buffer> {
   return renderToBuffer(<CloseOutPackDocument {...await buildCloseOutPackProps(projectId)} />);
+}
+
+// ---- §6.2's method statement ----------------------------------------------------------------------
+
+const METHOD_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  internal_review: "In internal review",
+  approved: "Approved internally",
+  submitted_to_client: "With the client",
+  client_approved: "Approved by the client",
+  client_rejected: "Sent back by the client",
+  superseded: "Superseded",
+};
+
+/** Only these two are a document somebody may work to. Everything else prints a DRAFT mark. */
+const FINAL_METHOD_STATUSES = new Set(["approved", "client_approved"]);
+
+function asArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
+}
+
+function str(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  return String(value);
+}
+
+export async function buildMethodStatementProps(
+  methodologyId: string,
+): Promise<MethodStatementPdfProps> {
+  const record = await db.methodology.findFirst({
+    where: { id: methodologyId, deletedAt: null },
+    include: {
+      ticket: {
+        select: {
+          number: true,
+          account: { select: { name: true } },
+          site: { select: { name: true } },
+        },
+      },
+      project: { select: { code: true } },
+    },
+  });
+  if (!record) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That method statement no longer exists." });
+  }
+
+  const [preparedBy, approvedBy] = await Promise.all([
+    record.preparedById
+      ? db.user.findUnique({ where: { id: record.preparedById }, select: { name: true } })
+      : null,
+    record.approvedById
+      ? db.user.findUnique({ where: { id: record.approvedById }, select: { name: true } })
+      : null,
+  ]);
+
+  return {
+    company: getCompanyDetails(),
+    logoSrc: await logoDataUri(),
+
+    number: record.number,
+    revision: record.revision,
+    title: record.title,
+    status: record.status,
+    statusLabel: METHOD_STATUS_LABELS[record.status] ?? record.status,
+    isFinal: FINAL_METHOD_STATUSES.has(record.status),
+
+    customerName: record.ticket?.account?.name ?? null,
+    siteName: record.ticket?.site?.name ?? null,
+    ticketNumber: record.ticket?.number ?? null,
+    projectCode: record.project?.code ?? null,
+
+    scopeSummary: record.scopeSummary,
+    durationDays: record.durationDays,
+    steps: asArray(record.sequenceOfWork).map((step, index) => ({
+      step: str(step.step) ?? index + 1,
+      description: str(step.description) ?? "",
+      durationHours: str(step.durationHours),
+      crew: str(step.crew),
+    })),
+    manpower: asArray(record.manpowerPlan).map((row) => ({
+      role: str(row.role) ?? "",
+      count: str(row.count) ?? "1",
+      notes: str(row.notes),
+    })),
+    tools: record.toolsRequired,
+    materials: asArray(record.materialsRequired).map((row) => ({
+      description: str(row.description) ?? "",
+      quantity: str(row.quantity) ?? "",
+      unit: str(row.unit),
+    })),
+    permits: record.permitsRequired,
+    safetyPlan: record.safetyPlan,
+    hasJsa: Boolean(record.jsaFileId),
+    environmental: record.environmentalConsiderations,
+    mobilizationPlan: record.mobilizationPlan,
+    demobilizationPlan: record.demobilizationPlan,
+    contingencyPlan: record.contingencyPlan,
+
+    preparedBy: preparedBy?.name ?? null,
+    approvedBy: approvedBy?.name ?? null,
+    clientDecisionAt: record.clientApprovedAt ? fmtDate(record.clientApprovedAt) : null,
+    printedAt: fmtDate(new Date()),
+  };
+}
+
+export async function renderMethodStatementPdf(methodologyId: string): Promise<Buffer> {
+  return renderToBuffer(
+    <MethodStatementDocument {...await buildMethodStatementProps(methodologyId)} />,
+  );
 }

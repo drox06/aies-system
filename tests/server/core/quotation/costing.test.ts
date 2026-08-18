@@ -378,3 +378,62 @@ describe("§4: a header discount distributes across the lines", () => {
     expect(fromCentavos(result.subtotal - result.discountAmount)).toBe("290.00");
   });
 });
+
+/**
+ * The company's question, 2026-08-18: "does the FX buffer apply to all lines? what if there are
+ * multiple currencies used but only 1 FX buffer entry?"
+ *
+ * It did, and that was wrong. Lines carry their own `costCurrency`, so one quotation can mix a USD
+ * line, a EUR line and a locally-sourced PHP line — and the header's single figure gave a USD-sized
+ * cushion to all three, including the peso line, which carries no exchange risk at all.
+ */
+describe("the FX buffer, per line", () => {
+  const line = (over: Record<string, unknown> = {}) => ({
+    quantity: "1",
+    unitCost: "1000",
+    costFxRate: "1",
+    markupPct: "0",
+    ...over,
+  });
+
+  it("still applies the header's figure to a line that has none", () => {
+    const result = computeCosting({ lines: [line()], fxBufferPct: "10" });
+    // 1000 cost, 10% cushion, no markup.
+    expect(result.lines[0]!.unitCost).toBe(110_000);
+  });
+
+  it("lets a line carry its own", () => {
+    const result = computeCosting({
+      lines: [line({ fxBufferPct: "50" })],
+      fxBufferPct: "10",
+    });
+    expect(result.lines[0]!.unitCost).toBe(150_000);
+  });
+
+  /**
+   * The case that motivated the change, and the one an `||` would have broken: a deliberate zero on
+   * a peso line is an **answer**, not an absence, and must not fall back to the header's figure.
+   */
+  it("treats a deliberate zero as an answer rather than an absence", () => {
+    const result = computeCosting({
+      lines: [line({ fxBufferPct: "0" })],
+      fxBufferPct: "10",
+    });
+    expect(result.lines[0]!.unitCost).toBe(100_000);
+  });
+
+  it("prices a mixed-currency quote line by line", () => {
+    const result = computeCosting({
+      lines: [
+        // Imported, priced in dollars, cushioned.
+        line({ unitCost: "100", costFxRate: "58", fxBufferPct: "3" }),
+        // Bought down the road in pesos. No exchange risk, so no cushion.
+        line({ unitCost: "1000", costFxRate: "1", fxBufferPct: "0" }),
+      ],
+      fxBufferPct: "3",
+    });
+
+    expect(result.lines[0]!.unitCost).toBe(597_400);
+    expect(result.lines[1]!.unitCost).toBe(100_000);
+  });
+});

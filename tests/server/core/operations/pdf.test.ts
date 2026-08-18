@@ -4,11 +4,17 @@ import { db } from "@/lib/db";
 import {
   buildCloseOutPackProps,
   buildDailyProgressProps,
+  buildMethodStatementProps,
   buildTcCertificateProps,
   renderCloseOutPackPdf,
   renderDailyProgressPdf,
+  renderMethodStatementPdf,
   renderTcCertificatePdf,
 } from "@/server/core/operations/pdf/render";
+import {
+  createMethodologyService,
+  saveMethodologyService,
+} from "@/server/core/operations/methodology-service";
 import { upsertCloseOutService } from "@/server/core/operations/close-out-service";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
 import type { AuthedUser } from "@/server/core/rbac/types";
@@ -29,6 +35,7 @@ const ticketIds: string[] = [];
 const tcIds: string[] = [];
 const progressIds: string[] = [];
 const userIds: string[] = [];
+const methodologyIds: string[] = [];
 
 async function makeUser(): Promise<AuthedUser> {
   const role = await db.role.findUniqueOrThrow({ where: { key: "operations_manager" } });
@@ -84,6 +91,7 @@ async function makeFixture(user: AuthedUser) {
 }
 
 afterAll(async () => {
+  await db.methodology.deleteMany({ where: { id: { in: methodologyIds } } });
   await db.projectCloseOut.deleteMany({ where: { projectId: { in: projectIds } } });
   await db.testingCommissioning.deleteMany({ where: { id: { in: tcIds } } });
   await db.dailyProgress.deleteMany({ where: { id: { in: progressIds } } });
@@ -365,4 +373,90 @@ describe("the documents actually render", () => {
     expect(report.length).toBeGreaterThan(5000);
     expect(pack.length).toBeGreaterThan(5000);
   }, 60_000);
+});
+
+/**
+ * §6.2's method statement, added 2026-08-19 at the company's request: "make the completed method
+ * downloadable so that there is an option for review and sending the pdf to the client."
+ *
+ * The property that matters most is the DRAFT mark. §6.2 gates mobilisation on client approval, and
+ * a document that prints as though it were agreed when it is not is how a crew ends up working to a
+ * method nobody signed.
+ */
+describe("§6.2's method statement", () => {
+  it("carries the whole method, and marks an unapproved one as draft", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const method = await createMethodologyService(actorFor(user), {
+      ticketId: ticket.id,
+      title: "Replace flowmeter FT-1180",
+    });
+    methodologyIds.push(method.id);
+
+    await saveMethodologyService(actorFor(user), {
+      methodologyId: method.id,
+      scopeSummary: "Isolate, remove, install and calibrate the replacement meter.",
+      sequenceOfWork: [
+        { step: 1, description: "Isolate and lock out", durationHours: 1, crew: "2 technicians" },
+        {
+          step: 2,
+          description: "Remove the existing meter",
+          durationHours: 2,
+          crew: "2 technicians",
+        },
+      ],
+      manpowerPlan: [{ role: "Instrument technician", count: 2, notes: "One must be certified" }],
+      toolsRequired: ["Torque wrench", "HART communicator"],
+      materialsRequired: [{ description: "Gasket set", quantity: "2", unit: "set" }],
+      permitsRequired: ["Hot work", "Confined space"],
+      safetyPlan: "Full PPE. Line isolated and drained before breaking any flange.",
+      durationDays: 2,
+    });
+
+    const props = await buildMethodStatementProps(method.id);
+
+    expect(props.number).toBe(method.number);
+    expect(props.steps).toHaveLength(2);
+    expect(props.steps[0]!.description).toBe("Isolate and lock out");
+    expect(props.manpower[0]!.role).toBe("Instrument technician");
+    expect(props.tools).toContain("HART communicator");
+    expect(props.permits).toContain("Confined space");
+    expect(props.durationDays).toBe(2);
+
+    // The whole point: a draft says so.
+    expect(props.isFinal).toBe(false);
+    expect(props.statusLabel).toBe("Draft");
+
+    const pdf = await renderMethodStatementPdf(method.id);
+    expect(pdf.length).toBeGreaterThan(1000);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  });
+
+  /**
+   * An empty section prints as "none recorded" rather than disappearing. A method statement with no
+   * permits and no safety plan is a fact the client's engineer should see — and it is the first
+   * thing they will ask about.
+   */
+  it("reports what is missing rather than closing the gap over", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const method = await createMethodologyService(actorFor(user), {
+      ticketId: ticket.id,
+      title: "Bare method",
+    });
+    methodologyIds.push(method.id);
+
+    const props = await buildMethodStatementProps(method.id);
+    expect(props.steps).toEqual([]);
+    expect(props.tools).toEqual([]);
+    expect(props.permits).toEqual([]);
+    expect(props.safetyPlan).toBeNull();
+    expect(props.hasJsa).toBe(false);
+
+    // It still renders — a half-written method statement is exactly what internal review is for.
+    const pdf = await renderMethodStatementPdf(method.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  });
 });

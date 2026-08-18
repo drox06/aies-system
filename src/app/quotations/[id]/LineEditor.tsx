@@ -30,6 +30,8 @@ export interface DraftLine {
   unitCost: string;
   costCurrency: string;
   costFxRate: string;
+  /** Blank means "use the quotation's". A typed 0 is a real answer and is kept. */
+  fxBufferPct: string;
   markupPct: string;
   unitPrice: string;
   lineDiscountPct: string;
@@ -44,6 +46,7 @@ export const BLANK_LINE: DraftLine = {
   unitCost: "",
   costCurrency: "PHP",
   costFxRate: "1",
+  fxBufferPct: "",
   markupPct: "",
   unitPrice: "",
   lineDiscountPct: "",
@@ -110,6 +113,7 @@ export function LineEditor({
           unitCost: line.unitCost || "0",
           costCurrency: line.costCurrency || "PHP",
           costFxRate: line.costFxRate || "1",
+          fxBufferPct: line.fxBufferPct ?? "",
           markupPct: line.markupPct === "" ? null : line.markupPct,
           unitPrice: line.unitPrice || "0",
           lineDiscountPct: line.lineDiscountPct === "" ? null : line.lineDiscountPct,
@@ -140,6 +144,11 @@ export function LineEditor({
               <th className="py-1 font-medium">Description</th>
               <th className="py-1 text-right font-medium">Qty</th>
               {canSeeCost && <th className="py-1 text-right font-medium">Unit cost</th>}
+              {canSeeCost && (
+                <th className="py-1 text-right font-medium" title="Blank uses the quotation's">
+                  FX buff %
+                </th>
+              )}
               {canSeeCost && <th className="py-1 text-right font-medium">Markup %</th>}
               <th className="py-1 text-right font-medium">Unit price</th>
               <th className="py-1 text-right font-medium">Disc %</th>
@@ -197,6 +206,25 @@ export function LineEditor({
                         value={line.unitCost}
                         disabled={!editable}
                         onChange={(e) => update(index, { unitCost: e.target.value })}
+                      />
+                    </td>
+                  )}
+                  {canSeeCost && (
+                    <td className="py-1 pr-2">
+                      {/*
+                        This line's own cushion. Blank inherits the quotation's, which is the common
+                        case; a figure here is for the line whose exposure differs — and 0 on a
+                        peso-sourced line is the point of the whole field, since a cushion for
+                        exchange risk that does not exist only inflates cost and hides margin.
+                      */}
+                      <Input
+                        aria-label={`Line ${index + 1} FX buffer`}
+                        className="w-20 text-right"
+                        inputMode="decimal"
+                        placeholder={fxBufferPct || "0"}
+                        value={line.fxBufferPct}
+                        disabled={!editable}
+                        onChange={(e) => update(index, { fxBufferPct: e.target.value })}
                       />
                     </td>
                   )}
@@ -366,6 +394,10 @@ export function LineEditor({
                             // a EUR cost recorded sixty-five times too low. docs/DECISIONS.md #32.
                             costCurrency: line.costCurrency || "PHP",
                             costFxRate: line.costFxRate || "1",
+                            // Blank means "inherit the header's". A typed 0 must survive — a peso
+                            // line deliberately carrying no cushion is an answer, and sending null
+                            // would silently reapply a cushion for risk it does not have.
+                            fxBufferPct: line.fxBufferPct === "" ? null : line.fxBufferPct,
                             markupPct: line.markupPct === "" ? null : line.markupPct,
                           }
                         : {}),

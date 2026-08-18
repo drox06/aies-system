@@ -30,6 +30,13 @@ export interface QuotationLineInput {
   unitCost?: string;
   costCurrency?: string;
   costFxRate?: string;
+  /**
+   * This line's own FX cushion. Null means the quotation's applies.
+   *
+   * A cost-side field, so a caller who cannot see cost cannot set it — the same reasoning as
+   * `markupPct`: letting somebody move the buffer would let them move landed cost by proxy.
+   */
+  fxBufferPct?: string | null;
   /** Null means the price was typed directly and the margin is implied (§4). */
   markupPct?: string | null;
   unitPrice?: string | null;
@@ -118,18 +125,25 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
    */
   const preservedByLineNo = new Map<
     number,
-    { unitCost: string; markupPct: string | null; costFxRate: string }
+    { unitCost: string; markupPct: string | null; costFxRate: string; fxBufferPct: string | null }
   >();
   if (!input.canSeeCost) {
     const existing = await db.quotationLine.findMany({
       where: { quotationId: quotation.id },
-      select: { lineNo: true, unitCost: true, markupPct: true, costFxRate: true },
+      select: {
+        lineNo: true,
+        unitCost: true,
+        markupPct: true,
+        costFxRate: true,
+        fxBufferPct: true,
+      },
     });
     for (const line of existing) {
       preservedByLineNo.set(line.lineNo, {
         unitCost: line.unitCost.toString(),
         markupPct: line.markupPct?.toString() ?? null,
         costFxRate: line.costFxRate.toString(),
+        fxBufferPct: line.fxBufferPct?.toString() ?? null,
       });
     }
   }
@@ -141,6 +155,7 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
         unitCost: line.unitCost ?? "0",
         costFxRate: line.costFxRate ?? "1",
         markupPct: line.markupPct ?? null,
+        fxBufferPct: line.fxBufferPct ?? null,
       };
     }
     const preserved = preservedByLineNo.get(index + 1);
@@ -150,6 +165,7 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
       // The markup is a cost-side field too: deriving a price from a markup the caller cannot see
       // would let them move cost by proxy.
       markupPct: preserved?.markupPct ?? null,
+      fxBufferPct: preserved?.fxBufferPct ?? null,
     };
   };
 
@@ -230,6 +246,7 @@ export async function saveQuotationLinesService(actor: ActorMeta, input: SaveLin
             unitCost: costFor(line, index).unitCost,
             costCurrency: line.costCurrency ?? "PHP",
             costFxRate: costFor(line, index).costFxRate,
+            fxBufferPct: costFor(line, index).fxBufferPct,
             markupPct: costFor(line, index).markupPct,
             unitPrice: fromCentavos(computed.unitPrice),
             lineDiscountPct: line.lineDiscountPct ?? null,

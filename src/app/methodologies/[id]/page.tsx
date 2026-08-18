@@ -84,6 +84,17 @@ export default function MethodologyPage({ params }: { params: Promise<{ id: stri
             {!data.clientApprovalRequired && (
               <StatusBadge tone="draft">Client approval waived</StatusBadge>
             )}
+            {/*
+              §6.2 needs the client to approve this before work starts, and until now the only way
+              to put it in front of them was to describe it — the record lived behind a login they
+              do not have. Drafts download too, marked DRAFT on the page, because internal review
+              often happens on paper and a reviewer who cannot get a copy reviews nothing.
+            */}
+            <Button asChild variant="secondary" size="sm">
+              <a href={`/api/methodologies/${data.id}/pdf`} target="_blank" rel="noreferrer">
+                Download PDF
+              </a>
+            </Button>
           </div>
         }
       />

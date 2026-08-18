@@ -44,6 +44,8 @@ export const QUOTATION_LINE_COST_FIELDS = [
   "unitCost",
   "costCurrency",
   "costFxRate",
+  // A cost-side field: it moves landed cost, so somebody who cannot see cost must not see or set it.
+  "fxBufferPct",
   "markupPct",
   "lineCost",
   "lineMargin",
@@ -379,6 +381,7 @@ export async function getQuotationService(
       quantity: line.quantity.toString(),
       unitCost: line.unitCost.toString(),
       costFxRate: line.costFxRate.toString(),
+      fxBufferPct: line.fxBufferPct?.toString() ?? null,
       markupPct: line.markupPct?.toString() ?? null,
       unitPrice: line.unitPrice.toString(),
       lineDiscountPct: line.lineDiscountPct?.toString() ?? null,
