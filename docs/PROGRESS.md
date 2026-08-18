@@ -2952,10 +2952,11 @@ and function; nobody has judged how they *look*.
   silently from the first deploy. Both now serve correctly on the live site. **Still worth checking
   on the phone** that Chrome offers "Install app" rather than "Add to Home screen" — nothing
   automated can confirm a real WebAPK install.
-- **Checklist templates have no authoring screen.** Create, revise and publish exist as tRPC
-  procedures with tests behind them, but nothing renders them, so the eleven seeded templates are
-  the whole set until the builder lands. `checklist.manage` is granted and currently unusable from
-  the UI.
+- ~~Checklist templates have no authoring screen.~~ **Built 2026-08-18** at `/checklists`, after the
+  company reported the eleven seeded templates were nowhere to be found — the only route to them had
+  been a dropdown on a ticket, and the last ticket had just been deleted. Read is gated on
+  `ticket.view` so anybody held to a procedure can read it; editing needs `checklist.manage`, and a
+  published version stays read-only with a Revise button. docs/DECISIONS.md #94.
 - **Offline reads are not built.** §14's 7-day cache of tickets, checklists, site data and
   reference documents does not exist yet, and `public/sw.js` still refuses to cache authenticated
   HTML. So a driver who opens `/field` in the yard keeps their run in memory, but one who opens it

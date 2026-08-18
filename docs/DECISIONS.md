@@ -3233,3 +3233,32 @@ The snapshot costs a few kilobytes and removes an entire class of "it looked fin
 The same reasoning already made `reviseTemplate` copy the previous items rather than start blank: a
 procedure somebody has to retype is a procedure that quietly stops being revised, and the version
 history then lies by omission.
+
+---
+
+## #94 — A screen reachable only from a record disappears when there are no records
+
+Twice in two days, in the same shape.
+
+`/field` was built shell-free and left out of the navigation, so the only way in was typing the URL,
+and the company reported "I don't see the /field screen" — correctly. That was #89.
+
+Then §15's eleven seeded checklists were reachable only through the dropdown on a ticket's Checklist
+panel. Which was fine until the sample ticket was deleted at the company's request, at which point
+the templates existed, were seeded, were tested, and were invisible. The company reported "I don't
+see any of these 11 items on my end" — also correctly, and this time the deletion that hid them was
+mine.
+
+The rule both cases teach: **a thing users are meant to review, revise or learn from needs its own
+door**, independent of any record. Checklists are a library — somebody reads them, corrects the
+wording, prints them for a toolbox talk, all without a job in front of them. Attaching the only
+entrance to a ticket confused "where you *use* it" with "where you *find* it".
+
+Worth noting how it was missed both times. The gap was documented — PROGRESS said in plain words
+"the template *builder* screen is not built" — and that note was read as a missing *feature* rather
+than as a missing *route to existing content*. The eleven templates were listed in a review document
+sent to the company hours before they reported not being able to see them, which should have been the
+clue: if a document has to describe what is in the app, the app is not showing it.
+
+Both screens now have a nav entry, each pinned by a test asserting it appears for the right
+permission and not otherwise.

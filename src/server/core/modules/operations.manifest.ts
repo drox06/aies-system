@@ -437,6 +437,25 @@ export const operationsManifest = defineManifest({
       order: 42,
     },
     {
+      label: "Checklists",
+      href: "/checklists",
+      icon: "clipboard-check",
+      /**
+       * §15's library, reachable on its own.
+       *
+       * Until 2026-08-18 the only route to a checklist template was the panel on a ticket, so the
+       * eleven seeded ones became invisible the moment there were no tickets — and the company
+       * reported, correctly, that they did not exist. A set of procedures is a thing somebody reads,
+       * reviews and revises without a job in front of them.
+       *
+       * Gated on `ticket.view`, not `checklist.manage`: everybody held to a procedure should be able
+       * to read it. Changing one is the narrower right, enforced inside the screen.
+       */
+      permission: "ticket.view",
+      group: "Operations",
+      order: 43,
+    },
+    {
       label: "Cash advances",
       href: "/cash-advances",
       icon: "wallet",

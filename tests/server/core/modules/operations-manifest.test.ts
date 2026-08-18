@@ -154,6 +154,15 @@ describe("operations manifest", () => {
    * first person sent to look at it on a phone reported "I don't see the /field screen", correctly.
    * Stripped-down describes what the screen shows, not whether anybody can get to it.
    */
+  /**
+   * The library needs its own door, for the same reason `/field` did: a screen reachable only from a
+   * record disappears when there are no records, and the seeded checklists did exactly that.
+   */
+  it("offers the checklist library to anybody who can see a ticket", () => {
+    expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/checklists");
+    expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).toContain("/checklists");
+  });
+
   it("offers delivery mode to whoever can run a delivery, and to nobody else", () => {
     expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/field");
     expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).not.toContain("/field");
