@@ -2668,6 +2668,34 @@ Inventing a `skills String[]` would be guessing the shape module 08 then has to 
 mistake docs/DECISIONS.md #46 warned about with the delivery receipt. Eligibility today is
 availability only, and the seam is named in `dispatch-rules.ts`.
 
+### Module 04 review gate (docs/BUILD-PROTOCOL.md §7) — the automated half
+
+**Module 04's build is complete: §3 through §17, every section.**
+
+- [x] `npm test` — 1416 tests across 125 files green, plus 15/15 on dispatch after the schedule
+      preview landed and 4/4 on the new door test.
+- [x] `npm run lint`, `npx tsc --noEmit`, `npm run build` all clean.
+- [x] Migrations apply cleanly to a fresh database — proven by CI on every push. **Do not reproduce
+      this locally against the real database**; docs/DECISIONS.md #24 records what happened the time
+      somebody did.
+- [x] PROGRESS.md and DECISIONS.md current (#67–#98).
+- [ ] **The manual pass — the company's half, and the half that matters.** Tests pass on code that
+      implements the wrong thing; every previous gate found defects no test could. Three sections
+      have never been looked at: `/dispatch`, `/renewals`, and the ticket page, which now carries
+      Schedule at the top and Hours-and-spend at the bottom.
+- [ ] Tag `module-04-complete` once the manual pass is done.
+
+**A new standing test came out of this gate.** `every-screen-has-a-door.test.ts` asserts that no
+screen is reachable only by typing its URL, that no menu item opens onto a 404, and that every detail
+page is linked from somewhere. That is docs/DECISIONS.md #94's pattern — three finished features
+shipped with no way in — turned from a lesson into a check. Proven to bite by removing the Checklists
+nav entry and watching it reproduce the §15 failure by name.
+
+**Its first version had the wrong rule.** It asserted that a detail page needs a list at its *parent
+path*, and failed on two routes that are perfectly reachable: `/material-requests/[id]` is linked from
+`/store`, `/procurement/receipts/[id]` from `/procurement`. What matters is whether anything links to
+a screen, not where that thing lives. Corrected before it could teach anybody the wrong lesson.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
