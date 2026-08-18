@@ -2731,6 +2731,49 @@ readiness"** and §15's **"Checklists filled in on site"**, with a line saying t
 by the system and the second is signed by a person. Two panels on one ticket both talking about tools
 is a collision worth one sentence each.
 
+## The company's second review round — 2026-08-18/19
+
+Fifteen items, all closed. Round two of module 04's gate plus a list that crossed modules 01, 02, 03
+and 04. The pattern held: **every one was found by a person using the app, none by the suite.**
+
+### The one that mattered most
+
+**The global approval inbox decided approvals without applying them.** `/approvals` called the
+approval engine and nothing else — and the engine does not know that approving a cash advance
+releases it for payment. So the request went to `approved`, the advance stayed `pending_approval`,
+and both exits sealed: approving refused because nothing was pending, re-submitting refused because
+it was no longer a draft. AIESCA-260127 was stranded within a day of the screen being used in anger.
+Deterministic, and it applied to quotations and supplier POs equally — nobody had decided one of
+those from the inbox yet. Fixed with a decision-handler registry (the file-checker pattern), a
+standing test, and a screen that heals rows already stranded. docs/DECISIONS.md #105.
+
+### The rest
+
+- **An expense over ₱499 could not be saved at all** — the missing receipt was an error, and the form
+  had no attach control. Recording is now always allowed; claiming is what the receipt gates. #103.
+- **The approver could not see what he was approving** — the inbox showed an entity type and a CUID.
+  It now shows the snapshot that was already stored and never read, and demands a reason to refuse.
+- **Three silently disabled buttons** — both overrides and the checklist sign-off. Visible text now,
+  not tooltips, because these are used on a phone. #106.
+- **Only one person could be booked on a ticket**, and the mobilisation gate had no way to book a
+  crew at all. Both take a list now — and the clash check only warns about people it knows about.
+- **Sending a method statement to the client was a one-way door.** It asks first, and can be brought
+  back while nothing has actually left the building.
+- **"Paste the attachment id from above"** — fourth instance of #101. A picker now.
+- **The FX buffer was one figure for every line**, including peso lines carrying no exchange risk at
+  all. Per-line now, defaulting to the header's; a typed 0 survives.
+- **Travel, freight and misc lines proposed delivery tickets** — a lane that gates billing on a
+  signature, for something never arriving in a van. #107.
+- **The installed app had no way back.** #108.
+- **Settled inquiries stayed on the live list forever.** Archive, See archives, and its own page.
+- **The method statement is a PDF**, so it can reach the client who has to approve it.
+- **Ticket generation can add tickets** the proposal did not suggest, and assign lines between them.
+- **Liquidation review is finance's alone** — the draft had given it to four roles.
+- **"Send to the Vice President" is "Send Request".**
+
+**Module 04 is still untagged.** Per BUILD-PROTOCOL §7, the tag is the company's signature and I do
+not apply it. Waiting on their re-check of the above.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
