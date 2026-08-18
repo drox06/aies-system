@@ -2809,9 +2809,33 @@ not apply it. Waiting on their re-check of the above.
 rather than half-wired, because a subscription reaching the wrong service would flip a milestone and
 tell finance with nothing behind it.
 
-**Then session 2's second half:** §3's two-document model — billing statement versus service invoice.
-The delicate one: AIES issues a Service Invoice **upon payment**, so getting it wrong creates a VAT
-liability on money that has not arrived.
+### Session 2 — §2's triggers wired, and §3's two documents (2026-08-19)
+
+- [x] Six subscribers: `project.closed`, `tc.completed` (accepted only), `delivery.dr_signed`,
+      `sales_order.goods_delivered`, `service_report.approved`, `supplier_po.sent`.
+- [x] `BillingStatement` + lines, `ServiceInvoice`, `Payment`, `PaymentAllocation`, migrated.
+- [x] Per-account withholding on `CustomerAccount` — §3.2, because it varies by customer.
+- [x] `invoice-rules.ts` — VAT (all four modes), withholding, allocation, PDC, ageing.
+- [x] `invoice-service.ts` — raise, issue, cancel, record payment, clear cheque, bounce, cancel
+      invoice, 2307 chase list, receivables ageing.
+- [x] `/finance/receivables` — §5's ageing with the 2307 chase list.
+- [x] Numbering: `AIESBS-{YY}{####}`, `AIESSI-{YY}{#####}`, `AIESPMT-{YY}{#####}`.
+- [x] 48 finance tests.
+
+**The spec named an event nothing emits.** §2 maps `on_installation` to `ticket.completed`; module 04
+has never emitted it. Wiring the name literally would have compiled and produced a milestone that can
+never become billable — configured on screen, silently billing nothing. It now listens to
+`service_report.approved`. **Open for the company:** should installation billing fire at the service
+report, or earlier at demobilisation? One word either way. docs/DECISIONS.md #109.
+
+**§3's three quiet arithmetic traps**, each with a test naming the wrong answer: withholding computed
+on the gross rather than net of VAT (always favours the customer); VAT *added* to a price that
+already contains it; a post-dated cheque counted as cash. docs/DECISIONS.md #110.
+
+**Next concrete step — session 3:** §4's final billing gate. Six conditions, each blocking
+independently, shown as a checklist on the statement draft so finance sees what is missing and who
+owns it, with `finance.override_billing_gate` for the president and vice-president only. Then §5's
+collection worklist and reminders, and §5b's release queue.
 
 ## Not started
 - [ ] Modules 05–10
