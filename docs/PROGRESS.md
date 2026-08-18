@@ -2462,7 +2462,7 @@ what most people do, and honouring it literally would have defeated the change.
 production fixes. Their targeted tests pass (storage 7/7, comments and notify 18/18) and `build:check`
 is clean; the next session's full run covers them properly.
 
-**Owed:** the phone pass, which is now possible for the first time — there is a URL.
+**Owed:** the phone pass, which is now possible for the first time — there is a URL. **Done 2026-08-18;** see the "Phone pass" section below.
 
 ### Session 12 — §13's delivery lane, and module 03's document that was waiting for it
 
@@ -2704,6 +2704,34 @@ empty state has.
 - docs/DECISIONS.md #85: session 12, found by its own integration tests (an attempt can never
   complete a delivery — the driver's tick is a claim, the uploaded receipt is the artefact, and
   stating a principle in a decision record does not implement it).
+
+## Phone pass — done 2026-08-18
+
+**The company ran the checklist in `docs/PHONE-PASS.md` on their own phone, on the live site, and
+reported everything good.** That closes an item owed since module 00 session 5 and re-stated at every
+review gate since.
+
+It took two rounds, and the first round is the part worth remembering. Everything reported then —
+five to ten second page loads, "install" producing a bookmark, no `/field` screen — was real, already
+fixed in committed code, and **being tested against a build from before any of it**, because Vercel
+had been failing silently for four commits (docs/DECISIONS.md #91). A review pass against an unknown
+build is not a review pass. Confirm what is deployed *before* asking somebody to spend their time on
+it.
+
+What the pass settled, on a real device, on mobile data:
+
+- Installs as an app rather than a bookmark, now that `manifest.webmanifest` and `sw.js` are no longer
+  swallowed by the middleware matcher.
+- Readable in full daylight — §14's high-contrast requirement, checked the only way it can be.
+- Navigation goes where it says, and speed is acceptable now that functions run in `sin1` beside the
+  database.
+- Airplane mode produces an honest offline notice rather than a blank page or a hang.
+- The upload areas no longer carry a blank dashed box on every record.
+
+**Still not judged by anybody:** the `/field` screen in its *populated* state. There are no delivery
+flows in the database, so the drop cards, the seven failure-cause buttons and the photo control have
+only ever been seen as an empty list. That is the one screen built for a device nobody works on, and
+it is the obvious thing to look at once a real delivery exists.
 
 ## Not visually verified
 
