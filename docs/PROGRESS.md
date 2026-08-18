@@ -2539,9 +2539,15 @@ equipment history, contacts, reference documents) and the service-worker changes
 offline. Today the *writes* survive with no signal; the *reads* still need a connection to arrive.
 That is the honest state and it is the next session's work.
 
-**`/field` has not been seen rendered.** It builds, lints, typechecks and is correctly auth-gated —
-which is all that could be verified without seeding the e2e account, and that approval is
-per-instance and did not carry forward. It is first in line for the phone pass.
+**`/field` has now been seen, and looking at it found three defects** a green suite could not.
+`delivery.execute` had never been written to the database; the app shell was wrapping the screen that
+exists to have no shell; and the sync indicator read "Everything sent" beside a button reading
+"Sending…". All three fixed, with a Playwright check that screenshots the screen at phone size and
+asserts the two labels cannot contradict each other. docs/DECISIONS.md #88.
+
+Still unverified: the **populated** state. The database has no delivery flows, so the drop cards,
+the failure-cause buttons and the photo control have not been rendered with real content — only the
+empty state has.
 
 ## Not started
 - [ ] Modules 05–10
@@ -2862,6 +2868,13 @@ and function; nobody has judged how they *look*.
   acknowledgement SLA is already satisfied. The mechanism is built and tested because §10 asks for
   it by name and module 02's quotation-turnaround clock will be the first to use it. See
   docs/DECISIONS.md #21.
+- **A new permission does not reach the database until the seed runs, and nothing enforces that.**
+  `delivery.execute` was declared in the manifest in session 12 and was still absent from
+  `Permission` when session 13 looked, so `/field` 403'd for everyone — including on Vercel, where
+  the deploy that shipped the screen shipped it unusable. Every permission test builds its own
+  `AuthedUser`, so no test reads those tables and the suite cannot see this class of gap. Options
+  worth weighing: run the seed as a deploy step, or add a test that asserts every manifest
+  permission has a row. The second is cheap and would have caught it.
 - **Offline reads are not built.** §14's 7-day cache of tickets, checklists, site data and
   reference documents does not exist yet, and `public/sw.js` still refuses to cache authenticated
   HTML. So a driver who opens `/field` in the yard keeps their run in memory, but one who opens it

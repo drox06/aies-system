@@ -3044,3 +3044,38 @@ quota rather than bandwidth: twelve uncompressed photographs is tens of megabyte
 against a budget the browser may measure in the same units, and the eviction that follows takes the
 queue with it. They are also uploaded *before* the write that references them, so a record never
 points at files that may never arrive.
+
+---
+
+## #88 — Three things that only looking at the screen could find
+
+`/field` was committed with a green suite, a clean build, passing lints and an auth-gated route
+check. Then somebody looked at it on a phone-sized viewport, and found three defects in one
+screenshot.
+
+**The permission had never reached the database.** `delivery.execute` was declared in
+`operations.manifest.ts` and no seed had run since. The manifest is the source of truth for
+*intent*; `prisma/seed.ts` is what turns it into `Permission` and `RolePermission` rows. Every test
+that touches permissions constructs its own `AuthedUser` with an explicit permission set, so not one
+of 1275 tests reads those tables — the gap is invisible from inside the suite by construction. The
+live site had the same hole: the deploy that shipped `/field` shipped a screen that 403s for
+everyone. **A new permission needs a seed run wherever it is deployed**, and nothing enforces that
+today (see PROGRESS "Known issues").
+
+**The app shell was wrapping the screen that exists to have no shell.** §14 asks for "a distinct,
+stripped-down screen for drivers… **nothing else**", and the page was written accordingly — then
+rendered inside a hamburger, a search box, a notification bell and a help button, because
+`providers.tsx` has a `BARE_ROUTES` list and `/field` was not on it. The page had no way to know it
+was being wrapped, and no test asserted the absence of chrome.
+
+**The indicator contradicted itself.** The header read "Everything sent" beside a button reading
+"Sending…", because `useSync` drained on mount without first asking whether there was anything to
+drain. Both labels were individually correct and the pair was nonsense — on the one indicator whose
+whole job is to answer "is my work safe?" at a glance.
+
+None of the three is a logic error, and that is the pattern. #81 said the same thing about the first
+hour on Vercel: **each was a boundary** — between a manifest and the database that has to be told
+about it, between a page and the layout that wraps it, between two labels that are rendered
+separately and read together. Test suites are good at logic and blind to boundaries. The only cure
+found so far is to put the thing in the place where the boundary is real, which for a screen means
+looking at it.

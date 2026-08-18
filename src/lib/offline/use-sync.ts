@@ -87,6 +87,18 @@ export function useSync(send: SendItem) {
 
   const sync = useCallback(async () => {
     if (!offlineSupported() || draining.current) return;
+
+    // Nothing to send is not a sync. Flipping `syncing` on for an empty queue put "Sending…" on the
+    // button beside a header reading "Everything sent" — two claims that cannot both be true, on the
+    // one indicator whose entire job is to answer "is my work safe?" at a glance. Found by looking
+    // at the screen; no test asserted the two labels against each other.
+    const standing = await queueSummary();
+    if (standing.queued === 0 && standing.failed === 0) {
+      setState((prev) => ({ ...prev, lastSyncAt: Date.now(), lastError: null }));
+      await refresh();
+      return;
+    }
+
     draining.current = true;
     setState((prev) => ({ ...prev, syncing: true }));
 
@@ -122,11 +134,8 @@ export function useSync(send: SendItem) {
     const onOnline = () => void sync();
     window.addEventListener("online", onOnline);
 
-    const timer = window.setInterval(() => {
-      void queueSummary().then((summary) => {
-        if (summary.queued > 0 || summary.failed > 0) void sync();
-      });
-    }, RETRY_INTERVAL_MS);
+    // `sync` decides for itself whether there is anything to do, so the interval just asks.
+    const timer = window.setInterval(() => void sync(), RETRY_INTERVAL_MS);
 
     return () => {
       window.removeEventListener("online", onOnline);
