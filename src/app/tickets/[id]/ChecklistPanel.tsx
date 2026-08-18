@@ -135,6 +135,21 @@ function ResponseForm({ responseId, onSaved }: { responseId: string; onSaved: ()
   const response = trpc.operations.getChecklistResponse.useQuery({ responseId });
   const utils = trpc.useUtils();
 
+  /**
+   * What is attached to this checklist, so a photo question can be *answered* rather than merely
+   * hinted at.
+   *
+   * Until 2026-08-18 a `photo` item rendered the sentence "attach below, then record the file ids
+   * here" and no control to do it with — so the item could never be answered, and sign-off refused
+   * for a reason nobody could act on. The company hit it on a QA inspection: everything filled in, an
+   * image uploaded, still blocked. Same shape as the file-id text box on §13's delivery panel, and
+   * the same fix — pick from what is there rather than type an id.
+   */
+  const files = trpc.files.forEntity.useQuery({
+    entityType: CHECKLIST_RESPONSE_ENTITY_TYPE,
+    entityId: responseId,
+  });
+
   const [draft, setDraft] = useState<Answers | null>(null);
   const [signedByName, setSignedByName] = useState("");
 
@@ -173,6 +188,7 @@ function ResponseForm({ responseId, onSaved }: { responseId: string; onSaved: ()
                   item={item}
                   answer={answers[item.key]}
                   disabled={done}
+                  attachments={files.data ?? []}
                   onChange={(patch) => setAnswer(item.key, patch)}
                 />
               </li>
@@ -188,6 +204,7 @@ function ResponseForm({ responseId, onSaved }: { responseId: string; onSaved: ()
         label="Photographs and signature"
         category="operations"
         canUpload={!done}
+        onChanged={() => void files.refetch()}
       />
 
       {!done && (
@@ -207,6 +224,16 @@ function ResponseForm({ responseId, onSaved }: { responseId: string; onSaved: ()
                 </li>
               ))}
             </ul>
+          )}
+
+          {/*
+            A disabled button with no stated reason is a dead end, and on a phone there is no tooltip
+            to fall back on. Whichever thing is missing gets said in the page.
+          */}
+          {check.ok && !signedByName.trim() && (
+            <p className="mt-3 text-sm text-text-muted">
+              Everything is answered. Put your name in the box to sign it off.
+            </p>
           )}
 
           <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -229,6 +256,13 @@ function ResponseForm({ responseId, onSaved }: { responseId: string; onSaved: ()
             </Button>
             <Button
               disabled={!check.ok || complete.isPending || !signedByName.trim()}
+              title={
+                !check.ok
+                  ? "Some questions are still unanswered — they are listed above."
+                  : !signedByName.trim()
+                    ? "Put your name in the box first."
+                    : undefined
+              }
               onClick={async () => {
                 await save.mutateAsync({ responseId, answers: answers as Record<string, unknown> });
                 complete.mutate({ responseId, signedByName });
@@ -251,11 +285,14 @@ function ItemField({
   item,
   answer,
   disabled,
+  attachments,
   onChange,
 }: {
   item: ChecklistItem;
   answer: AnswerValue | undefined;
   disabled: boolean;
+  /** Files on this checklist, so a photo question is answered by picking rather than typing an id. */
+  attachments: { id: string; filename: string }[];
   onChange: (patch: Partial<AnswerValue>) => void;
 }) {
   const failed = isFailure(item, answer);
@@ -372,9 +409,37 @@ function ItemField({
           })}
 
         {item.type === "photo" && (
-          <p className="text-xs text-text-muted">
-            Attach below, then record the file ids here as they upload.
-          </p>
+          <div className="w-full">
+            {attachments.length === 0 ? (
+              <p className="text-xs text-text-muted">
+                Attach the photograph below, then tick it here to answer this question.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <p className="text-xs text-text-muted">Which photograph answers this?</p>
+                {attachments.map((file) => {
+                  const chosen = answer?.photoFileIds ?? [];
+                  return (
+                    <label key={file.id} className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        disabled={disabled}
+                        checked={chosen.includes(file.id)}
+                        onChange={(event) =>
+                          onChange({
+                            photoFileIds: event.target.checked
+                              ? [...chosen, file.id]
+                              : chosen.filter((id) => id !== file.id),
+                          })
+                        }
+                      />
+                      {file.filename}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

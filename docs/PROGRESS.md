@@ -2696,7 +2696,7 @@ path*, and failed on two routes that are perfectly reachable: `/material-request
 `/store`, `/procurement/receipts/[id]` from `/procurement`. What matters is whether anything links to
 a screen, not where that thing lives. Corrected before it could teach anybody the wrong lesson.
 
-### Module 04 review — first round, five defects
+### Module 04 review — first round, six defects
 
 The company reviewed the seven new screens on 2026-08-18. Five findings, all real:
 
@@ -2711,7 +2711,12 @@ The company reviewed the seven new screens on 2026-08-18. Five findings, all rea
 4. **`/field` was still empty.** The seed created a delivery ticket; the screen lists delivery
    *flows*. Seeding through the services made every record valid and still did not make the set of
    records match what a screen reads. docs/DECISIONS.md #100.
-5. **The Checklists panel was mistaken for §8's Mobilisation panel** — both sit on the ticket and both
+5. **A `photo` question could not be answered at all.** The item rendered "record the file ids here"
+   and offered no control to do it with, so `photoFileIds` stayed empty, the item stayed unanswered,
+   and sign-off refused — correctly, and with no way for the person to act. Found on a QA inspection
+   with everything filled in and an image uploaded. It now lists the checklist's attachments with a
+   tick beside each, the same fix §13's delivery panel got. docs/DECISIONS.md #101.
+6. **The Checklists panel was mistaken for §8's Mobilisation panel** — both sit on the ticket and both
    talk about tools. Not a defect; the checklist was there and complete. Worth renaming one of them.
 
 **Answers to the six questions**, now in force: receipt threshold **₱499** (was my ₱500), four hour

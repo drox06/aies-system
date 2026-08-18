@@ -3418,3 +3418,38 @@ Two smaller things the same script got wrong, both worth the same lesson:
   rule working. Rather than fake a receipt file that would 404 when clicked, the sample stops below
   the line and the over-threshold case is a review step with a real photograph — a better test of it
   than a seeded row could be.
+
+---
+
+## #101 — A question with no control is a gate nobody can pass
+
+§15's `photo` item type rendered this and nothing else:
+
+> Attach below, then record the file ids here as they upload.
+
+There was no "here". The `Attachments` component below uploaded the file to the checklist, but
+nothing connected an uploaded file to the *question*, so `photoFileIds` stayed empty, `isAnswered`
+stayed false, and sign-off refused. The company hit it on a QA inspection: everything filled in, an
+image uploaded, still blocked — with the screen correctly listing "Photographs of the finished work:
+Not answered" and no way on earth to answer it.
+
+The rules were right. The service was right. The item was genuinely unanswered. **The screen offered
+no way to make it answered**, which turns a correct gate into a dead end — and a dead end is worse
+than a missing feature, because the person is told what is wrong and still cannot act.
+
+It is the same mistake as the file-id text box on §13's delivery panel, which was corrected the same
+way: **pick from what is there rather than type an identifier**. A `photo` item now lists the
+checklist's attachments with a tick beside each. Nobody types a cuid; nobody can.
+
+Two things this rhymes with, and the pattern is worth naming:
+
+- **#94's screens with no door** — finished work with no way to reach it.
+- This: a finished *question* with no way to answer it.
+
+Both are the same failure at different scales. The code is complete and correct, and a person cannot
+get to the thing it does. Every automated check passes, because none of them ask "can a human
+complete this task?"
+
+**Also fixed alongside it:** the Sign off button was disabled with no stated reason when the name box
+was empty. A disabled control that does not say why is the same dead end in miniature, and on a phone
+there is not even a tooltip to fall back on. It now says so in the page.
