@@ -31,7 +31,24 @@ export const BILLING_TRIGGERS = {
   on_order: "sales_order.created",
   on_supplier_order: "supplier_po.sent",
   on_delivery: "sales_order.goods_delivered",
-  on_installation: "ticket.completed",
+  /**
+   * **`service_report.approved`, not `ticket.completed`.**
+   *
+   * §2's table says `ticket.completed` (type = installation). Module 04 does not emit that event and
+   * never has — it emits `ticket.mobilized`, `ticket.started`, `ticket.demobilized`,
+   * `service_report.approved` and `project.closed`. Wiring the spec's name literally would have
+   * produced a milestone that could never become billable, which is worse than a deviation: it looks
+   * configured and silently bills nothing.
+   *
+   * `service_report.approved` is also the better answer on its own terms. A ticket being marked
+   * complete is a status AIES set; an approved service report is the **artefact** saying what was
+   * done — and §12 makes it the document the customer's copy is cut from. Billing on the second is
+   * billing on something that survives an argument.
+   *
+   * Flagged for the company: if they want installation billing to fire earlier, at demobilisation
+   * rather than at the report, that is a one-word change here.
+   */
+  on_installation: "service_report.approved",
   on_tc_accepted: "tc.completed",
   on_dr_signed: "delivery.dr_signed",
   on_project_close: "project.closed",
@@ -44,7 +61,7 @@ export const BILLING_TRIGGER_LABELS: Readonly<Record<BillingTrigger, string>> = 
   on_order: "When the order is raised",
   on_supplier_order: "When the supplier order goes out",
   on_delivery: "When the goods are delivered",
-  on_installation: "When the installation ticket is finished",
+  on_installation: "When the service report for the work is approved",
   on_tc_accepted: "When the customer accepts commissioning",
   on_dr_signed: "When the delivery receipt is signed",
   on_project_close: "When the project closes",
@@ -65,7 +82,7 @@ export const BILLING_TRIGGER_NOTES: Readonly<Record<BillingTrigger, string>> = {
   on_delivery:
     "When the quantities move. Faster than waiting for a signature, and weaker to argue with.",
   on_installation:
-    "The work on site is finished. Use this when the scope is fitting rather than commissioning.",
+    "The service report for the work has been approved — the document saying what was done. Use this when the scope is fitting rather than commissioning.",
   on_tc_accepted:
     "The customer's own engineer signed the commissioning certificate. The strongest billing artefact this platform produces.",
   on_dr_signed:

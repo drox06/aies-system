@@ -8,6 +8,12 @@ import {
   cancelMilestoneService,
   generateScheduleService,
   getScheduleService,
+  onDeliveryReceiptSigned,
+  onGoodsDelivered,
+  onProjectClosed,
+  onServiceReportApproved,
+  onSupplierPoSent,
+  onTcCompleted,
 } from "@/server/core/finance/billing-service";
 
 /**
@@ -34,6 +40,8 @@ const scheduleIds: string[] = [];
 const quotationIds: string[] = [];
 const poIds: string[] = [];
 const fileIds: string[] = [];
+const ticketIds: string[] = [];
+const projectIds: string[] = [];
 
 async function makeTerm(milestones: unknown[], netDays = 15) {
   const term = await db.paymentTerm.create({
@@ -129,10 +137,12 @@ afterAll(async () => {
   await db.billingSchedule.deleteMany({ where: { salesOrderId: { in: orderIds } } });
   await db.auditLog.deleteMany({ where: { entityId: { in: [...scheduleIds, ...orderIds] } } });
   await db.eventOutbox.deleteMany({ where: { actorId: actor.actorId } });
+  await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
   await db.salesOrder.deleteMany({ where: { id: { in: orderIds } } });
   await db.customerPO.deleteMany({ where: { id: { in: poIds } } });
   await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
   await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
+  await db.project.deleteMany({ where: { id: { in: projectIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
   await db.paymentTerm.deleteMany({ where: { id: { in: termIds } } });
 });
@@ -391,5 +401,152 @@ describe("a milestone that will never be billed", () => {
     await expect(
       cancelMilestoneService(actor, { milestoneId: schedule!.milestones[0]!.id, reason: "no" }),
     ).rejects.toThrow(/Say why/);
+  });
+});
+
+/**
+ * The subscribers, wired to the events the platform actually emits.
+ *
+ * These matter more than they look. A handler reading the wrong field from a payload does not throw —
+ * it finds no order, does nothing, and the milestone sits `pending` forever while everybody assumes
+ * billing is automatic. The failure is silent by construction, which is why each one is tested
+ * against the payload shape its emitter really sends.
+ */
+describe("the subscribers", () => {
+  /** A ticket on a project, tied to an order — what the real handlers resolve through. */
+  async function makeTicketOn(order: { id: string; accountId: string }, projectId?: string) {
+    const ticket = await db.ticket.create({
+      data: {
+        number: `TEST-TKT-${randomUUID().slice(0, 10)}`,
+        type: "installation",
+        title: "Subscriber fixture",
+        scopeOfWork: "Do the work.",
+        raisedById: actor.actorId,
+        accountId: order.accountId,
+        salesOrderId: order.id,
+        projectId: projectId ?? null,
+        status: "generated",
+        priority: "normal",
+      },
+    });
+    ticketIds.push(ticket.id);
+    return ticket;
+  }
+
+  it("bills on_project_close when a project closes, through its tickets", async () => {
+    const term = await makeTerm([
+      { label: "Downpayment", pct: "50", trigger: "on_order" },
+      { label: "On close", pct: "50", trigger: "on_project_close" },
+    ]);
+    const order = await makeOrder("100000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+
+    const project = await db.project.create({
+      data: {
+        code: `TEST-PRJ-${randomUUID().slice(0, 8)}`,
+        name: "Subscriber fixture",
+        accountId: order.accountId,
+        status: "in_progress",
+        scopeOfWork: "Work.",
+      },
+    });
+    projectIds.push(project.id);
+    await makeTicketOn(order, project.id);
+
+    // The payload close-out-service.ts really emits.
+    await onProjectClosed({ projectId: project.id, projectCode: project.code });
+
+    const schedule = await getScheduleService(order.id);
+    expect(schedule!.milestones[1]!.status).toBe("ready_to_bill");
+    expect(schedule!.milestones[1]!.readyReason).toContain(project.code);
+  });
+
+  /**
+   * §2: "with result accepted". The event fires on a failed commissioning too, and billing on a
+   * certificate that says the equipment did not pass is the fastest way to lose a collections
+   * argument.
+   */
+  it("bills on_tc_accepted only when the customer accepted it", async () => {
+    const term = await makeTerm([
+      { label: "On commissioning", pct: "100", trigger: "on_tc_accepted" },
+    ]);
+    const order = await makeOrder("50000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+    const ticket = await makeTicketOn(order);
+
+    await onTcCompleted({ ticketId: ticket.id, number: "AIESTC-1", result: "rejected" });
+    expect((await getScheduleService(order.id))!.milestones[0]!.status).toBe("pending");
+
+    await onTcCompleted({ ticketId: ticket.id, number: "AIESTC-1", result: "accepted" });
+    const schedule = await getScheduleService(order.id);
+    expect(schedule!.milestones[0]!.status).toBe("ready_to_bill");
+    expect(schedule!.milestones[0]!.readyReason).toContain("accepted commissioning");
+  });
+
+  it("bills on_dr_signed when somebody signs for the goods, and names them", async () => {
+    const term = await makeTerm([{ label: "On signature", pct: "100", trigger: "on_dr_signed" }]);
+    const order = await makeOrder("20000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+
+    await onDeliveryReceiptSigned({
+      salesOrderId: order.id,
+      number: "AIESDR-1",
+      recipientName: "R. Santos",
+    });
+
+    const schedule = await getScheduleService(order.id);
+    expect(schedule!.milestones[0]!.status).toBe("ready_to_bill");
+    expect(schedule!.milestones[0]!.readyReason).toContain("R. Santos");
+  });
+
+  it("bills on_delivery when every deliverable line has moved", async () => {
+    const term = await makeTerm([{ label: "On delivery", pct: "100", trigger: "on_delivery" }]);
+    const order = await makeOrder("20000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+
+    await onGoodsDelivered({ salesOrderId: order.id, salesOrderNumber: order.number });
+    expect((await getScheduleService(order.id))!.milestones[0]!.status).toBe("ready_to_bill");
+  });
+
+  /**
+   * The trigger §2 named `ticket.completed`, which module 04 never emitted. If somebody "corrects"
+   * the trigger back to the spec's literal name, this test fails rather than the feature going quiet.
+   */
+  it("bills on_installation when the service report is approved", async () => {
+    const term = await makeTerm([
+      { label: "On installation", pct: "100", trigger: "on_installation" },
+    ]);
+    const order = await makeOrder("30000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+    const ticket = await makeTicketOn(order);
+
+    await onServiceReportApproved({ ticketId: ticket.id, serviceReportId: "sr-1" });
+
+    const schedule = await getScheduleService(order.id);
+    expect(schedule!.milestones[0]!.status).toBe("ready_to_bill");
+    expect(schedule!.milestones[0]!.readyReason).toContain("service report");
+  });
+
+  it("bills on_supplier_order when the supplier order goes out", async () => {
+    const term = await makeTerm([
+      { label: "On supplier commitment", pct: "100", trigger: "on_supplier_order" },
+    ]);
+    const order = await makeOrder("40000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+
+    await onSupplierPoSent({ salesOrderId: order.id, number: "AIESSPO-1" });
+    expect((await getScheduleService(order.id))!.milestones[0]!.status).toBe("ready_to_bill");
+  });
+
+  it("does nothing when the payload carries no order, rather than throwing", async () => {
+    await expect(onProjectClosed({})).resolves.toBeUndefined();
+    await expect(onDeliveryReceiptSigned({})).resolves.toBeUndefined();
+    await expect(onSupplierPoSent({ salesOrderId: null })).resolves.toBeUndefined();
   });
 });

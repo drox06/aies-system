@@ -178,7 +178,7 @@ describe("which milestones an event makes billable", () => {
       "sales_order.created",
       "supplier_po.sent",
       "sales_order.goods_delivered",
-      "ticket.completed",
+      "service_report.approved",
       "tc.completed",
       "delivery.dr_signed",
       "project.closed",

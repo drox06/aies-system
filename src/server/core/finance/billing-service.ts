@@ -501,3 +501,145 @@ export async function cancelMilestoneService(
 
   return { status: "cancelled" as const };
 }
+
+// ---- the subscriber side (§2's triggers, wired) ---------------------------------------------------
+
+/**
+ * The actor a subscriber acts as.
+ *
+ * An event has no person behind it — the person was whoever completed the work, and they are not
+ * billing anything. Labelling it honestly matters for the audit row: "The system, on
+ * project.closed" is true and legible, where borrowing the completing user's name would put a
+ * billing decision under somebody who never made one.
+ */
+function systemActor(eventName: string): ActorMeta {
+  return { actorId: "system", actorLabel: `The system, on ${eventName}` };
+}
+
+/**
+ * Resolves the orders a project's completion touches.
+ *
+ * A project can carry several tickets from one order, and §2 of module 04 allows several tickets to
+ * roll up to one project — so this de-duplicates rather than assuming one.
+ */
+async function ordersForProject(projectId: string): Promise<string[]> {
+  const tickets = await db.ticket.findMany({
+    where: { projectId, deletedAt: null, salesOrderId: { not: null } },
+    select: { salesOrderId: true },
+  });
+  return [...new Set(tickets.map((ticket) => ticket.salesOrderId!).filter(Boolean))];
+}
+
+async function orderForTicket(ticketId: string): Promise<string[]> {
+  const ticket = await db.ticket.findFirst({
+    where: { id: ticketId, deletedAt: null },
+    select: { salesOrderId: true },
+  });
+  return ticket?.salesOrderId ? [ticket.salesOrderId] : [];
+}
+
+/**
+ * `project.closed` — bills `on_project_close` and starts the clock on `net_days_after_close`.
+ */
+export async function onProjectClosed(payload: {
+  projectId?: string;
+  projectCode?: string;
+}): Promise<void> {
+  if (!payload.projectId) return;
+  const salesOrderIds = await ordersForProject(payload.projectId);
+  await applyTriggerToOrdersService(systemActor("project.closed"), {
+    salesOrderIds,
+    eventName: "project.closed",
+    reason: `project ${payload.projectCode ?? payload.projectId} closed`,
+  });
+}
+
+/**
+ * `tc.completed` — bills `on_tc_accepted`, **only when the customer accepted it**.
+ *
+ * §2 is explicit: "with result accepted". A commissioning that failed, or that was accepted with a
+ * punch list somebody is still arguing about, is not a billing event — and §10 of module 04 already
+ * distinguishes the results. Billing on any `tc.completed` would invoice on a certificate that says
+ * the equipment did not pass, which is the fastest possible way to lose a collections argument.
+ */
+export async function onTcCompleted(payload: {
+  ticketId?: string;
+  number?: string;
+  result?: string;
+}): Promise<void> {
+  if (!payload.ticketId) return;
+  if (payload.result !== "accepted") return;
+
+  const salesOrderIds = await orderForTicket(payload.ticketId);
+  await applyTriggerToOrdersService(systemActor("tc.completed"), {
+    salesOrderIds,
+    eventName: "tc.completed",
+    reason: `the customer accepted commissioning${payload.number ? ` on ${payload.number}` : ""}`,
+  });
+}
+
+/** `delivery.dr_signed` — bills `on_dr_signed`. The signature, not the despatch. */
+export async function onDeliveryReceiptSigned(payload: {
+  salesOrderId?: string;
+  number?: string;
+  recipientName?: string;
+}): Promise<void> {
+  if (!payload.salesOrderId) return;
+  await applyTriggerToOrdersService(systemActor("delivery.dr_signed"), {
+    salesOrderIds: [payload.salesOrderId],
+    eventName: "delivery.dr_signed",
+    reason:
+      `${payload.recipientName ?? "somebody at the customer"} signed for the goods` +
+      `${payload.number ? ` on ${payload.number}` : ""}`,
+  });
+}
+
+/** `sales_order.goods_delivered` — bills `on_delivery`, once every non-execution line has moved. */
+export async function onGoodsDelivered(payload: {
+  salesOrderId?: string;
+  salesOrderNumber?: string;
+}): Promise<void> {
+  if (!payload.salesOrderId) return;
+  await applyTriggerToOrdersService(systemActor("sales_order.goods_delivered"), {
+    salesOrderIds: [payload.salesOrderId],
+    eventName: "sales_order.goods_delivered",
+    reason: `every deliverable line on ${payload.salesOrderNumber ?? "the order"} was delivered`,
+  });
+}
+
+/**
+ * `service_report.approved` — bills `on_installation`.
+ *
+ * See BILLING_TRIGGERS for why this is the event rather than the `ticket.completed` §2 names: module
+ * 04 does not emit that, and an approved service report is the artefact rather than a status.
+ */
+export async function onServiceReportApproved(payload: {
+  ticketId?: string;
+  serviceReportId?: string;
+}): Promise<void> {
+  if (!payload.ticketId) return;
+  const salesOrderIds = await orderForTicket(payload.ticketId);
+  await applyTriggerToOrdersService(systemActor("service_report.approved"), {
+    salesOrderIds,
+    eventName: "service_report.approved",
+    reason: "the service report for the work was approved",
+  });
+}
+
+/**
+ * `supplier_po.sent` — bills `on_supplier_order`.
+ *
+ * The term for orders where AIES has to commit money to a principal before anything ships: the
+ * milestone bills when the commitment is made, not when the goods arrive.
+ */
+export async function onSupplierPoSent(payload: {
+  salesOrderId?: string | null;
+  number?: string;
+}): Promise<void> {
+  if (!payload.salesOrderId) return;
+  await applyTriggerToOrdersService(systemActor("supplier_po.sent"), {
+    salesOrderIds: [payload.salesOrderId],
+    eventName: "supplier_po.sent",
+    reason: `supplier order ${payload.number ?? ""}`.trim() + " went out",
+  });
+}

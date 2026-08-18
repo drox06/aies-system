@@ -81,18 +81,65 @@ export const financeManifest = defineManifest({
   ],
 
   /**
-   * Nothing subscribed yet, and that is a real gap rather than a design.
+   * §2's triggers, wired to the events the platform actually emits.
    *
-   * §2's triggers map to `sales_order.goods_delivered`, `ticket.completed`, `tc.completed`,
-   * `delivery.dr_signed`, `supplier_po.sent` and `project.closed` — every one of which modules 03 and
-   * 04 already emit. `applyTriggerToOrdersService` is the function they call. Wiring them is the
-   * first half of session 2, and until it happens only `on_order` fires.
+   * Every handler is dynamically imported for the same reason module 04's is: registering a manifest
+   * must not pull Prisma into every consumer of `manifests.ts`, which includes `prisma/seed.ts` and
+   * the nav tests.
    *
-   * Recorded here rather than half-wired, because a subscription that reaches the wrong service is
-   * worse than one that does not exist: the milestone would flip and finance would be told, with
-   * nothing behind it.
+   * **`ticket.completed` is not among them.** §2's table names it for `on_installation` and module 04
+   * has never emitted it — see BILLING_TRIGGERS in billing-rules.ts for what was used instead and
+   * why. Subscribing to a name nothing fires would have produced a milestone that looks configured
+   * and silently never bills.
    */
-  consumes: [],
+  consumes: [
+    {
+      event: "project.closed",
+      handler: async (payload) => {
+        const { onProjectClosed } = await import("@/server/core/finance/billing-service");
+        await onProjectClosed(payload as { projectId?: string; projectCode?: string });
+      },
+    },
+    {
+      // §2: "with result accepted". A failed commissioning is not a billing event — the handler
+      // checks, because the event fires either way.
+      event: "tc.completed",
+      handler: async (payload) => {
+        const { onTcCompleted } = await import("@/server/core/finance/billing-service");
+        await onTcCompleted(payload as { ticketId?: string; number?: string; result?: string });
+      },
+    },
+    {
+      event: "delivery.dr_signed",
+      handler: async (payload) => {
+        const { onDeliveryReceiptSigned } = await import("@/server/core/finance/billing-service");
+        await onDeliveryReceiptSigned(
+          payload as { salesOrderId?: string; number?: string; recipientName?: string },
+        );
+      },
+    },
+    {
+      event: "sales_order.goods_delivered",
+      handler: async (payload) => {
+        const { onGoodsDelivered } = await import("@/server/core/finance/billing-service");
+        await onGoodsDelivered(payload as { salesOrderId?: string; salesOrderNumber?: string });
+      },
+    },
+    {
+      event: "service_report.approved",
+      handler: async (payload) => {
+        const { onServiceReportApproved } = await import("@/server/core/finance/billing-service");
+        await onServiceReportApproved(payload as { ticketId?: string; serviceReportId?: string });
+      },
+    },
+    {
+      event: "supplier_po.sent",
+      handler: async (payload) => {
+        const { onSupplierPoSent } = await import("@/server/core/finance/billing-service");
+        await onSupplierPoSent(payload as { salesOrderId?: string | null; number?: string });
+      },
+    },
+  ],
 
   nav: [{ label: "Ready to bill", href: "/finance/billing", icon: "receipt", order: 1 }],
 });

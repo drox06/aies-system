@@ -3672,3 +3672,37 @@ the two disagree about history.
 Disabled rather than hidden when there is nowhere to go back to, so the header does not jump the
 moment somebody navigates once. And it says why, per #106.
 
+---
+
+## #109 — The spec named an event nothing emits
+
+**2026-08-19, module 05 session 2.** §2's trigger table maps `on_installation` to
+`ticket.completed` (type = installation). Module 04 does not emit `ticket.completed` and never has.
+It emits `ticket.generated`, `ticket.mobilized`, `ticket.started`, `ticket.demobilized`,
+`service_report.approved` and `project.closed`.
+
+Wiring the spec's name literally would have compiled, passed the manifest's event validation (which
+only rejects *subscribing* to events nothing emits — and this would have been a subscription to a
+declared-but-unemitted name), and produced a milestone that can never become billable. Worse than a
+plain bug: the term would read as configured on screen and silently bill nothing.
+
+`on_installation` now listens to **`service_report.approved`**, which is also the better answer on
+its own terms. A ticket marked complete is a status AIES set; an approved service report is the
+**artefact** describing what was done, and §12 makes it the document the customer's copy is cut
+from. Billing on the second is billing on something that survives an argument — the same principle
+as #85 and as §13's insistence on a signed DR rather than a despatch note.
+
+Flagged to the company as a decision they can reverse in one word if they want installation billing
+to fire at demobilisation instead.
+
+### The shape of this class of bug
+
+A subscriber reading the wrong field, or listening for the wrong name, **does not throw**. It finds
+nothing, does nothing, and the milestone sits `pending` for ever while everybody assumes billing is
+automatic. There is no error to find and no screen that looks wrong.
+
+So each of the six handlers is tested against **the payload its emitter really sends**, copied from
+the emit call rather than from the spec's prose. That is the only check that would have caught this
+one, and the test for `on_installation` names the trap explicitly so that "correcting" the trigger
+back to the spec's literal name fails a test rather than going quiet.
+
