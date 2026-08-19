@@ -123,6 +123,7 @@ import {
   listWarrantyClaimsService,
   raiseWarrantyClaimService,
   upsertEquipmentService,
+  recordWarrantyCostService,
   warrantyReportService,
 } from "@/server/core/operations/warranty-service";
 import { ATTENDEE_PARTIES } from "@/server/core/operations/site-inspection-rules";
@@ -1259,6 +1260,16 @@ export const operationsRouter = router({
     .query(({ input }) => listWarrantyClaimsService(input ?? {})),
 
   /** §11: "Warranty cost that nobody totals is warranty cost that never gets fixed." */
+  /**
+   * What a rectification cost. §11 reports warranty by count, cost and root cause, and the cost half
+   * had no column and no control — see the service for why it is typed rather than derived.
+   *
+   * On `warranty.determine` with the rest of the gate: costing a claim is part of answering it.
+   */
+  recordWarrantyCost: p("warranty.determine")
+    .input(z.object({ id: z.string(), cost: z.number().nullable() }))
+    .mutation(({ ctx, input }) => recordWarrantyCostService(actorMeta(ctx), input)),
+
   warrantyReport: p("ticket.view")
     .input(z.object({ accountId: z.string().optional() }).optional())
     .query(({ input }) => warrantyReportService(input ?? {})),

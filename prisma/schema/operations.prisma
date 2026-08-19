@@ -1255,6 +1255,19 @@ model WarrantyClaim {
 
   /// open | routed | closed
   status  String  @default("open")
+
+  /// What the rectification cost AIES, once somebody knows.
+  ///
+  /// §11 asks for warranty to be reported by "count, cost, and root cause" and says why: "warranty
+  /// cost that nobody totals is warranty cost that never gets fixed." The summary was written to
+  /// total this and the column did not exist, so the figure read "not yet totalled" on every claim
+  /// and always would have. Found by the company on 2026-08-20, looking at a metric that could
+  /// never move.
+  ///
+  /// Null until the work is done and costed — absent is not zero. A claim with no cost yet and a
+  /// claim that genuinely cost nothing are different facts, and averaging over the first as if it
+  /// were the second flatters the number that matters.
+  cost    Decimal? @db.Decimal(14, 2)
   remarks String?
 
   version Int @default(0)

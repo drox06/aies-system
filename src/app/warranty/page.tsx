@@ -18,6 +18,7 @@ import {
   type Coverage,
   type RootCauseCategory,
 } from "@/server/core/operations/warranty-rules";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -40,6 +41,8 @@ export default function WarrantyPage() {
   const report = trpc.operations.warrantyReport.useQuery({});
   const equipment = trpc.operations.listEquipment.useQuery({});
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  const canManageEquipment = (me.data?.permissions ?? []).includes("equipment.manage");
+  const refreshEquipment = () => void equipment.refetch();
 
   const canDetermine = (me.data?.permissions ?? []).includes("warranty.determine");
   const [raising, setRaising] = useState(false);
@@ -173,6 +176,12 @@ export default function WarrantyPage() {
                 </span>
               </div>
               <p className="mt-1">{row.faultDescription}</p>
+              {/* §11 reports warranty by count, cost and root cause. This is the cost half. */}
+              {canDetermine && (
+                <div className="mt-1">
+                  <ClaimCost claim={row} onDone={() => void claims.refetch()} />
+                </div>
+              )}
               <p className="mt-0.5 text-xs text-text-muted">
                 {ATTRIBUTION_LABELS[row.attribution as Attribution] ?? row.attribution}
                 {row.rootCauseCategory
@@ -228,9 +237,21 @@ export default function WarrantyPage() {
                   <span className="block text-xs text-text-muted">{item.location}</span>
                 ) : null}
               </span>
-              <StatusBadge tone={COVERAGE_TONE[item.coverage.coverage] ?? "pending"}>
-                {COVERAGE_LABELS[item.coverage.coverage]}
-              </StatusBadge>
+              <span className="flex items-center gap-2">
+                {/*
+                  The window, beside the badge that was computed from it.
+
+                  A coverage badge on its own is a conclusion with its evidence hidden, and the
+                  company could not check it: "I don't see dates, so I can't visually check if in
+                  warranty or out." A badge somebody cannot audit is a badge they have to trust, and
+                  this one decides who pays.
+                */}
+                <span className="text-xs text-text-muted">{warrantyWindow(item)}</span>
+                <StatusBadge tone={COVERAGE_TONE[item.coverage.coverage] ?? "pending"}>
+                  {COVERAGE_LABELS[item.coverage.coverage]}
+                </StatusBadge>
+                {canManageEquipment && <EditWarrantyDates item={item} onDone={refreshEquipment} />}
+              </span>
             </li>
           ))}
         </ul>
@@ -239,6 +260,189 @@ export default function WarrantyPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+/**
+ * The warranty window in words, and how long is left of it.
+ *
+ * Days rather than only dates, because "expires 14 Sep 2027" needs mental arithmetic and "307 days
+ * left" does not — and the question being asked is always *is this covered now*. The dates come too,
+ * because the arithmetic is what somebody will want to check when a customer disputes it.
+ *
+ * Equipment with no recorded window says so plainly. §11 is explicit that this is not the same as
+ * out of warranty: it is a question nobody has answered, and answering it is what the edit control
+ * beside it is for.
+ */
+function warrantyWindow(item: { warrantyStart: Date | null; warrantyEnd: Date | null }): string {
+  if (!item.warrantyEnd) return "no window recorded";
+
+  const end = new Date(item.warrantyEnd);
+  const days = Math.round((end.getTime() - Date.now()) / 86_400_000);
+  const until = end.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  if (days < 0) return `expired ${-days} d ago · ${until}`;
+  return `${days} d left · to ${until}`;
+}
+
+/**
+ * Correcting a warranty window.
+ *
+ * `upsertEquipmentService` existed with no screen, so a wrong or missing warranty date could not be
+ * put right from anywhere — which made the coverage badge unarguable in the worst sense. Asked for
+ * by the company on 2026-08-20: "where to edit warranty date?"
+ *
+ * Deliberately only the two dates. This is a correction control, not an equipment editor: the
+ * description, serial and tag are how the record is *identified*, and quietly changing those from a
+ * warranty screen is how one instrument's history becomes another's. A fuller editor belongs with
+ * §16's installed base when it gets its own screen.
+ *
+ * A claim already raised keeps the verdict it was given — see `raiseWarrantyClaimService`, which
+ * stores the determination rather than recomputing it. Correcting a date here fixes what happens
+ * next, and does not rewrite what a customer was already told.
+ */
+function EditWarrantyDates({
+  item,
+  onDone,
+}: {
+  item: {
+    id: string;
+    accountId: string;
+    description: string;
+    warrantyStart: Date | null;
+    warrantyEnd: Date | null;
+  };
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const asInput = (value: Date | null) => (value ? new Date(value).toISOString().slice(0, 10) : "");
+  const [start, setStart] = useState(asInput(item.warrantyStart));
+  const [end, setEnd] = useState(asInput(item.warrantyEnd));
+
+  const save = trpc.operations.upsertEquipment.useMutation({
+    onSuccess: () => {
+      toastSuccess("Warranty window updated.");
+      setOpen(false);
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Dates
+      </Button>
+    );
+  }
+
+  return (
+    <div className="w-full rounded-md border border-border p-2.5">
+      <p className="text-xs font-medium">{item.description}</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`ws-${item.id}`}>Warranty starts</Label>
+          <Input
+            id={`ws-${item.id}`}
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`we-${item.id}`}>Warranty ends</Label>
+          <Input
+            id={`we-${item.id}`}
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          disabled={save.isPending}
+          onClick={() =>
+            save.mutate({
+              id: item.id,
+              accountId: item.accountId,
+              description: item.description,
+              warrantyStart: start ? new Date(start) : null,
+              warrantyEnd: end ? new Date(end) : null,
+            })
+          }
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the rectification cost.
+ *
+ * §11 reports warranty by count, cost and root cause. The cost half had no column and no control, so
+ * the figure read "not yet totalled" on every claim and always would have — a report nobody can feed
+ * is a report nobody reads.
+ *
+ * Empty means *nobody has costed this yet*, which the summary treats differently from zero. Typing 0
+ * deliberately is allowed and means it cost nothing.
+ */
+function ClaimCost({
+  claim,
+  onDone,
+}: {
+  claim: { id: string; number: string; cost: string | number | null };
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState(claim.cost === null ? "" : String(claim.cost));
+  const save = trpc.operations.recordWarrantyCost.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Cost recorded on ${claim.number}.`);
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  const dirty = (claim.cost === null ? "" : String(claim.cost)) !== value;
+
+  return (
+    <span className="flex items-center gap-1">
+      <Label htmlFor={`wc-cost-${claim.id}`} className="text-xs text-text-muted">
+        Cost
+      </Label>
+      <Input
+        id={`wc-cost-${claim.id}`}
+        type="number"
+        min={0}
+        step="0.01"
+        className="w-28 text-right"
+        placeholder="not costed"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      {dirty && (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={save.isPending}
+          onClick={() =>
+            save.mutate({ id: claim.id, cost: value.trim() === "" ? null : Number(value) })
+          }
+        >
+          Save
+        </Button>
+      )}
+    </span>
   );
 }
 

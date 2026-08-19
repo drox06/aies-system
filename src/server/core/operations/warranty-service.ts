@@ -424,7 +424,9 @@ export async function listWarrantyClaimsService(
   });
 
   return {
-    rows,
+    // Decimal does not survive the wire as a number. Serialised here rather than at each call site,
+    // the same rule every other money field in this platform follows.
+    rows: rows.map((row) => ({ ...row, cost: row.cost === null ? null : row.cost.toString() })),
     /** The ones nobody has answered. §11's undetermined route is a queue, not a resting place. */
     awaitingDetermination: rows.filter((row) => row.status === "open").length,
   };
@@ -451,7 +453,9 @@ export async function warrantyReportService(filter: { accountId?: string } = {})
       billable: row.billable,
       modelNumber: row.equipment?.modelNumber ?? null,
       installedByTicketId: row.equipment?.installedByTicketId ?? null,
-      cost: null,
+      // Was hardcoded null while the column did not exist, so §11's cost figure could never move off
+      // "not yet totalled". Number() rather than the Decimal, because warrantySummary adds it up.
+      cost: row.cost === null ? null : Number(row.cost),
     })),
   );
 }
@@ -499,4 +503,75 @@ export async function sweepExpiringWarrantiesService(days = 90) {
   });
 
   return { expiring: expiring.length };
+}
+
+/**
+ * Records what a warranty rectification cost AIES.
+ *
+ * §11 asks for warranty to be reported by "count, cost, and root cause", and gives the reason in one
+ * line: **"warranty cost that nobody totals is warranty cost that never gets fixed."** The summary
+ * was built to total it and there was no column and no way to enter one, so the figure read "not yet
+ * totalled" on every claim and always would have. A report nobody can feed is a report nobody reads.
+ *
+ * ## Why it is entered rather than derived
+ *
+ * The obvious alternative is to sum the warranty ticket's timesheets and materials. That is the right
+ * answer eventually and the wrong one now: §16's time and cost capture exists but a warranty callout
+ * routinely carries costs it never sees — a part couriered overnight, a subcontracted crane, the
+ * engineer's flight to Cebu. Deriving from what the system happens to know would produce a confident
+ * figure that is quietly too low, on precisely the number the company uses to argue for fixing a
+ * recurring defect.
+ *
+ * So it is typed, by somebody who knows, and it can be revised. When module 08 closes the loop
+ * between a ticket's actual cost and its claim, this becomes the override rather than the source.
+ *
+ * ## Null is not zero
+ *
+ * Clearing the figure sets it back to null — "nobody has costed this yet" — which is a different fact
+ * from "this cost nothing", and the summary treats them differently. Passing zero deliberately is
+ * allowed and means zero.
+ */
+export async function recordWarrantyCostService(
+  actor: ActorMeta,
+  input: { id: string; cost: number | null },
+) {
+  const claim = await db.warrantyClaim.findFirst({
+    where: { id: input.id, deletedAt: null },
+    select: { id: true, number: true, cost: true },
+  });
+  if (!claim) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That claim no longer exists." });
+  }
+
+  if (input.cost !== null && (!Number.isFinite(input.cost) || input.cost < 0)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A warranty cost cannot be negative. Leave it empty if nobody has costed it yet.",
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.warrantyClaim.update({
+      where: { id: claim.id },
+      data: { cost: input.cost },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "update",
+      entityType: WARRANTY_ENTITY_TYPE,
+      entityId: claim.id,
+      summary:
+        input.cost === null
+          ? `Cleared the recorded cost on ${claim.number}`
+          : `Recorded ${claim.number} as costing ${input.cost.toFixed(2)}`,
+      diff: { cost: { from: claim.cost === null ? null : Number(claim.cost), to: input.cost } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { ok: true as const };
 }
