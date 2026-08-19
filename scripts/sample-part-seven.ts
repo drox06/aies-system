@@ -70,29 +70,115 @@ async function remove() {
     return;
   }
 
-  // Order matters: children before parents, because these are real foreign keys rather than a
-  // cascade that happens to exist.
-  const quotations = await db.quotation.findMany({
+  /*
+    Everything the *deal* grew, not everything the *seed* wrote.
+
+    The first version of this removed the six records it had created — quotation, lines, inquiry,
+    items, site, account — and failed the moment it was actually needed. By then the company had
+    walked the deal to the end: a sales order, three tickets, three supplier POs, a goods receipt, a
+    delivery receipt, commissioning, a service report, a QA approval. The delete died on
+    `SalesOrder_quotationId_fkey` and left the account half-dismantled.
+
+    That is the general trap with a `--remove`: **it must delete what the seeded record can become,
+    not what the script put there.** A seed exists to be used, and using it is what grows the tree.
+
+    Ordered children before parents. Anything not present is a no-op, so the list is deliberately
+    wider than any one run needs — a walkthrough that stops at part twelve leaves a different shape
+    behind than one that reaches close-out, and neither should need this file edited.
+  */
+  const tickets = await db.ticket.findMany({
     where: { accountId: { in: accountIds } },
     select: { id: true },
   });
-  const quotationIds = quotations.map((row) => row.id);
+  const ticketIds = tickets.map((ticket) => ticket.id);
 
-  await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
-  await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
-
-  const inquiries = await db.inquiry.findMany({
+  const orders = await db.salesOrder.findMany({
     where: { accountId: { in: accountIds } },
     select: { id: true },
   });
-  const inquiryIds = inquiries.map((row) => row.id);
-  await db.inquiryItem.deleteMany({ where: { inquiryId: { in: inquiryIds } } });
-  await db.inquiry.deleteMany({ where: { id: { in: inquiryIds } } });
+  const orderIds = orders.map((order) => order.id);
 
+  const projects = await db.project.findMany({
+    where: { accountId: { in: accountIds } },
+    select: { id: true },
+  });
+  const projectIds = projects.map((project) => project.id);
+
+  const supplierPos = await db.supplierPO.findMany({
+    where: { salesOrderId: { in: orderIds } },
+    select: { id: true },
+  });
+  const supplierPoIds = supplierPos.map((po) => po.id);
+
+  const materialRequests = await db.materialRequest.findMany({
+    where: { ticketId: { in: ticketIds } },
+    select: { id: true },
+  });
+  const materialRequestIds = materialRequests.map((request) => request.id);
+
+  const cashAdvances = await db.cashAdvance.findMany({
+    where: { ticketId: { in: ticketIds } },
+    select: { id: true },
+  });
+  const cashAdvanceIds = cashAdvances.map((advance) => advance.id);
+
+  // ---- module 04's records, deepest first ------------------------------------------------------
+  await db.deliveryReceiptLine.deleteMany({
+    where: { receipt: { salesOrderId: { in: orderIds } } },
+  });
+  await db.deliveryTicketFlow.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.deliveryReceipt.deleteMany({ where: { salesOrderId: { in: orderIds } } });
+
+  await db.qAApproval.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.testingCommissioning.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.serviceReport.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.methodology.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.siteInspection.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.checklistResponse.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.dailyProgress.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.timesheet.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.fieldExpense.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.mobilization.deleteMany({ where: { ticketId: { in: ticketIds } } });
+
+  await db.stockMovement.deleteMany({ where: { requestId: { in: materialRequestIds } } });
+  await db.materialRequestLine.deleteMany({ where: { requestId: { in: materialRequestIds } } });
+  await db.materialRequest.deleteMany({ where: { id: { in: materialRequestIds } } });
+
+  await db.cashAdvanceLiquidation.deleteMany({
+    where: { cashAdvanceId: { in: cashAdvanceIds } },
+  });
+  await db.cashAdvance.deleteMany({ where: { id: { in: cashAdvanceIds } } });
+
+  // ---- module 03's procurement side ------------------------------------------------------------
+  await db.goodsReceiptLine.deleteMany({
+    where: { goodsReceipt: { supplierPOId: { in: supplierPoIds } } },
+  });
+  await db.goodsReceipt.deleteMany({ where: { supplierPOId: { in: supplierPoIds } } });
+  await db.supplierPOLine.deleteMany({ where: { supplierPOId: { in: supplierPoIds } } });
+  await db.supplierPO.deleteMany({ where: { id: { in: supplierPoIds } } });
+
+  // ---- module 05's schedule, which hangs off the order -----------------------------------------
+  await db.billingMilestone.deleteMany({ where: { salesOrderId: { in: orderIds } } });
+  await db.billingSchedule.deleteMany({ where: { salesOrderId: { in: orderIds } } });
+
+  // ---- the order, the tickets, the project ------------------------------------------------------
+  await db.ticketSalesOrderLine.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
+  await db.projectCloseOut.deleteMany({ where: { projectId: { in: projectIds } } });
+  await db.project.deleteMany({ where: { id: { in: projectIds } } });
+  await db.salesOrderLine.deleteMany({ where: { salesOrderId: { in: orderIds } } });
+  await db.salesOrder.deleteMany({ where: { id: { in: orderIds } } });
+
+  // ---- back up the chain to where the seed started ----------------------------------------------
+  await db.customerPO.deleteMany({ where: { accountId: { in: accountIds } } });
+  await db.quotationLine.deleteMany({ where: { quotation: { accountId: { in: accountIds } } } });
+  await db.quotation.deleteMany({ where: { accountId: { in: accountIds } } });
+  await db.inquiryItem.deleteMany({ where: { inquiry: { accountId: { in: accountIds } } } });
+  await db.inquiry.deleteMany({ where: { accountId: { in: accountIds } } });
   await db.site.deleteMany({ where: { accountId: { in: accountIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
 
-  console.log(`Removed ${accountIds.length} ${MARK} account(s) and everything under them.`);
+  console.log(`Removed ${accountIds.length} ${MARK} account(s) and everything the deal grew.`);
 }
 
 async function main() {
