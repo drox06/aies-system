@@ -222,7 +222,7 @@ function ExternalForm({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [title, setTitle] = useState(`Client's own method statement — ${ticketTitle}`);
+  const [title, setTitle] = useState(`Externally written method statement — ${ticketTitle}`);
   const [scopeSummary, setScopeSummary] = useState("");
   const [approvalFileId, setApprovalFileId] = useState("");
   const [name, setName] = useState("");

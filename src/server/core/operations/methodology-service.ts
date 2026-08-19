@@ -779,7 +779,7 @@ export async function recordExternalMethodologyService(
         revision: 0,
         ticketId: ticket.id,
         projectId: ticket.projectId,
-        title: input.title.trim() || `Client's own method statement — ${ticket.number}`,
+        title: input.title.trim() || `Externally written method statement — ${ticket.number}`,
         scopeSummary,
         status: "client_approved",
         externalDocument: true,
