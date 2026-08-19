@@ -206,9 +206,41 @@ export const financeManifest = defineManifest({
     },
   ],
 
+  /*
+    All of module 05's screens under one heading.
+
+    They were ungrouped, so they sat loose at the top of the sidebar among "My day" and "Approvals"
+    — three money screens with nothing saying they belonged together, and nothing to fold away for
+    the people who never open them. The nav groups collapse now, which makes an ungrouped entry a
+    permanent one.
+
+    **Cash advances joins them**, moved out of Operations. It is raised on a ticket, which is why it
+    started there, but the *register* is a finance screen: it is gated on `cash_advance.view_register`
+    rather than on requesting one, and the company settled in this round that finance alone reviews
+    liquidations. A technician's own advance is on their ticket, where they are already looking. The
+    money view belongs with the money.
+  */
   nav: [
-    { label: "Ready to bill", href: "/finance/billing", icon: "receipt", order: 1 },
-    { label: "Receivables", href: "/finance/receivables", icon: "wallet", order: 2 },
-    { label: "Collections", href: "/finance/collections", icon: "phone", order: 3 },
+    {
+      label: "Ready to bill",
+      href: "/finance/billing",
+      icon: "receipt",
+      group: "Finance",
+      order: 1,
+    },
+    {
+      label: "Receivables",
+      href: "/finance/receivables",
+      icon: "wallet",
+      group: "Finance",
+      order: 2,
+    },
+    {
+      label: "Collections",
+      href: "/finance/collections",
+      icon: "phone",
+      group: "Finance",
+      order: 3,
+    },
   ],
 });

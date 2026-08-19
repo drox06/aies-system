@@ -546,8 +546,10 @@ export const operationsManifest = defineManifest({
       // technician is not given a menu item that shows them one row — their own advances are on
       // their ticket, where they are looking anyway.
       permission: "cash_advance.view_register",
-      group: "Operations",
-      order: 44,
+      // Moved to Finance on 2026-08-19. Raised on a ticket, reviewed by finance — and this entry is
+      // the register, not the request. See the note on module 05's nav.
+      group: "Finance",
+      order: 4,
     },
     {
       label: "Site inspections",

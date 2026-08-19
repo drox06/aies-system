@@ -12,7 +12,6 @@ import {
   Columns3,
   FileText,
   Handshake,
-  House,
   Inbox,
   Sunrise,
   Users,
@@ -23,10 +22,13 @@ import {
   Truck,
   Wallet,
   Wrench,
+  Receipt,
+  Phone,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BackButton } from "@/components/shell/BackButton";
 import { Logo } from "@/components/brand/Logo";
+import { isNavIconName, type NavIconName } from "@/components/shell/nav-icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/cells";
 import { Menu, MenuItem } from "@/components/ui/menu";
@@ -184,7 +186,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       )}
                     >
                       {(() => {
-                        const Icon = ICONS[entry.icon ?? ""];
+                        // Narrowed rather than indexed by a bare string: the map is now typed by
+                        // the name list, so an icon a manifest invented cannot silently resolve to
+                        // undefined and render the placeholder. See nav-icons.ts.
+                        const Icon =
+                          entry.icon && isNavIconName(entry.icon) ? ICONS[entry.icon] : null;
                         return Icon ? (
                           <Icon
                             aria-hidden
@@ -334,8 +340,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
  * `strokeWidth` is lifted to 2.25 because these sit on navy — a 2px stroke that reads fine on
  * white goes thin and grey against a dark ground.
  */
-const ICONS: Record<string, LucideIcon> = {
-  home: House,
+const ICONS: Record<NavIconName, LucideIcon> = {
   check: ClipboardCheck,
   users: Users,
   // Module 01 (specs/01-crm-inquiry.md).
@@ -360,6 +365,11 @@ const ICONS: Record<string, LucideIcon> = {
   "clipboard-check": ClipboardCheck,
   "shield-check": ShieldCheck,
   "folder-kanban": FolderKanban,
+  // Module 05 (specs/05-finance-billing.md). Both shipped unmapped and rendered the placeholder
+  // dot — the third and fourth instances of the fault the `truck` comment above warns about, which
+  // is why the names now live in nav-icons.ts and the type here is no longer `string`.
+  receipt: Receipt,
+  phone: Phone,
 };
 
 const ICON_SIZE = 20;
