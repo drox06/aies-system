@@ -629,6 +629,31 @@ model Methodology {
   clientApprovalFileId String?
   clientRejectionNotes String?
 
+  /// Who signed it on the customer's side, and in what capacity.
+  ///
+  /// The file alone answers "is there an approval"; these answer "whose". An ISO auditor asking how
+  /// AIES knows the client approved wants a name, and "it is in the PDF" is not a record — it is a
+  /// place to go and look. Null on the ordinary path, where the approval arrives through §6.2's own
+  /// review chain and the signatory is on the document AIES itself produced.
+  clientApprovedByName     String?
+  clientApprovedByPosition String?
+
+  /// This method statement was written by somebody else, and arrived already approved.
+  ///
+  /// Some plants will not accept AIES's method statement and hand over their own permit-to-work or
+  /// method-of-statement form instead, which AIES completes and they sign. That is a legitimate way
+  /// to satisfy §6.2 — the client approved, on paper, and the paper is on file — but it produces no
+  /// draft, no internal review and no submission, so the record cannot be told from a normal one by
+  /// its status alone.
+  ///
+  /// The flag exists so it can be. Everything downstream that reads a methodology — the close-out
+  /// pack, the turnaround metric, module 07's controlled documents — needs to know that AIES did not
+  /// author this and that the empty `sequenceOfWork` is a fact about the document rather than an
+  /// unfinished one. Before this, the only route past the gate for these jobs was the override,
+  /// which records "a control was bypassed" — the honest description of skipping a client approval
+  /// and the wrong description of a client who genuinely gave one. Raised by the company 2026-08-19.
+  externalDocument Boolean @default(false)
+
   /// §6.2: "defaults to `true` and the flag exists only so a rare exception can be recorded, not as
   /// a routine setting." Turning it off is an act with a reason attached, not a checkbox.
   clientApprovalRequired Boolean @default(true)

@@ -9,6 +9,7 @@ import {
   methodologyGateForTicket,
   overrideMethodologyGateService,
   recordClientDecisionService,
+  recordExternalMethodologyService,
   saveMethodologyService,
   submitForInternalReviewService,
   submitToClientService,
@@ -367,5 +368,140 @@ describe("§6.2 — the institutional library", () => {
       where: { entityType: METHODOLOGY_ENTITY_TYPE, entityId: created.id, action: "created" },
     });
     expect(log).not.toBeNull();
+  });
+});
+
+/**
+ * §6.2's second path — the client's own method statement, already approved.
+ *
+ * The company asked for two ways through this gate: write one here, or record the one the customer
+ * wrote and signed. Before it existed, the second case could only go through
+ * `overrideMethodologyGateService`, which records "a control was bypassed" — the right words for
+ * mobilising *without* a client approval and the wrong ones for mobilising with one.
+ *
+ * Three things are worth pinning, and the second is the one that keeps this honest rather than
+ * convenient.
+ */
+describe("the client's own method statement", () => {
+  async function makeApprovalFile(uploader: AuthedUser) {
+    return db.fileObject.create({
+      data: {
+        entityType: METHODOLOGY_ENTITY_TYPE,
+        entityId: `pending-${randomUUID()}`,
+        filename: "acme-permit-to-work.pdf",
+        mimeType: "application/pdf",
+        size: 2048,
+        sha256: randomUUID(),
+        storageKey: `test/${randomUUID()}.pdf`,
+        uploaderId: uploader.id,
+      },
+    });
+  }
+
+  it("clears the gate as an approval, not as an override", async () => {
+    const preparer = await makeUser("operations_manager", ["methodology.prepare", "ticket.view"]);
+    const ticket = await makeTicket(preparer);
+    const file = await makeApprovalFile(preparer);
+
+    const before = await methodologyGateForTicket(ticket.id);
+    expect(before.blocks, "a new project with nothing on file must block").toBe(true);
+
+    await recordExternalMethodologyService(actorFor(preparer), {
+      ticketId: ticket.id,
+      title: "Acme permit to work",
+      scopeSummary: "Replace two DN100 flowmeters on the number 2 header.",
+      approvalFileId: file.id,
+      clientApprovedByName: "R. Santos",
+      clientApprovedByPosition: "Maintenance Superintendent",
+      clientApprovedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    });
+
+    const after = await methodologyGateForTicket(ticket.id);
+    // Satisfied through the *existing* rule — status plus document — rather than through any new
+    // exception. That is the whole design: one gate, two ways of genuinely meeting it.
+    expect(after.blocks).toBe(false);
+    expect(after.state).toBe("satisfied");
+    expect(after.methodology?.status).toBe("client_approved");
+  });
+
+  /**
+   * The one that matters.
+   *
+   * Without this refusal, anybody meeting resistance at internal review could sidestep §6.2's whole
+   * chain by declaring the client had approved something — turning a deliberate second path into a
+   * hole in the first.
+   */
+  it("refuses when a method statement is already live on the job", async () => {
+    const preparer = await makeUser("operations_manager", ["methodology.prepare", "ticket.view"]);
+    const ticket = await makeTicket(preparer);
+    const file = await makeApprovalFile(preparer);
+
+    await createMethodologyService(actorFor(preparer), {
+      ticketId: ticket.id,
+      title: "Ours, in progress",
+    });
+
+    await expect(
+      recordExternalMethodologyService(actorFor(preparer), {
+        ticketId: ticket.id,
+        title: "Theirs",
+        scopeSummary: "Trying to go around the review.",
+        approvalFileId: file.id,
+        clientApprovedByName: "R. Santos",
+        clientApprovedAt: new Date(),
+      }),
+    ).rejects.toThrow(/already on this job/);
+  });
+
+  it("refuses an approval nobody signed, and one dated in the future", async () => {
+    const preparer = await makeUser("operations_manager", ["methodology.prepare", "ticket.view"]);
+    const ticket = await makeTicket(preparer);
+    const file = await makeApprovalFile(preparer);
+
+    await expect(
+      recordExternalMethodologyService(actorFor(preparer), {
+        ticketId: ticket.id,
+        title: "Theirs",
+        scopeSummary: "Covered.",
+        approvalFileId: file.id,
+        clientApprovedByName: "   ",
+        clientApprovedAt: new Date(Date.now() - 1000),
+      }),
+    ).rejects.toThrow(/Name who signed it/);
+
+    await expect(
+      recordExternalMethodologyService(actorFor(preparer), {
+        ticketId: ticket.id,
+        title: "Theirs",
+        scopeSummary: "Covered.",
+        approvalFileId: file.id,
+        clientApprovedByName: "R. Santos",
+        clientApprovedAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      }),
+    ).rejects.toThrow(/signed it in the future/);
+  });
+
+  /** The record must not pretend AIES wrote it. */
+  it("marks the record as somebody else's document", async () => {
+    const preparer = await makeUser("operations_manager", ["methodology.prepare", "ticket.view"]);
+    const ticket = await makeTicket(preparer);
+    const file = await makeApprovalFile(preparer);
+
+    const created = await recordExternalMethodologyService(actorFor(preparer), {
+      ticketId: ticket.id,
+      title: "Acme permit to work",
+      scopeSummary: "Replace two DN100 flowmeters.",
+      approvalFileId: file.id,
+      clientApprovedByName: "R. Santos",
+      clientApprovedByPosition: "Maintenance Superintendent",
+      clientApprovedAt: new Date(Date.now() - 1000),
+    });
+
+    const row = await db.methodology.findUniqueOrThrow({ where: { id: created.id } });
+    expect(row.externalDocument).toBe(true);
+    expect(row.clientApprovedByName).toBe("R. Santos");
+    expect(row.clientApprovalFileId).toBe(file.id);
+    // No submission ever happened, so the turnaround figure must not claim one did.
+    expect(row.submittedToClientAt).toBeNull();
   });
 });

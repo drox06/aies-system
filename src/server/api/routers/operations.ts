@@ -176,6 +176,7 @@ import {
   methodologyGateForTicket,
   overrideMethodologyGateService,
   recordClientDecisionService,
+  recordExternalMethodologyService,
   saveMethodologyService,
   submitForInternalReviewService,
   submitToClientService,
@@ -673,6 +674,31 @@ export const operationsRouter = router({
   withdrawMethodologyFromClient: p("methodology.prepare")
     .input(z.object({ methodologyId: z.string() }))
     .mutation(({ ctx, input }) => withdrawFromClientService(actorMeta(ctx), input.methodologyId)),
+
+  /**
+   * §6.2's second path: the client's own method statement, already approved.
+   *
+   * On `methodology.prepare` rather than `methodology.approve`, and the distinction is the point.
+   * Nobody at AIES is approving anything here — the client already did, on their own paper. What
+   * this records is *that it happened*, which is the same act as preparing a statement and belongs
+   * with the same people. Requiring an approver would imply an AIES decision that nobody made.
+   *
+   * The service refuses when a method statement is already live on the job, which is what stops
+   * this being a way around the internal review rather than an alternative to it.
+   */
+  recordExternalMethodology: p("methodology.prepare")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        title: z.string().max(300),
+        scopeSummary: z.string().min(1).max(2000),
+        approvalFileId: z.string(),
+        clientApprovedByName: z.string().min(1).max(200),
+        clientApprovedByPosition: z.string().max(200).nullish(),
+        clientApprovedAt: z.coerce.date(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordExternalMethodologyService(actorMeta(ctx), input)),
 
   recordClientDecision: p("methodology.prepare")
     .input(

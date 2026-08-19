@@ -643,6 +643,196 @@ export async function methodologyGateForTicket(ticketId: string) {
   };
 }
 
+/**
+ * The second path through §6.2: a method statement written elsewhere, already approved by the client.
+ *
+ * ## Why there are two paths
+ *
+ * The default is unchanged and remains the normal case: AIES writes the statement here, has it
+ * reviewed internally, sends it, and records what the client said. That path produces the sequence
+ * of work §7 reads to pre-populate a material request, and the turnaround figure that shows whose
+ * delay a slipped mobilisation was.
+ *
+ * The second exists because some plants will not accept our document. They hand over their own
+ * permit-to-work or method-of-statement form, AIES completes it, and their engineer signs it. The
+ * client has approved a method statement — on paper, with a name on it — and §6.2 is satisfied in
+ * substance. But there is no draft, no review and no submission, so before this the only way past
+ * the gate was `overrideMethodologyGateService`.
+ *
+ * **That is the wrong label, and labels are what an audit reads.** An override records "a control
+ * was bypassed": the honest description of mobilising without a client approval, and a
+ * misdescription of mobilising with one. Filed against ISO 9001 clause 8.1, the first is a
+ * nonconformity to explain and the second is compliance. The platform could not tell them apart, so
+ * it called both an override. Now it does not. Asked for by the company on 2026-08-19.
+ *
+ * ## Why it creates a real record rather than a new kind of exception
+ *
+ * The row is written straight to `client_approved` with the file attached, which means the gate
+ * clears through its **existing** rule — `methodologyGate` already requires that status *and* a
+ * document, precisely because "a status is ours, the document is theirs". No new gate concept, no
+ * second code path in the thing that decides whether a crew may leave.
+ *
+ * It also means the close-out pack, which indexes the method statement among the items a project
+ * must have on file, finds one. A job done to the customer's own form is not a job with no method
+ * statement, and a pack that reported it as missing would be wrong in the direction that costs an
+ * audit finding.
+ *
+ * `externalDocument` is what stops that record lying about its own provenance: AIES did not write
+ * it, its `sequenceOfWork` is empty as a fact rather than as an omission, and its turnaround is not
+ * a measure of anybody's responsiveness.
+ *
+ * ## What it refuses
+ *
+ * **A ticket that already has a live method statement.** This is the one that matters. Without it,
+ * anybody meeting resistance at internal review could sidestep the whole chain by declaring the
+ * client had approved something — turning a deliberate second path into a hole in the first. A
+ * statement already in flight is finished through its own lifecycle or superseded on purpose.
+ *
+ * **An approval dated in the future**, and one with no signatory named. Both are the difference
+ * between recording an approval and asserting one.
+ */
+export async function recordExternalMethodologyService(
+  actor: ActorMeta,
+  input: {
+    ticketId: string;
+    title: string;
+    scopeSummary: string;
+    approvalFileId: string;
+    clientApprovedByName: string;
+    clientApprovedByPosition?: string | null;
+    clientApprovedAt: Date;
+  },
+) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: input.ticketId, deletedAt: null },
+    select: { id: true, number: true, projectId: true },
+  });
+  if (!ticket) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
+  }
+
+  const existing = await db.methodology.findFirst({
+    where: {
+      deletedAt: null,
+      status: { not: "superseded" },
+      OR: [{ ticketId: ticket.id }, ...(ticket.projectId ? [{ projectId: ticket.projectId }] : [])],
+    },
+    orderBy: { revision: "desc" },
+    select: { number: true, revision: true, status: true },
+  });
+  if (existing) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${existing.number} R${existing.revision} is already on this job and is ` +
+        `${existing.status.replace(/_/g, " ")}. Finish it through its own steps, or supersede it — ` +
+        `this route is for a job where AIES never wrote one.`,
+    });
+  }
+
+  const name = input.clientApprovedByName.trim();
+  if (name.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Name who signed it for the customer. An approval nobody signed is not an approval.",
+    });
+  }
+
+  const scopeSummary = input.scopeSummary.trim();
+  if (scopeSummary.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Say in a line what the document covers, so the record is readable without opening it.",
+    });
+  }
+
+  // A signature cannot be dated after today. Tomorrow's approval is a typo, and it would sit in the
+  // close-out pack as evidence of something that has not happened.
+  if (input.clientApprovedAt.getTime() > Date.now()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The client cannot have signed it in the future. Check the date.",
+    });
+  }
+
+  const file = await db.fileObject.findFirst({
+    where: { id: input.approvalFileId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!file) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "That attachment no longer exists. Upload the approved document and choose it again.",
+    });
+  }
+
+  // Allocated outside the transaction like every other number here: a rollback burns one, and
+  // Spec.md §5 permits gaps.
+  const number = await allocateNumber(METHODOLOGY_DOCUMENT_TYPE);
+
+  const created = await db.$transaction(async (tx) => {
+    const row = await tx.methodology.create({
+      data: {
+        number,
+        revision: 0,
+        ticketId: ticket.id,
+        projectId: ticket.projectId,
+        title: input.title.trim() || `Client's own method statement — ${ticket.number}`,
+        scopeSummary,
+        status: "client_approved",
+        externalDocument: true,
+        clientApprovalFileId: file.id,
+        clientApprovedAt: input.clientApprovedAt,
+        clientApprovedByName: name,
+        clientApprovedByPosition: input.clientApprovedByPosition?.trim() || null,
+        /*
+          `preparedById` is whoever recorded this, not whoever wrote the document — AIES did not
+          write it. The column is required and the honest reading of it here is "the person
+          answerable for this record existing", which is exactly who this is.
+
+          `submittedToClientAt` stays null on purpose. §6.2's turnaround measures the gap between
+          AIES sending and the client answering; there was no sending, so any value here would be an
+          invented duration in a figure the company uses to argue about whose delay a slip was.
+        */
+        preparedById: actor.actorId,
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "create",
+      entityType: METHODOLOGY_ENTITY_TYPE,
+      entityId: row.id,
+      summary:
+        `Recorded ${row.number} on ${ticket.number} — the client's own method statement, ` +
+        `approved by ${name}${input.clientApprovedByPosition ? `, ${input.clientApprovedByPosition.trim()}` : ""}. ` +
+        `Written by the customer, not by AIES.`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    /*
+      No event, deliberately.
+
+      The ordinary client-approval path emits nothing either — only the *internal* approval does,
+      as `methodology.approved`. Emitting something here would make two paths that mean the same
+      thing behave differently for anybody subscribing, which is the sort of asymmetry that gets
+      discovered years later by a handler that fires on one kind of job and not the other.
+
+      If a subscriber is ever wanted for "the client approved", it belongs on both paths at once,
+      declared in the manifest, and named the same in each.
+    */
+
+    return row;
+  });
+
+  return { id: created.id, number: created.number };
+}
+
 /** §19's `operations.override_methodology_gate` — president and VP only, and logged with a reason. */
 export async function overrideMethodologyGateService(
   actor: ActorMeta,

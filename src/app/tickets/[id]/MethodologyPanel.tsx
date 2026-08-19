@@ -40,6 +40,7 @@ export function MethodologyPanel({
   const gate = trpc.operations.methodologyGate.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
   const [showForm, setShowForm] = useState(false);
+  const [showExternal, setShowExternal] = useState(false);
 
   const permissions = me.data?.permissions ?? [];
   const canPrepare = permissions.includes("methodology.prepare");
@@ -97,10 +98,35 @@ export function MethodologyPanel({
         </p>
       )}
 
-      {canPrepare && !data.methodology && !showForm && (
-        <Button variant="secondary" size="sm" className="mt-3" onClick={() => setShowForm(true)}>
-          Write a method statement
-        </Button>
+      {/*
+        Two ways to satisfy §6.2, said plainly rather than left to be discovered.
+
+        The first is the normal one and stays the primary button. The second exists because some
+        plants will not accept AIES's document and hand over their own — see
+        recordExternalMethodologyService for why that is a path rather than an override.
+      */}
+      {canPrepare && !data.methodology && !showForm && !showExternal && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setShowForm(true)}>
+            Write a method statement
+          </Button>
+          <span className="text-xs text-text-muted">or</span>
+          <Button variant="ghost" size="sm" onClick={() => setShowExternal(true)}>
+            The client already approved their own
+          </Button>
+        </div>
+      )}
+
+      {showExternal && (
+        <ExternalForm
+          ticketId={ticketId}
+          ticketTitle={ticketTitle}
+          onDone={() => {
+            setShowExternal(false);
+            refresh();
+          }}
+          onCancel={() => setShowExternal(false)}
+        />
       )}
 
       {showForm && (
@@ -168,6 +194,147 @@ export function MethodologyPanel({
 
       {data.blocks && canOverride && <OverrideBlock ticketId={ticketId} onDone={refresh} />}
     </Card>
+  );
+}
+
+/**
+ * Recording a method statement the customer wrote and already signed.
+ *
+ * Everything on this form is something only a person can know — which of the attached files is the
+ * approved one, whose signature is on it, in what capacity, and on what date. None of it is derived,
+ * which is why none of it is prefilled beyond a sensible title.
+ *
+ * The document is **chosen from what is attached**, never typed as an id: the same rule that made
+ * pickers of the commissioning and service-report signature fields. If nothing is attached yet the
+ * form says so rather than offering an empty dropdown that looks broken.
+ *
+ * The date defaults to nothing rather than to today. Today is a guess, and a guessed date on a
+ * client approval is the kind of small invention that an audit finds and cannot un-find.
+ */
+function ExternalForm({
+  ticketId,
+  ticketTitle,
+  onDone,
+  onCancel,
+}: {
+  ticketId: string;
+  ticketTitle: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState(`Client's own method statement — ${ticketTitle}`);
+  const [scopeSummary, setScopeSummary] = useState("");
+  const [approvalFileId, setApprovalFileId] = useState("");
+  const [name, setName] = useState("");
+  const [position, setPosition] = useState("");
+  const [approvedAt, setApprovedAt] = useState("");
+
+  const files = trpc.files.forEntity.useQuery(
+    { entityType: METHODOLOGY_ENTITY_TYPE, entityId: ticketId },
+    { retry: false },
+  );
+  const record = trpc.operations.recordExternalMethodology.useMutation({ onSuccess: onDone });
+
+  const attached = files.data ?? [];
+  const ready =
+    approvalFileId !== "" &&
+    name.trim().length > 0 &&
+    scopeSummary.trim().length > 0 &&
+    approvedAt !== "";
+
+  return (
+    <div className="mt-3 space-y-3 rounded-md border border-border p-3">
+      <div>
+        <h3 className="text-sm font-semibold">The client&rsquo;s own method statement</h3>
+        <p className="mt-0.5 text-xs text-text-muted">
+          For a site that works to its own permit-to-work or method-of-statement form. This records
+          their approval — it is not an override, and it clears the gate because the approval
+          happened.
+        </p>
+      </div>
+
+      <div>
+        <Label htmlFor="ext-file">Which attached document did they approve</Label>
+        <Select
+          id="ext-file"
+          value={approvalFileId}
+          onChange={(e) => setApprovalFileId(e.target.value)}
+        >
+          <option value="">Choose an attachment…</option>
+          {attached.map((file) => (
+            <option key={file.id} value={file.id}>
+              {file.filename}
+            </option>
+          ))}
+        </Select>
+        {attached.length === 0 && (
+          <p className="mt-0.5 text-xs text-amber-800">
+            Nothing is attached yet. Upload the approved document above first.
+          </p>
+        )}
+      </div>
+
+      <div>
+        <Label htmlFor="ext-title">Title</Label>
+        <Input id="ext-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+
+      <div>
+        <Label htmlFor="ext-scope">What it covers</Label>
+        <Textarea
+          id="ext-scope"
+          rows={2}
+          value={scopeSummary}
+          placeholder="One line, so the record is readable without opening the document."
+          onChange={(e) => setScopeSummary(e.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <Label htmlFor="ext-name">Who signed it</Label>
+          <Input id="ext-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="ext-position">Their position</Label>
+          <Input id="ext-position" value={position} onChange={(e) => setPosition(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="ext-date">Date they signed</Label>
+          <Input
+            id="ext-date"
+            type="date"
+            value={approvedAt}
+            onChange={(e) => setApprovedAt(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {record.error && <p className="text-sm text-danger">{record.error.message}</p>}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={record.isPending || !ready}
+          onClick={() =>
+            record.mutate({
+              ticketId,
+              title,
+              scopeSummary: scopeSummary.trim(),
+              approvalFileId,
+              clientApprovedByName: name.trim(),
+              clientApprovedByPosition: position.trim() || null,
+              clientApprovedAt: new Date(approvedAt),
+            })
+          }
+        >
+          {record.isPending ? "Recording…" : "Record their approval"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 
