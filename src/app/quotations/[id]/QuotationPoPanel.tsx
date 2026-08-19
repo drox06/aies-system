@@ -49,6 +49,8 @@ export function QuotationPoPanel({
   // `customer_po.view` gates this; the panel disappears for anybody else rather than erroring.
   const pos = trpc.order.forQuotation.useQuery({ quotationId }, { retry: false });
   const record = trpc.order.recordCustomerPo.useMutation();
+  const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  const canRemove = (me.data?.permissions ?? []).includes("customer_po.remove");
 
   if (pos.error) return null;
 
@@ -139,6 +141,16 @@ export function QuotationPoPanel({
                 salesOrder={po.salesOrder}
                 onChanged={onRecorded}
               />
+
+              {/*
+                Removing it, for the two officers who may.
+
+                A customer whose quotation is revised reissues their PO against the new document, and
+                the old one has to come off — or the pipeline column, §3's verification and §4's
+                downpayment gate all go on reading a figure nobody will pay. Held narrowly on
+                purpose; see the permission's own note in the manifest.
+              */}
+              {canRemove && <RemovePo po={po} onDone={onRecorded} />}
 
               {/*
                 Correcting a PO recorded with the wrong number or the wrong file.
@@ -285,6 +297,73 @@ function PoWithdraw({
           {withdraw.isPending ? "Withdrawing…" : "Yes, withdraw it"}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Keep it
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "This PO no longer stands" â€” asked first, with the reason kept.
+ *
+ * Two presses, and the second disabled until there is a reason of real length. The same shape as the
+ * discards on the service report and the commissioning worksheet, and for the same reason: a
+ * confirmation that asks only for certainty trains people to click yes, while one that asks *why*
+ * does not â€” and here the why is the whole point, because the usual cause is a revised quotation
+ * that somebody will be asked about later.
+ *
+ * The service refuses when a sales order already exists against the PO, and says which one. That
+ * refusal arrives as an error rather than being predicted here: the panel does not know what has
+ * been raised, and a control that guesses at a rule the server owns is how the two drift apart.
+ */
+function RemovePo({ po, onDone }: { po: { id: string; poNumber: string }; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const remove = trpc.order.removeCustomerPo.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Removed ${po.poNumber}.`);
+      setOpen(false);
+      setReason("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" className="mt-1 text-danger" onClick={() => setOpen(true)}>
+        Remove this PO
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border-2 border-danger/40 bg-danger/5 p-2.5">
+      <p className="text-sm font-semibold text-danger">Remove {po.poNumber}?</p>
+      <p className="mt-0.5 text-xs">
+        The deal goes back to quoted if nothing else is holding it forward. The record is kept with
+        this reason against it.
+      </p>
+      <div className="mt-2">
+        <Label htmlFor={`po-remove-${po.id}`}>Why</Label>
+        <Input
+          id={`po-remove-${po.id}`}
+          value={reason}
+          placeholder="Quotation revised after the site survey; they are reissuing."
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={remove.isPending || reason.trim().length < 10}
+          onClick={() => remove.mutate({ customerPOId: po.id, reason: reason.trim() })}
+        >
+          {remove.isPending ? "Removingâ€¦" : "Remove it"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Keep it
         </Button>
       </div>

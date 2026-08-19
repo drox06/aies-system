@@ -361,3 +361,125 @@ export async function withdrawCustomerPoService(
 
   return { withdrawn: true };
 }
+
+/**
+ * Takes a recorded customer PO back off, so a revised quotation can be answered by a revised PO.
+ *
+ * ## Why this exists
+ *
+ * A PO is recorded against a quotation, and sometimes the quotation then changes — a scope change
+ * found on the site survey, a price corrected, an item the customer dropped. The customer reissues
+ * their PO against the new document, and until now AIES had no way to reflect that: the old PO stayed
+ * recorded, the deal stayed in "PO received" on the strength of a document that had been superseded,
+ * and §4's downpayment gate went on reading a figure nobody was going to pay. Asked for by the
+ * company on 2026-08-19.
+ *
+ * ## Why it is the president and the VP
+ *
+ * Recording a PO is routine and five roles can do it. Removing one is not routine: it walks back the
+ * pipeline column, the verification, and the gate that decides whether AIES may commit money to
+ * suppliers. Two officers hold it, which is the same shape as the other reversals in this platform.
+ *
+ * ## What it refuses
+ *
+ * **A PO with a sales order already raised against it.** That is the line between a correction and a
+ * rewrite of history: once the order exists, tickets, supplier POs and deliveries hang off it, and
+ * removing the PO underneath would leave all of them answering to nothing. The message says which
+ * order is in the way, because the way out is to deal with that order first.
+ *
+ * The reason is required and kept. A PO that vanished with no explanation is indistinguishable from
+ * one that was never recorded, and the difference is exactly what somebody reconstructing a
+ * negotiation needs.
+ */
+export async function removeCustomerPoService(
+  actor: ActorMeta,
+  input: { customerPOId: string; reason: string },
+) {
+  const po = await db.customerPO.findFirst({
+    where: { id: input.customerPOId, deletedAt: null },
+    select: { id: true, poNumber: true, accountId: true, quotationId: true, inquiryId: true },
+  });
+  if (!po) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That purchase order is no longer recorded.",
+    });
+  }
+
+  const order = await db.salesOrder.findFirst({
+    where: { customerPOId: po.id, deletedAt: null },
+    select: { number: true },
+  });
+  if (order) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${order.number} was raised against ${po.poNumber}, and tickets and supplier orders may ` +
+        `hang off it. Cancel that sales order first — removing the PO underneath it would leave ` +
+        `everything downstream answering to nothing.`,
+    });
+  }
+
+  const reason = input.reason.trim();
+  if (reason.length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Say why the PO is being removed — a revised quotation, a reissued PO, a cancellation. " +
+        "Somebody will ask.",
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.customerPO.update({
+      where: { id: po.id },
+      data: { deletedAt: new Date(), status: "removed" },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "customer_po_removed",
+      entityType: CUSTOMER_PO_ENTITY_TYPE,
+      entityId: po.id,
+      summary: `Removed customer PO ${po.poNumber} — ${reason}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  /*
+    The inquiry goes back a column, when there is nothing else holding it forward.
+
+    §3's `po_received` means a purchase order arrived. With the last one removed that is no longer
+    true, and a card sitting in that column with nothing behind it is the same failure as a quotation
+    marked sent that nobody sent. `bySystem` because this is a consequence rather than somebody's
+    decision — the decision was the removal, and it is already on the audit log.
+  */
+  if (po.inquiryId) {
+    const remaining = await db.customerPO.count({
+      where: { inquiryId: po.inquiryId, deletedAt: null },
+    });
+    if (remaining === 0) {
+      const inquiry = await db.inquiry.findFirst({
+        where: { id: po.inquiryId, deletedAt: null },
+        select: { id: true, status: true },
+      });
+      if (inquiry?.status === "po_received") {
+        const { transitionInquiryService } = await import("@/server/core/crm/inquiry-service");
+        await transitionInquiryService(actor, {
+          inquiryId: inquiry.id,
+          to: "quoted",
+          bySystem: true,
+        }).catch((error) => {
+          // Not fatal: the PO is removed either way, and a card in the wrong column is visible and
+          // fixable while a half-removed PO is neither.
+          console.error("[order] failed to move the inquiry back after a PO removal", error);
+        });
+      }
+    }
+  }
+
+  return { ok: true as const };
+}

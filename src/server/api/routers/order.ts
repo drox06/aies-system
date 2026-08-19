@@ -6,6 +6,7 @@ import {
   withdrawCustomerPoService,
   listCustomerPosForQuotation,
   recordCustomerPoService,
+  removeCustomerPoService,
 } from "@/server/core/order/customer-po-service";
 import {
   checkCustomerPoService,
@@ -103,6 +104,17 @@ export const orderRouter = router({
    * because the service re-reads the stored file to check it is the one it claims to be — an id in
    * a request body proves nothing on its own.
    */
+  /**
+   * Take a recorded customer PO back off — president and VP only.
+   *
+   * A separate permission from recording rather than a wider one: five roles receive a PO and two
+   * may unrecord it. The service refuses once a sales order exists against it, which is where the
+   * line between correcting a record and rewriting history sits.
+   */
+  removeCustomerPo: p("customer_po.remove")
+    .input(z.object({ customerPOId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => removeCustomerPoService(actorMeta(ctx), input)),
+
   recordCustomerPo: p("customer_po.record")
     .input(
       z.object({

@@ -43,6 +43,20 @@ export const orderManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "marketing_manager", "sales", "admin_manager"],
     },
     {
+      key: "customer_po.remove",
+      label: "Remove a recorded customer purchase order",
+      group: "Orders",
+      /*
+        The two officers, and nobody else.
+
+        Recording a PO is routine and widely held; taking one off is not. A recorded PO is what §4's
+        downpayment gate and §3's verification both read, and what module 02 reacted to when it moved
+        the deal to "PO received" — removing it walks all of that backwards. The company set this at
+        president and VP on 2026-08-19, and the narrowness is the point rather than an oversight.
+      */
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
       key: "customer_po.view",
       label: "View customer purchase orders",
       group: "Orders",

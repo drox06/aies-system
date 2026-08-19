@@ -157,26 +157,26 @@ export function LineEditor({
             <tr className="border-b border-border text-left text-xs text-text-muted">
               <th className="py-1 font-medium">Group</th>
               <th className="py-1 font-medium">Description</th>
-              <th className="py-1 text-right font-medium">Qty</th>
-              {canSeeCost && <th className="py-1 text-right font-medium">Unit cost</th>}
-              {canSeeCost && <th className="py-1 font-medium">Currency</th>}
+              <th className="py-1 text-center font-medium">Qty</th>
+              {canSeeCost && <th className="py-1 text-center font-medium">Unit cost</th>}
+              {canSeeCost && <th className="py-1 text-center font-medium">Currency</th>}
               {canSeeCost && (
                 <th
-                  className="py-1 text-right font-medium"
+                  className="py-1 text-center font-medium"
                   title="What one unit of the cost currency is worth in the quote's currency today"
                 >
                   Rate
                 </th>
               )}
               {canSeeCost && (
-                <th className="py-1 text-right font-medium" title="Blank uses the quotation's">
+                <th className="py-1 text-center font-medium" title="Blank uses the quotation's">
                   FX buff %
                 </th>
               )}
-              {canSeeCost && <th className="py-1 text-right font-medium">Markup %</th>}
-              <th className="py-1 text-right font-medium">Unit price</th>
-              <th className="py-1 text-right font-medium">Disc %</th>
-              <th className="py-1 text-right font-medium">Total</th>
+              {canSeeCost && <th className="py-1 text-center font-medium">Markup %</th>}
+              <th className="py-1 text-center font-medium">Unit price</th>
+              <th className="py-1 text-center font-medium">Disc %</th>
+              <th className="py-1 text-center font-medium">Total</th>
               <th className="py-1 text-center font-medium">Opt.</th>
               <th className="py-1" />
             </tr>
