@@ -2905,7 +2905,28 @@ Per BUILD-PROTOCOL §7, and in order:
 3. **The sample data removed** — `PART7` and `WALKTHROUGH` both, each with its own `--remove`.
 4. **Then, and only then, the tags.** §7.3: Claude may not sign its own gate, so I do not apply them.
 
-`docs/DECISIONS.md` is current to #123.
+`docs/DECISIONS.md` is current to #126.
+
+### Found after the walkthrough, during the PC pass
+
+- **"Ready to bill" and "Collections" rendered grey dots** — two more unmapped icons, the third and
+  fourth of that fault. The names now live in their own file, the map is typed against them, and a
+  test walks every manifest. #124.
+- **All four finance screens sit under a Finance heading**, with Cash advances moved there from
+  Operations: that entry is the register, gated on `cash_advance.view_register`, and finance alone
+  reviews liquidations.
+- **A recorded customer PO can be removed** by president and VP, so a revised quotation can be
+  answered by a reissued PO. Refuses once a sales order exists against it. #125.
+- **The part-seven `--remove` could not remove a walked deal.** #126.
+- **Quotation line headers** are centred over their numeric columns.
+
+### Raised and not yet answered
+
+- **Module 03 §4's downpayment gate** and **module 04 §11's warranty gate** were not walked. Neither
+  is reported broken; neither is confirmed working by a person.
+- **The field PWA showed "You are offline".** Waiting on whether the browser was genuinely offline
+  at the time. If it was, this is §14's unbuilt offline reads rather than a defect — already recorded
+  under Known issues — and the honest answer is that only the write queue survives with no signal.
 
 ## Module 05 — Finance, Billing and Collections
 

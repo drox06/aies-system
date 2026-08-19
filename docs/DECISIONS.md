@@ -4164,3 +4164,93 @@ exit. That is not a class of defect any test suite here would have caught: every
 the service directly, so no test has ever *pressed* Start commissioning and then wanted to leave.
 Worth remembering when weighing what the suite's green means — see BUILD-PROTOCOL §7.1.
 
+## #124 — A quiet fallback hides the thing it was meant to soften
+
+Four nav entries have now shipped naming an icon nothing maps, and rendered a small grey dot:
+`truck` with module 03's supplier entry, `receipt` and `phone` with module 05's finance entries.
+Every one survived review, and for the same reason each time.
+
+The fallback is deliberately quiet. An entry with genuinely no icon should not shout, so the shell
+renders a modest dot — which means a **missing** icon and a **misspelt** one look identical, and the
+second is invisible to anybody not comparing the manifest against the map by eye. The comment above
+`truck` in AppShell.tsx has warned about exactly this since module 03 session 1, and went on warning
+while two more shipped underneath it. **A comment is not a control.**
+
+Two controls now, in different directions:
+
+- The icon *names* live in `nav-icons.ts` and `ICONS` is typed `Record<NavIconName, LucideIcon>`, so
+  a name with no picture beside it fails the build.
+- A test walks every registered manifest and asserts each icon it asks for is a known name, so a
+  manifest asking for something nobody mapped fails the suite rather than rendering a dot.
+
+The test found something on its first run: `home` was mapped and requested by nothing. That is what
+the reverse assertion is for — a list that has stopped describing the app misleads the next person
+who reads it to find out what is available.
+
+**The general shape is worth keeping.** A graceful degradation is a decision to continue on missing
+input, and it is right far more often than not. What it costs is the signal that the input was
+missing — so anywhere a fallback is deliberately unobtrusive, something else has to be watching, or
+the fallback becomes a place defects live undisturbed. The same reasoning as #121's empty Delivery
+mode: a screen that can be empty must be able to say why.
+
+## #125 — A purchase order has to be removable, or a revised quotation cannot be answered
+
+A customer PO is recorded against a quotation. Sometimes the quotation then changes — a scope change
+found on the site survey, a price corrected, an item the customer dropped — and they reissue their PO
+against the new document.
+
+There was no way to reflect that. The superseded PO stayed recorded, the deal stayed in `po_received`
+on the strength of a document nobody would honour, and §4's downpayment gate went on reading a figure
+that was never going to be paid. Asked for by the company on 2026-08-19.
+
+### Held by two people, deliberately
+
+`customer_po.record` is held by five roles, because a PO arrives by email to whoever owns the
+customer. `customer_po.remove` is president and VP only. Removing walks back the pipeline column,
+§3's verification, and the gate deciding whether AIES may commit money to suppliers — three things
+that were true and are being made untrue.
+
+### Where it refuses, and why that is the interesting line
+
+**Once a sales order exists against the PO.** The message names the order rather than saying no,
+because the way forward is to deal with that order first.
+
+That is the line between *correcting a record* and *rewriting history*. Before the order, the PO is
+the only thing that referred to itself. After it, tickets, supplier POs, goods receipts and
+deliveries all hang off the order, and removing the document underneath leaves every one of them
+answering to nothing — the same failure #105 produced from a different direction, where a decision
+was recorded without the record it decided.
+
+### The consequence, taken automatically
+
+With the last PO gone the inquiry drops back to `quoted`, through the state machine with `bySystem`
+rather than by direct write. `po_received` means a purchase order arrived; with none on file that is
+no longer true, and a card in that column with nothing behind it is the same defect as a quotation
+marked sent that nobody sent. `bySystem` because this is a *consequence* — the decision was the
+removal, and it is already on the audit log with its reason.
+
+This is #120's rule read in the other direction. That one said a seed may not skip the consequence of
+a decision it declines to make; this one says a service must not skip the consequence of a decision
+it does make.
+
+## #126 — A `--remove` must delete what a seed becomes
+
+`sample-part-seven.ts` cleaned up the six records it had written — quotation, lines, inquiry, items,
+site, account — and failed the first time it was genuinely needed. By then the company had walked the
+deal to the end: a sales order, three tickets, three supplier POs, a goods receipt, a delivery
+receipt, commissioning, a service report, a QA approval. The delete died on
+`SalesOrder_quotationId_fkey` and left the account half-dismantled.
+
+The trap is general and worth naming, because every sample script in this repository has it. **A seed
+exists to be used, and using it is what grows the tree.** A removal written against what the script
+put there is correct only while nobody has touched it — which is to say, only while it is useless.
+
+Rewritten children-first across modules 03, 04 and 05, and deliberately wider than any single run
+needs: a walkthrough that stops at part twelve leaves a different shape behind than one reaching
+close-out, and neither should require editing this file. Anything absent is a no-op.
+
+A smaller note with a real cost attached: the command blocks offered to the company were bash —
+`ALLOW_DEMO_DATA=1 npx tsx …` — and their shell is PowerShell, which has no inline env-var prefix.
+The command failed before it started, and read as the script being broken. Commands handed to
+somebody to run must be in the shell they actually have.
+
