@@ -230,6 +230,19 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
                       </td>
                       <td className="tabular py-1.5 pr-2 text-right">
                         {(() => {
+                          /*
+                            A service has nothing to count. §6's three-way match compares what was
+                            ordered, what arrived and what was billed — and where nothing arrives,
+                            "3 pc outstanding" is a lie about a calibration nobody was ever going to
+                            unload from a truck.
+                          */
+                          if (line.isService) {
+                            return line.performedAt ? (
+                              <span className="text-text-muted">performed</span>
+                            ) : (
+                              <span className="font-medium">not yet done</span>
+                            );
+                          }
                           const outstanding = Number(line.quantity) - Number(line.qtyReceived ?? 0);
                           if (!Number.isFinite(outstanding)) return "—";
                           if (outstanding <= 0) {
@@ -266,6 +279,26 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
             is the only thing anybody still does on this screen. It sat below them at first and was
             missed by the first person to look for it.
           */}
+          {/*
+            Services are confirmed, goods are received.
+
+            Kept beside the goods receipt rather than on a screen of its own: a purchase order that
+            mixes a meter and its calibration is one order, and settling it should not mean two
+            different journeys.
+          */}
+          {receiving && (
+            <ServiceLines
+              lines={data.lines
+                .filter((line) => line.isService)
+                .map((line) => ({
+                  id: line.id,
+                  description: line.description,
+                  performedAt: line.performedAt,
+                }))}
+              onChanged={refresh}
+            />
+          )}
+
           {receiving && (
             <ReceiveGoods supplierPOId={data.id} poStatus={data.status} onReceived={refresh} />
           )}
@@ -592,5 +625,62 @@ function Row({
       <dt className="text-xs text-text-muted">{label}</dt>
       <dd className={strong ? "tabular font-semibold" : "tabular"}>{value}</dd>
     </div>
+  );
+}
+
+/**
+ * Confirming that a bought-in service was actually performed.
+ *
+ * There is nothing to count, so there is nothing to type: a person says it happened and is recorded
+ * as having said so. That is the whole content of the control, and it is deliberately the whole
+ * content — inventing a quantity for a calibration would produce a number that means nothing and a
+ * three-way match that compares it to nothing.
+ */
+function ServiceLines({
+  lines,
+  onChanged,
+}: {
+  lines: { id: string; description: string; performedAt: Date | string | null }[];
+  onChanged: () => void;
+}) {
+  const confirm = trpc.order.confirmServicePerformed.useMutation({ onSuccess: onChanged });
+
+  if (lines.length === 0) return null;
+
+  return (
+    <Card className="mt-4 p-4">
+      <h2 className="text-sm font-semibold">Services on this order</h2>
+      <p className="mt-1 text-xs text-text-muted">
+        Nothing arrives for these, so there is no goods receipt. Confirm each one when it has been
+        done — the order cannot close until they are all accounted for.
+      </p>
+
+      {confirm.error && <p className="mt-2 text-sm text-danger">{confirm.error.message}</p>}
+
+      <ul className="mt-3 space-y-2">
+        {lines.map((line) => (
+          <li key={line.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="min-w-0">
+              {line.description}
+              {line.performedAt && (
+                <span className="ml-2 text-xs text-text-muted">
+                  confirmed <DateCell value={line.performedAt} />
+                </span>
+              )}
+            </span>
+            <Button
+              size="sm"
+              variant={line.performedAt ? "ghost" : "secondary"}
+              disabled={confirm.isPending}
+              onClick={() =>
+                confirm.mutate({ supplierPOLineId: line.id, performed: !line.performedAt })
+              }
+            >
+              {line.performedAt ? "Not done after all" : "Confirm it was done"}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
