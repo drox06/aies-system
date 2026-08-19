@@ -7,7 +7,9 @@ import {
   materialRequestSeed,
   methodologyCompleteness,
   methodologyGate,
+  methodStatementRequiredFor,
 } from "@/server/core/operations/methodology-rules";
+import { TICKET_TYPES } from "@/server/core/operations/ticket-rules";
 
 /**
  * specs/04-operations-projects.md §6.2, as pure functions.
@@ -220,5 +222,77 @@ describe("§7's head start", () => {
 
   it("survives a malformed materials column", () => {
     expect(materialRequestSeed({ toolsRequired: [], materialsRequired: "nonsense" })).toEqual([]);
+  });
+});
+
+/**
+ * Which jobs take a method statement — and the two components agreeing about it.
+ *
+ * The defect this pins was not a wrong answer, it was **two answers**. `mobilizationReadiness` asked
+ * `ticketType === "new_project"` and called a delivery "not applicable"; `methodologyGate` did not
+ * ask at all and called the same delivery "blocked". A dispatcher looking at one ticket saw the
+ * readiness list say the method statement did not apply and the panel above it say mobilisation was
+ * blocked for want of one. Reported by the company on 2026-08-19 while walking a delivery ticket.
+ *
+ * Both now read `methodStatementRequiredFor`, and the last case here fails if anybody gives either
+ * of them its own copy of the answer again.
+ */
+describe("which jobs take a method statement", () => {
+  it("asks for one on work carried out on the plant", () => {
+    expect(methodStatementRequiredFor("new_project")).toBe(true);
+    // Installations carry their testing and commissioning with them — the company's correction to
+    // §6's literal "only new_project".
+    expect(methodStatementRequiredFor("installation")).toBe(true);
+  });
+
+  it("does not ask for one on a delivery or a callout", () => {
+    // A van dropping goods at a gatehouse is not an intervention on somebody's plant.
+    expect(methodStatementRequiredFor("delivery")).toBe(false);
+    // And a corrective callout that waited on a document nobody has written would teach people to
+    // override the gate as routine, at which point it protects nothing anywhere.
+    expect(methodStatementRequiredFor("after_sales")).toBe(false);
+  });
+
+  it("reports not applicable rather than blocked where no statement is wanted", () => {
+    const verdict = methodologyGate(null, "delivery");
+    expect(verdict.blocks).toBe(false);
+    expect(verdict.state).toBe("not_applicable");
+  });
+
+  /**
+   * Absent is not permission. A caller that does not know the ticket type gets the strict answer,
+   * because the safe direction to be wrong in is the one that stops a crew rather than the one that
+   * sends it out.
+   */
+  it("still blocks when the caller does not say what kind of job it is", () => {
+    expect(methodologyGate(null).blocks).toBe(true);
+  });
+
+  it("keeps not_applicable and not_required distinct", () => {
+    // Two quiet states that mean different things: nobody asked, versus somebody was excused.
+    const notApplicable = methodologyGate(null, "delivery");
+    const notRequired = methodologyGate(
+      {
+        status: "draft",
+        clientApprovalRequired: false,
+        clientApprovalFileId: null,
+        submittedToClientAt: null,
+      },
+      "new_project",
+    );
+    expect(notApplicable.state).toBe("not_applicable");
+    expect(notRequired.state).toBe("not_required");
+    expect(notApplicable.message).not.toBe(notRequired.message);
+  });
+
+  it("agrees with the mobilisation readiness list on every ticket type", () => {
+    for (const type of TICKET_TYPES) {
+      const gateSaysApplies = methodologyGate(null, type).state !== "not_applicable";
+      const readinessSaysApplies = methodStatementRequiredFor(type);
+      expect(
+        gateSaysApplies,
+        `${type}: the panel and the readiness list disagree about whether a method statement applies`,
+      ).toBe(readinessSaysApplies);
+    }
   });
 });

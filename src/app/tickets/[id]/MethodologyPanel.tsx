@@ -23,6 +23,9 @@ import { trpc } from "@/lib/trpc/client";
  */
 
 const GATE_TONE: Record<string, StatusTone> = {
+  // A delivery ticket and a customer excused from approving are both quiet, and neither is a pass:
+  // nothing was approved, the question simply was not asked.
+  not_applicable: "draft",
   not_required: "draft",
   satisfied: "approved",
   blocked: "failed",
@@ -56,6 +59,19 @@ export function MethodologyPanel({
   }
 
   const data = gate.data;
+
+  /*
+    Whether this kind of job takes a method statement at all.
+
+    Read from the server's own verdict rather than re-derived from the ticket type here — the panel
+    and the gate disagreeing about one job is the bug this whole change exists to fix, and doing the
+    arithmetic twice is how that happens.
+
+    When it does not apply, the paths and the upload area go with it. Offering somebody a way to
+    write a method statement for a van dropping goods at a gatehouse is not harmless: it is an
+    invitation to create a record that means nothing, on a screen already carrying eleven panels.
+  */
+  const applies = data.state !== "not_applicable";
   const refresh = () => void gate.refetch();
 
   return (
@@ -67,7 +83,9 @@ export function MethodologyPanel({
             ? "Mobilisation blocked"
             : data.state === "satisfied"
               ? "Clear"
-              : "Approval waived"}
+              : data.state === "not_applicable"
+                ? "Not needed here"
+                : "Approval waived"}
         </StatusBadge>
       </div>
 
@@ -105,7 +123,7 @@ export function MethodologyPanel({
         plants will not accept AIES's document and hand over their own — see
         recordExternalMethodologyService for why that is a path rather than an override.
       */}
-      {canPrepare && !data.methodology && !showForm && !showExternal && (
+      {applies && canPrepare && !data.methodology && !showForm && !showExternal && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => setShowForm(true)}>
             Write a method statement
@@ -117,7 +135,7 @@ export function MethodologyPanel({
         </div>
       )}
 
-      {showExternal && (
+      {applies && showExternal && (
         <ExternalForm
           ticketId={ticketId}
           ticketTitle={ticketTitle}
@@ -177,20 +195,22 @@ export function MethodologyPanel({
         its written reason — a recorded decision by a named person, which is what the gate is
         actually for.
       */}
-      <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">Externally written method statement</h3>
-        <p className="mt-1 text-xs text-text-muted">
-          Our method statement signed by them, or their own form completed by us — whichever this
-          site works to. Attach it whether or not a method statement was written here.
-        </p>
-        <div className="mt-2">
-          <Attachments
-            entityType={METHODOLOGY_ENTITY_TYPE}
-            entityId={ticketId}
-            emptyText="Nothing attached yet. A client approval with no document behind it is somebody's word for it."
-          />
-        </div>
-      </Card>
+      {applies && (
+        <Card className="mt-3 p-3">
+          <h3 className="text-sm font-semibold">Externally written method statement</h3>
+          <p className="mt-1 text-xs text-text-muted">
+            Our method statement signed by them, or their own form completed by us — whichever this
+            site works to. Attach it whether or not a method statement was written here.
+          </p>
+          <div className="mt-2">
+            <Attachments
+              entityType={METHODOLOGY_ENTITY_TYPE}
+              entityId={ticketId}
+              emptyText="Nothing attached yet. A client approval with no document behind it is somebody's word for it."
+            />
+          </div>
+        </Card>
+      )}
 
       {data.blocks && canOverride && <OverrideBlock ticketId={ticketId} onDone={refresh} />}
     </Card>

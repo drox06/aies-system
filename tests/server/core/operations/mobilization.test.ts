@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
+import { recordExternalMethodologyService } from "@/server/core/operations/methodology-service";
+import { METHODOLOGY_ENTITY_TYPE } from "@/server/core/operations/methodology-rules";
 import {
   demobilizeService,
   departService,
@@ -112,8 +114,47 @@ async function makeTicket(lead: AuthedUser, type: TicketType = "installation") {
 }
 
 /** Everything §8 needs green, short of the mobilisation row's own checklists. */
+/**
+ * Everything §8 demands before a crew may leave, other than the mobilisation row itself.
+ *
+ * The method statement joined this list on 2026-08-19, when the company scoped the gate to the jobs
+ * that actually take one: new projects **and installations**, which is what these fixtures are. It
+ * was previously new-project-only, so an installation was ready without one and these tests passed
+ * without ever mentioning it.
+ *
+ * Satisfied through the external-document path because it is one call rather than five, and because
+ * it is a real route a real installation takes — a plant that works to its own permit-to-work form.
+ * Driving the full draft → review → approve → submit → decide chain here would test §6.2 twice and
+ * bury what these tests are actually about.
+ */
 async function clearTheGates(lead: AuthedUser, ticketId: string) {
   await markMaterialsNotApplicableService(actorFor(lead), { ticketId });
+  await clearMethodStatement(lead, ticketId);
+}
+
+/** Split out because a test that issues real materials still has to satisfy §6.2 on its own. */
+async function clearMethodStatement(lead: AuthedUser, ticketId: string) {
+  const file = await db.fileObject.create({
+    data: {
+      entityType: METHODOLOGY_ENTITY_TYPE,
+      entityId: ticketId,
+      filename: "client-permit-to-work.pdf",
+      mimeType: "application/pdf",
+      size: 1024,
+      sha256: randomUUID(),
+      storageKey: `test/${randomUUID()}.pdf`,
+      uploaderId: lead.id,
+    },
+  });
+
+  await recordExternalMethodologyService(actorFor(lead), {
+    ticketId,
+    title: "Client's permit to work",
+    scopeSummary: "Attend and fit, to the plant's own form.",
+    approvalFileId: file.id,
+    clientApprovedByName: "Plant Engineer",
+    clientApprovedAt: new Date(Date.now() - 60_000),
+  });
 }
 
 async function planned(dispatcher: AuthedUser, ticketId: string) {
@@ -332,6 +373,8 @@ describe("§8 — going and coming back", () => {
       "material_request.issue",
     ]);
     const ticket = await makeTicket(dispatcher);
+    // This one issues materials for real rather than waiving them, so it clears §6.2 on its own.
+    await clearMethodStatement(dispatcher, ticket.id);
 
     const stock = await upsertStockItemService(actorFor(dispatcher), {
       sku: `SKU-${randomUUID().slice(0, 10)}`,

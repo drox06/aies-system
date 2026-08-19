@@ -613,7 +613,9 @@ export async function waiveClientApprovalService(
 export async function methodologyGateForTicket(ticketId: string) {
   const ticket = await db.ticket.findFirst({
     where: { id: ticketId, deletedAt: null },
-    select: { id: true, number: true, projectId: true },
+    // `type` decides whether this gate applies at all — a delivery does not take a method
+    // statement. See methodStatementRequiredFor.
+    select: { id: true, number: true, projectId: true, type: true },
   });
   if (!ticket) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
@@ -630,7 +632,7 @@ export async function methodologyGateForTicket(ticketId: string) {
   });
 
   return {
-    ...methodologyGate(methodology),
+    ...methodologyGate(methodology, ticket.type),
     methodology: methodology
       ? {
           id: methodology.id,

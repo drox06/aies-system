@@ -10,6 +10,8 @@
  * Every one of them is called here and none of their logic is repeated.
  */
 
+import { methodStatementRequiredFor } from "./methodology-rules";
+
 export const MOBILIZATION_ENTITY_TYPE = "Mobilization";
 
 /**
@@ -118,11 +120,19 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
   });
 
   /**
-   * §6 scopes the method statement to new projects: "Only `new_project` tickets take this branch."
-   * So it is mandatory there and shown as not applicable elsewhere — an after-sales callout does not
-   * wait on a method statement, and making it do so would teach people to override the gate.
+   * Whether this kind of job takes a method statement at all — asked of the rule that owns the
+   * question rather than answered again here.
+   *
+   * This used to read `input.ticketType === "new_project"`, which was §6's wording taken literally
+   * and had already drifted from the gate on the ticket's own panel: readiness called a delivery
+   * "not applicable" while `methodologyGate` called the same job "blocked". One screen contradicting
+   * another about one job is worse than either answer alone, because it teaches people that the
+   * gates are noise.
+   *
+   * The shared predicate also carries the company's 2026-08-19 correction — installations take one
+   * too, and their testing and commissioning comes with them.
    */
-  const needsMethod = input.ticketType === "new_project";
+  const needsMethod = methodStatementRequiredFor(input.ticketType);
   const methodOverride = input.overrides?.methodology;
   items.push({
     key: "methodology",

@@ -165,7 +165,13 @@ export function methodologyCompleteness(methodology: {
 
 // ---- §6.2's gate --------------------------------------------------------------------------------
 
-export type MethodologyGateState = "not_required" | "satisfied" | "blocked";
+/**
+ * `not_applicable` is the kind of job that never takes a method statement; `not_required` is a job
+ * that would, on a customer who has been excused from approving one. Two different sentences, kept
+ * apart on purpose — collapsing them would make a delivery ticket and a waived approval read the
+ * same on screen, and only one of those is somebody's decision.
+ */
+export type MethodologyGateState = "not_applicable" | "not_required" | "satisfied" | "blocked";
 
 export interface MethodologyGate {
   state: MethodologyGateState;
@@ -191,6 +197,34 @@ export interface MethodologyGate {
  * it rather than writing a second, subtly different answer — the same shape as §5's cash advance
  * gate and module 03's downpayment gate.
  */
+/**
+ * Which kinds of job need a method statement before anybody mobilises.
+ *
+ * **Work on the plant, not deliveries and not callouts.** A method statement describes how a crew
+ * will carry out an intervention safely on somebody else's site: the sequence, the manpower, the
+ * permits, the isolation. That question is real for a new project and for an installation — which
+ * carries its testing and commissioning with it — and it is not a question at all for a van
+ * dropping goods at a gatehouse.
+ *
+ * Set by the company on 2026-08-19, after a delivery ticket showed "Mobilisation blocked" and
+ * demanded a method statement for handing over a flowmeter.
+ *
+ * **After-sales is deliberately out.** A corrective callout is a crew going to fix something that
+ * has stopped, and making that wait on a document nobody has written is how a gate gets overridden
+ * as routine — at which point it protects nothing on the jobs where it matters. The same reasoning
+ * §7's material gate and §9's client inspection are built on.
+ *
+ * Exported and shared rather than repeated: `mobilizationReadiness` asked the same question with its
+ * own copy of the answer, and the two had already drifted — readiness said "not applicable" on a
+ * delivery ticket while this gate said "blocked", so one screen contradicted the other about the
+ * same job.
+ */
+export const METHOD_STATEMENT_TICKET_TYPES = ["new_project", "installation"] as const;
+
+export function methodStatementRequiredFor(ticketType: string): boolean {
+  return (METHOD_STATEMENT_TICKET_TYPES as readonly string[]).includes(ticketType);
+}
+
 export function methodologyGate(
   methodology: {
     status: string;
@@ -198,7 +232,23 @@ export function methodologyGate(
     clientApprovalFileId: string | null;
     submittedToClientAt: Date | string | null;
   } | null,
+  /**
+   * The kind of job. Optional so existing callers keep compiling, and **treated as required when
+   * absent**: omitting it must not quietly turn the gate off. A caller that does not know the type
+   * gets the strict answer, which is the safe direction to be wrong in.
+   */
+  ticketType?: string,
 ): MethodologyGate {
+  if (ticketType !== undefined && !methodStatementRequiredFor(ticketType)) {
+    return {
+      state: "not_applicable",
+      blocks: false,
+      message:
+        "This kind of job does not take a method statement — §6 puts one before work on a new " +
+        "project or an installation. Nothing here is waiting on one.",
+    };
+  }
+
   if (!methodology) {
     // A project with no method statement at all. §6 puts one before the work on a new project, so
     // this is blocked rather than "not required" — the absence is the problem.
