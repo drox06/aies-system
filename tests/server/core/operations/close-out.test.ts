@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
+import { SERVICE_REPORT_ENTITY_TYPE } from "@/server/core/operations/close-out-rules";
 import {
   advanceServiceReportService,
+  recordExternalServiceReportService,
   closeOutChecklistForProjectService,
   closeOutProjectService,
   saveServiceReportService,
@@ -118,7 +120,12 @@ async function addQa(ticketId: string, userId: string, approved: boolean) {
 
 afterAll(async () => {
   await db.projectCloseOut.deleteMany({ where: { projectId: { in: projectIds } } });
-  await db.serviceReport.deleteMany({ where: { id: { in: reportIds } } });
+  // By ticket as well as by id: the external-report tests let the service allocate the id, so the
+  // fixture never sees it. Deleting by id alone left rows behind and the ticket delete then failed
+  // on the foreign key — which is how this cleanup announced the gap rather than hiding it.
+  await db.serviceReport.deleteMany({
+    where: { OR: [{ id: { in: reportIds } }, { ticketId: { in: ticketIds } }] },
+  });
   await db.testingCommissioning.deleteMany({ where: { id: { in: tcIds } } });
   await db.qAApproval.deleteMany({ where: { id: { in: qaIds } } });
   await db.auditLog.deleteMany({
@@ -129,6 +136,8 @@ afterAll(async () => {
   await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
   await db.project.deleteMany({ where: { id: { in: projectIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
+  // The signed documents the external reports point at.
+  await db.fileObject.deleteMany({ where: { uploaderId: { in: userIds } } });
   await db.userRole.deleteMany({ where: { userId: { in: userIds } } });
   await db.user.deleteMany({ where: { id: { in: userIds } } });
 });
@@ -354,5 +363,129 @@ describe("§12's handover happens once", () => {
     await expect(closeOutProjectService(actorFor(pm), { projectId: project.id })).rejects.toThrow(
       /already closed/,
     );
+  });
+});
+
+/**
+ * §12's second path — a service report written on an externally supplied form, already signed.
+ *
+ * Some customers will not accept AIES's report and hand over their own job sheet, which the
+ * technician completes on site and their engineer signs before the van leaves. Until this existed
+ * that document could be attached and nothing more, so §12's gate went on reading "no approved
+ * service report" and held the project open at close-out on a job the customer had already signed
+ * off. Found by the company on 2026-08-19, one panel after the method statement version of the same
+ * gap.
+ */
+describe("an externally written service report", () => {
+  async function makeSignedFile(uploader: AuthedUser) {
+    return db.fileObject.create({
+      data: {
+        entityType: SERVICE_REPORT_ENTITY_TYPE,
+        entityId: `pending-${randomUUID()}`,
+        filename: "customer-job-sheet.pdf",
+        mimeType: "application/pdf",
+        size: 4096,
+        sha256: randomUUID(),
+        storageKey: `test/${randomUUID()}.pdf`,
+        uploaderId: uploader.id,
+      },
+    });
+  }
+
+  it("counts as approved, so close-out stops waiting on it", async () => {
+    const tech = await makeUser("operations_manager");
+    const { ticket } = await makeProject(tech);
+    const file = await makeSignedFile(tech);
+
+    const created = await recordExternalServiceReportService(actorFor(tech), {
+      ticketId: ticket.id,
+      workPerformed: "Replaced the flow element and proved the loop against the DCS.",
+      signatureFileId: file.id,
+      customerName: "R. Santos",
+      customerPosition: "Maintenance Superintendent",
+      finishedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    });
+
+    const row = await db.serviceReport.findUniqueOrThrow({ where: { id: created.id } });
+    // Approved through the status the close-out gate already counts, rather than through any new
+    // notion of "approved enough".
+    expect(row.status).toBe("approved");
+    expect(row.customerSignatureFileId).toBe(file.id);
+    expect(row.customerName).toBe("R. Santos");
+    // And honest about who wrote it: the missing findings and parts are somebody else's form, not
+    // a half-filled one of ours.
+    expect(row.externalDocument).toBe(true);
+  });
+
+  it("refuses a report nobody signed, and one finished in the future", async () => {
+    const tech = await makeUser("operations_manager");
+    const { ticket } = await makeProject(tech);
+    const file = await makeSignedFile(tech);
+
+    await expect(
+      recordExternalServiceReportService(actorFor(tech), {
+        ticketId: ticket.id,
+        workPerformed: "Did the work.",
+        signatureFileId: file.id,
+        customerName: "  ",
+        finishedAt: new Date(Date.now() - 1000),
+      }),
+    ).rejects.toThrow(/Name who signed/);
+
+    await expect(
+      recordExternalServiceReportService(actorFor(tech), {
+        ticketId: ticket.id,
+        workPerformed: "Did the work.",
+        signatureFileId: file.id,
+        customerName: "R. Santos",
+        finishedAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      }),
+    ).rejects.toThrow(/finished in the future/);
+  });
+
+  it("refuses an attachment that is not there", async () => {
+    const tech = await makeUser("operations_manager");
+    const { ticket } = await makeProject(tech);
+
+    await expect(
+      recordExternalServiceReportService(actorFor(tech), {
+        ticketId: ticket.id,
+        workPerformed: "Did the work.",
+        signatureFileId: "no-such-file",
+        customerName: "R. Santos",
+        finishedAt: new Date(Date.now() - 1000),
+      }),
+    ).rejects.toThrow(/no longer exists/);
+  });
+
+  /**
+   * Unlike the method statement's twin, this one does **not** refuse a second report on the ticket.
+   * §12 expects one per visit, so refusing would break the ordinary case to prevent a misuse that is
+   * not available here: there is no review chain to sidestep, and this path costs the same signature
+   * and the same named signatory as the other one.
+   */
+  it("allows a second report on the same ticket, because visits repeat", async () => {
+    const tech = await makeUser("operations_manager");
+    const { ticket } = await makeProject(tech);
+    const first = await makeSignedFile(tech);
+    const second = await makeSignedFile(tech);
+
+    await recordExternalServiceReportService(actorFor(tech), {
+      ticketId: ticket.id,
+      workPerformed: "First visit.",
+      signatureFileId: first.id,
+      customerName: "R. Santos",
+      finishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    });
+
+    await expect(
+      recordExternalServiceReportService(actorFor(tech), {
+        ticketId: ticket.id,
+        workPerformed: "Second visit, snag cleared.",
+        signatureFileId: second.id,
+        customerName: "R. Santos",
+        finishedAt: new Date(Date.now() - 1000),
+      }),
+    ).resolves.toBeTruthy();
   });
 });

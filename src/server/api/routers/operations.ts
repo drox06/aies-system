@@ -128,6 +128,7 @@ import { SERVICE_REPORT_STATUSES } from "@/server/core/operations/close-out-rule
 import {
   advanceServiceReportService,
   discardServiceReportService,
+  recordExternalServiceReportService,
   closeOutChecklistForProjectService,
   closeOutProjectService,
   getProjectService,
@@ -1314,6 +1315,28 @@ export const operationsRouter = router({
   discardServiceReport: p("ticket.execute")
     .input(z.object({ id: z.string(), reason: z.string().min(10).max(1000) }))
     .mutation(({ ctx, input }) => discardServiceReportService(actorMeta(ctx), input)),
+
+  /**
+   * §12's second path: a service report written on an externally supplied form, already signed.
+   *
+   * On `ticket.execute` rather than `service_report.approve`, and the reasoning is the same as the
+   * method statement's twin: nobody at AIES is approving the work here — the customer signed for it
+   * on site. What is being recorded is that it happened, and the person who was there is the person
+   * who knows. Requiring an approver would imply an AIES decision nobody made, and would keep the
+   * technician standing at a gate holding the signed paper.
+   */
+  recordExternalServiceReport: p("ticket.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        workPerformed: z.string().min(1).max(5000),
+        signatureFileId: z.string(),
+        customerName: z.string().min(1).max(200),
+        customerPosition: z.string().max(200).nullish(),
+        finishedAt: z.coerce.date(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordExternalServiceReportService(actorMeta(ctx), input)),
 
   listServiceReports: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))

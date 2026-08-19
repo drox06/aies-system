@@ -574,6 +574,145 @@ export async function getProjectService(projectId: string) {
 }
 
 /**
+ * §12's second path: a service report written on the customer's form, already signed.
+ *
+ * ## Why it exists
+ *
+ * The default is unchanged and remains the normal case: AIES writes the report here, sends it for
+ * the customer's signature, and approves it. Some customers will not accept our form. They hand over
+ * their own job sheet or service acceptance form, the technician completes it on site, and their
+ * engineer signs it before the van leaves.
+ *
+ * Until now that document could be *attached* and nothing more. There was no way to say the
+ * uploaded file **was** the report, so §12's gate went on reading "no approved service report" and
+ * the project stayed open at close-out on a job the customer had already signed off. The company
+ * found it the same way they found the method statement version, one panel later.
+ *
+ * ## Why it creates a real report rather than an exception
+ *
+ * Written straight to `approved` with the signature attached, so the close-out gate clears through
+ * the rule it already has — it counts reports that are not approved, and this one is. No second
+ * notion of "approved enough", and the close-out pack indexes a report where one genuinely exists.
+ *
+ * `externalDocument` keeps the record honest about who wrote it: AIES did not, and the absence of
+ * findings, recommendations and parts is a fact about somebody else's form rather than a half-filled
+ * one of ours.
+ *
+ * ## What it does not refuse
+ *
+ * **An existing report on the ticket.** Unlike the method statement, several service reports on one
+ * ticket are ordinary — §12 expects one per visit — so refusing a second would break the normal
+ * case to prevent a misuse that is not available here anyway. There is no review chain to sidestep:
+ * this path costs the same signature and the same named signatory as the other one.
+ *
+ * ## What it does refuse
+ *
+ * A document nobody signed, a signature nobody can attribute, work with no description, and a
+ * completion date in the future. Each is the difference between recording an acceptance and
+ * asserting one.
+ */
+export async function recordExternalServiceReportService(
+  actor: ActorMeta,
+  input: {
+    ticketId: string;
+    workPerformed: string;
+    signatureFileId: string;
+    customerName: string;
+    customerPosition?: string | null;
+    finishedAt: Date;
+  },
+) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: input.ticketId, deletedAt: null },
+    select: { id: true, number: true, projectId: true },
+  });
+  if (!ticket) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
+  }
+
+  const workPerformed = input.workPerformed.trim();
+  if (workPerformed.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Describe the work. It is the record of what was done, whoever's form it is on.",
+    });
+  }
+
+  const customerName = input.customerName.trim();
+  if (customerName.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Name who signed. A signature nobody can attribute is not much of one.",
+    });
+  }
+
+  if (input.finishedAt.getTime() > Date.now()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The work cannot have finished in the future. Check the date.",
+    });
+  }
+
+  const file = await db.fileObject.findFirst({
+    where: { id: input.signatureFileId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!file) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That attachment no longer exists. Upload the signed report and choose it again.",
+    });
+  }
+
+  const number = await allocateNumber(SERVICE_REPORT_DOCUMENT_TYPE);
+  const now = new Date();
+
+  const created = await db.$transaction(async (tx) => {
+    const row = await tx.serviceReport.create({
+      data: {
+        number,
+        ticketId: ticket.id,
+        projectId: ticket.projectId,
+        workPerformed,
+        status: "approved",
+        externalDocument: true,
+        finishedAt: input.finishedAt,
+        customerSignatureFileId: file.id,
+        customerName,
+        customerPosition: input.customerPosition?.trim() || null,
+        preparedById: actor.actorId,
+        /*
+          `approvedById` is who accepted this document into AIES's records, not who approved the
+          work — the customer did that when they signed. The column has to hold somebody, and the
+          honest reading is "the person answerable for this record existing".
+        */
+        approvedById: actor.actorId,
+        approvedAt: now,
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "create",
+      entityType: SERVICE_REPORT_ENTITY_TYPE,
+      entityId: row.id,
+      summary:
+        `Recorded ${row.number} on ${ticket.number} — an externally written service form, signed by ` +
+        `${customerName}${input.customerPosition ? `, ${input.customerPosition.trim()}` : ""}. ` +
+        `Written on the customer's form, not AIES's.`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    return row;
+  });
+
+  return { id: created.id, number: created.number };
+}
+
+/**
  * Throws away a service report that should not have been written.
  *
  * ## Why a report needs discarding at all

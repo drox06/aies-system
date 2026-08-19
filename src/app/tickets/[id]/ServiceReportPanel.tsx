@@ -29,6 +29,7 @@ export function ServiceReportPanel({ ticketId }: { ticketId: string }) {
   const reports = trpc.operations.listServiceReports.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
   const [drafting, setDrafting] = useState(false);
+  const [showExternal, setShowExternal] = useState(false);
 
   const permissions = me.data?.permissions ?? [];
   const canWrite = permissions.includes("ticket.execute");
@@ -121,23 +122,45 @@ export function ServiceReportPanel({ ticketId }: { ticketId: string }) {
       </ul>
 
       <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">
-          Signature, photographs, the customer&rsquo;s own form
-        </h3>
+        <h3 className="text-sm font-semibold">Signature, photographs, externally written form</h3>
         <p className="mt-1 text-xs text-text-muted">
-          The signed page, the site photographs, or the customer&rsquo;s own service form where they
-          insist on theirs rather than ours. Attach it here and it becomes selectable when you mark
-          the report signed.
+          The signed page, the site photographs, or an externally written service form where the
+          customer insists on theirs rather than ours. Attach it here and it becomes selectable both
+          when you mark a report signed and when you record an externally written one.
         </p>
         <div className="mt-2">
           <Attachments entityType={SERVICE_REPORT_ENTITY_TYPE} entityId={ticketId} />
         </div>
       </Card>
 
-      {canWrite && !drafting && (
-        <Button variant="secondary" size="sm" className="mt-3" onClick={() => setDrafting(true)}>
-          Write a service report
-        </Button>
+      {/*
+        Two ways to satisfy §12, the same shape as §6.2's method statement gate.
+
+        The first is the normal one. The second exists because some customers will not accept our
+        report and hand over their own job sheet, which the technician fills in on site and their
+        engineer signs before the van leaves — see recordExternalServiceReportService.
+      */}
+      {canWrite && !drafting && !showExternal && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setDrafting(true)}>
+            Write a service report
+          </Button>
+          <span className="text-xs text-text-muted">or</span>
+          <Button variant="ghost" size="sm" onClick={() => setShowExternal(true)}>
+            The customer signed an externally written service report
+          </Button>
+        </div>
+      )}
+
+      {showExternal && (
+        <ExternalReportForm
+          ticketId={ticketId}
+          onDone={() => {
+            setShowExternal(false);
+            void reports.refetch();
+          }}
+          onCancel={() => setShowExternal(false)}
+        />
       )}
 
       {drafting && (
@@ -151,6 +174,147 @@ export function ServiceReportPanel({ ticketId }: { ticketId: string }) {
         />
       )}
     </Card>
+  );
+}
+
+/**
+ * Recording a service report written on an externally supplied form and signed on site.
+ *
+ * Every field is something only the person who was there can know, so nothing is prefilled. The
+ * document is chosen from what is attached rather than typed as an id — the rule that replaced the
+ * "paste the file id from above" fields everywhere else.
+ *
+ * The completion date does not default to today. A guessed date on a customer's signature is a small
+ * invention that survives into the close-out pack and cannot be unpicked afterwards.
+ */
+function ExternalReportForm({
+  ticketId,
+  onDone,
+  onCancel,
+}: {
+  ticketId: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [workPerformed, setWorkPerformed] = useState("");
+  const [signatureFileId, setSignatureFileId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPosition, setCustomerPosition] = useState("");
+  const [finishedAt, setFinishedAt] = useState("");
+
+  const files = trpc.files.forEntity.useQuery(
+    { entityType: SERVICE_REPORT_ENTITY_TYPE, entityId: ticketId },
+    { retry: false },
+  );
+  const record = trpc.operations.recordExternalServiceReport.useMutation({
+    onSuccess: () => {
+      toastSuccess("Recorded the signed report.");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  const attached = files.data ?? [];
+  const ready =
+    signatureFileId !== "" &&
+    customerName.trim().length > 0 &&
+    workPerformed.trim().length > 0 &&
+    finishedAt !== "";
+
+  return (
+    <div className="mt-3 space-y-3 rounded-md border border-border p-3">
+      <div>
+        <h3 className="text-sm font-semibold">Externally written service report</h3>
+        <p className="mt-0.5 text-xs text-text-muted">
+          For a customer who works to their own job sheet or service acceptance form. This records
+          their signature — the report counts as approved, and close-out stops waiting on it.
+        </p>
+      </div>
+
+      <div>
+        <Label htmlFor="ext-sr-file">Which attached document did they sign</Label>
+        <Select
+          id="ext-sr-file"
+          value={signatureFileId}
+          onChange={(e) => setSignatureFileId(e.target.value)}
+        >
+          <option value="">Choose an attachment…</option>
+          {attached.map((file) => (
+            <option key={file.id} value={file.id}>
+              {file.filename}
+            </option>
+          ))}
+        </Select>
+        {attached.length === 0 && (
+          <p className="mt-0.5 text-xs text-amber-800">
+            Nothing is attached yet. Upload the signed form above first.
+          </p>
+        )}
+      </div>
+
+      <div>
+        <Label htmlFor="ext-sr-work">What was done</Label>
+        <Textarea
+          id="ext-sr-work"
+          rows={3}
+          value={workPerformed}
+          placeholder="The work, as it would read on our own report. This is what close-out and the customer's file will show."
+          onChange={(e) => setWorkPerformed(e.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <Label htmlFor="ext-sr-name">Who signed it</Label>
+          <Input
+            id="ext-sr-name"
+            value={customerName}
+            onChange={(e) => setCustomerName(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="ext-sr-position">Their position</Label>
+          <Input
+            id="ext-sr-position"
+            value={customerPosition}
+            onChange={(e) => setCustomerPosition(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="ext-sr-finished">When the work finished</Label>
+          <Input
+            id="ext-sr-finished"
+            type="date"
+            value={finishedAt}
+            onChange={(e) => setFinishedAt(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {record.error && <p className="text-sm text-danger">{record.error.message}</p>}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={record.isPending || !ready}
+          onClick={() =>
+            record.mutate({
+              ticketId,
+              workPerformed: workPerformed.trim(),
+              signatureFileId,
+              customerName: customerName.trim(),
+              customerPosition: customerPosition.trim() || null,
+              finishedAt: new Date(finishedAt),
+            })
+          }
+        >
+          {record.isPending ? "Recording…" : "Record the signed report"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

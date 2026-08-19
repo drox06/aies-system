@@ -1303,6 +1303,19 @@ model ServiceReport {
   technicianSignatureFileId String?
   photoFileIds              String[] @default([])
 
+  /// The report was written on somebody else's form and arrived already signed.
+  ///
+  /// Some customers will not accept AIES's service report and hand over their own job sheet or
+  /// service acceptance form, which the technician completes on site and their engineer signs. §12
+  /// is satisfied in substance — the work is described and the customer has signed for it — but
+  /// there is no draft here and no approval chain, so the record cannot be told from an ordinary one
+  /// by its status alone.
+  ///
+  /// The flag exists so it can be, and so the close-out pack can say which of its reports AIES wrote.
+  /// The same reasoning as `Methodology.externalDocument`, arrived at the same way: the company
+  /// found the upload area with no way to say the uploaded document *was* the report.
+  externalDocument Boolean @default(false)
+
   followUpRequired Boolean @default(false)
   followUpNotes    String?
   ncrRaised        Boolean @default(false)
