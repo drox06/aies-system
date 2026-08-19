@@ -2844,6 +2844,51 @@ above end to end.
 **Modules 03 and 04 remain untagged.** Per BUILD-PROTOCOL §7 the tag is the company's signature and
 I do not apply it. Both are waiting on one walkthrough pass that covers them together.
 
+## The walkthrough pass — 2026-08-19, in progress
+
+The company is walking the deal from part seven onward on the live site. Everything below was found
+by them during that pass and is fixed, deployed and verified live. Numbers are `/api/health`'s, which
+now reports the deployed commit — see #122.
+
+### Somebody else's paperwork is still evidence
+
+The largest theme, and it recurred four times before the shape of it was clear. Four gates in module
+04 turn on a document, and three of them assumed AIES writes it. Plenty of plants hand over their own
+permit-to-work form, job sheet or commissioning record instead; the customer signs, and the platform
+had nowhere to put the paper except an attachment area that changed nothing. The only way past the
+gate was the override, which records "a control was bypassed" — the wrong words for a client who
+genuinely approved.
+
+Method statement, service report and commissioning each now offer a **second path** that writes a
+real record in its satisfied state with the document attached, clearing through the rule the gate
+already had. QA needed no second path — it was always document-first — only wording that admits
+either party's form. `externalDocument` on all three keeps the record from misrepresenting who wrote
+it. docs/DECISIONS.md #118.
+
+**§10's was the one that cost money.** Commissioning acceptance makes the installation milestone
+billable, so a job commissioned on the customer's sheet had cleared the real gate while the platform
+read "nothing recorded". Its `tc.completed` now fires from both paths, with a test that fails if
+anybody removes it.
+
+### The rest of the pass so far
+
+- **A delivery ticket demanded a method statement.** Now scoped to new projects and installations —
+  and the readiness list and the panel, which had been contradicting each other about the same job,
+  read one shared predicate with a test that walks every ticket type. #119.
+- **The part-seven seed could not be used.** It set a quotation to `sent` with a direct write, so no
+  `quotation.sent` fired, the inquiry stayed at `quoting`, and recording the customer PO refused —
+  correctly. A seed may skip a decision, but not its consequence. #120.
+- **Delivery mode looked empty with the delivery sitting in it.** Fourth occurrence, fourth distinct
+  cause: this time a thirty-minute cache with no way to ask for a newer list. #121.
+- **Nothing could say which commit was live.** `/api/health` now reports it. #122.
+
+### Still open from this pass
+
+- **Modules 03 and 04 remain untagged.** The pass is not finished; per BUILD-PROTOCOL §7 the tag is
+  the company's signature and I do not apply it.
+- **`docs/DECISIONS.md` is current to #122.** Anything found after this section was written is in the
+  commit messages and not yet here.
+
 ## Module 05 — Finance, Billing and Collections
 
 ### Session 1 — §2's billing schedule (2026-08-19)

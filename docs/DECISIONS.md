@@ -3937,3 +3937,192 @@ credibility of a green suite on a check that is not being made. Twenty-one defec
 company against zero by the suite (BUILD-PROTOCOL §7.1) is the headline number; this one is the
 mechanism behind it.
 
+## #118 — Somebody else's paperwork is still evidence
+
+Four gates in module 04 turn on a document: §6.2's client-approved method statement, §9's QA
+acceptance, §10's commissioning certificate, §12's signed service report. Each was built assuming
+AIES writes the document and the customer signs it.
+
+Plenty of plants do not work that way. They hand over their own permit-to-work form, their own job
+sheet, their own commissioning record, and AIES completes it and their engineer signs it before the
+van leaves. The customer has approved, on paper, with a name on it — and the platform had nowhere to
+put the paper except an attachment area that changed nothing.
+
+### Why the override was the wrong answer
+
+The only route past a blocked gate was the override, which records **"a control was bypassed"**.
+That is the honest description of mobilising with no client approval and a misdescription of
+mobilising with one. Filed against ISO 9001 clause 8.1, the first is a nonconformity to explain and
+the second is compliance; the platform could not tell them apart, so it called both an override. A
+company that has to explain a folder full of overrides at audit will stop using them — and then the
+control protects nothing on the jobs where it mattered.
+
+### The shape, repeated three times on purpose
+
+Each of the three now offers a **second path** that writes a real record already in its satisfied
+state, with the document attached:
+
+| Gate | Record written | Clears because |
+|---|---|---|
+| §6.2 method statement | `client_approved` + approval file | the existing rule wants status **and** document |
+| §12 service report | `approved` + signature file | close-out counts reports that are not approved |
+| §10 commissioning | `accepted` + signed sheet, **emitting `tc.completed`** | the milestone becomes billable either way |
+
+No new gate concept anywhere. Each clears through the rule it already had, which is the whole point:
+there is one gate with two honest ways of meeting it, not a gate and an exception. The close-out pack
+also finds a document where one genuinely exists — a job done to the customer's form is not a job
+with no method statement, and a pack reporting it missing would be wrong in the direction that costs
+an audit finding.
+
+**§10's is the one that cost money.** Commissioning acceptance is what makes the installation
+milestone billable. A job commissioned on the customer's sheet had cleared the real gate while the
+platform read "nothing recorded" and the milestone sat unbillable. Its `tc.completed` is emitted from
+inside the same transaction as the worksheet's, with a test that fails if anybody removes it:
+emitting from one path and not the other is the asymmetry that fires for some jobs and not others,
+and here it is the difference between an invoice and no invoice.
+
+### `externalDocument`, so the record cannot lie about itself
+
+A boolean on all three. Without it, a record written this way is indistinguishable from an ordinary
+one that somebody abandoned half-finished: empty `sequenceOfWork`, no findings, no functional tests.
+The flag says those absences are **facts about somebody else's form** rather than omissions in ours,
+and it lets anything downstream — the close-out pack, module 07's controlled documents, the
+turnaround metric — know AIES did not author the thing.
+
+`Methodology.submittedToClientAt` stays null on that path for the same reason. §6.2's turnaround
+measures the gap between AIES sending and the client answering; there was no sending, and a value
+there would be an invented duration inside the figure the company uses to argue about whose delay a
+slipped mobilisation was.
+
+### What each refuses, and the one that differs
+
+All three refuse an unsigned document, a signatory nobody named, and a date in the future — each is
+the difference between recording an acceptance and asserting one.
+
+**The method statement additionally refuses when one is already live on the job.** That refusal is
+load-bearing: without it, anybody meeting resistance at internal review could sidestep §6.2's whole
+chain by declaring the client had approved something, and a deliberate second path becomes a hole in
+the first.
+
+**The service report deliberately does not refuse a second report.** §12 expects one per visit, so
+refusing would break the ordinary case to prevent a misuse that is not available anyway — there is
+no review chain to sidestep, and the path costs the same signature and the same named signatory as
+the other one. Two gates, two answers, because the questions are different.
+
+**Commissioning accepts only.** A failure needs the worksheet's punch list and rework loop; filing a
+rejection through the short path would record a failure with nothing for anybody to act on.
+
+### QA needed none of this
+
+§9 was always document-first — nothing records without a file — so it needed no second path. What it
+needed was wording. "The client's documentation" read as though only their form would do, and AIES
+has its own QA inspection sheet that customers sign just as often. Both satisfy §9, because the gate
+wants the customer's acceptance **in writing**, not a particular letterhead.
+
+### The lesson worth carrying to module 06 and beyond
+
+A gate should ask *has the thing happened*, and be careful not to smuggle in an assumption about
+**which piece of paper proves it**. Three of these four had that assumption baked in, and each was
+found the same way: somebody walking a real job hit a screen offering an upload and no way to say
+what the upload meant.
+
+## #119 — A method statement is for work on the plant
+
+A delivery ticket showed **"Mobilisation blocked"** and demanded a method statement before AIES could
+hand a flowmeter to a gatehouse. §6's wording — "only `new_project` tickets take this branch" — had
+been read literally in one place and not at all in another, and neither reading was the company's
+intention.
+
+The rule now: **new projects and installations**, the latter carrying its testing and commissioning
+with it. Deliveries and after-sales callouts are out. A method statement describes how a crew will
+carry out an intervention safely on somebody else's site — the sequence, the isolation, the permits.
+That is a real question for work on the plant and not a question at all for a van dropping goods.
+
+After-sales is deliberately excluded. A corrective callout made to wait on a document nobody has
+written is how a gate becomes routine to override, at which point it protects nothing anywhere — the
+same reasoning behind §7's material gate and §9's client inspection.
+
+### The defect underneath was two answers, not a wrong one
+
+`mobilizationReadiness` asked `ticketType === "new_project"` and called a delivery *not applicable*.
+`methodologyGate` did not ask at all and called the same job *blocked*. One dispatcher, one ticket,
+two panels contradicting each other — which is worse than either answer alone, because it teaches
+people that the gates are noise rather than that one of them is wrong.
+
+Both now read one exported `methodStatementRequiredFor`, and a test walks **every** ticket type
+asserting the two agree. It fails the moment anybody gives either its own copy of the answer again.
+
+Two smaller decisions inside it:
+
+**`not_applicable` and `not_required` are kept apart.** A delivery never asks the question; a waived
+customer asked it and was excused. Collapsing them would make a van drop and somebody's recorded
+decision read identically on screen, and only one of those is a decision. The same distinction as
+§7's undecided materials and #115's waived inspection.
+
+**Omitting the ticket type still blocks.** `methodologyGate(methodology)` with no type given returns
+the strict answer rather than turning itself off. A caller that does not know what kind of job it is
+looking at should stop a crew, not despatch one — absent is not permission.
+
+## #120 — A seed may skip a decision, but not its consequence
+
+`sample-part-seven.ts` set its quotation to `sent` with a direct write, and declared it: §6 forbids
+reaching `sent` without an approval, so the script left an audit row saying a seed had done it and no
+approver had seen the document. That part was right, and it is the rule every seed here follows —
+**numbers, not judgements**.
+
+What it missed is that skipping the *decision* is not the same as skipping the *consequence*. A
+direct write emits no `quotation.sent`, so module 01's subscriber never ran and the inquiry stayed at
+`quoting`. Recording the customer's PO then refused: "AIESINQ-… is quoting. A purchase order is
+recorded against an inquiry whose quotation has been sent."
+
+The gate was doing its job on a lie the seed had told it. The quotation *said* it had gone out and
+the pipeline knew it had not — and the first check downstream caught the disagreement, which is the
+system working and a wasted trip for whoever is walking the document.
+
+The fix walks the inquiry through `transitionInquiryService` with `bySystem: true`, exactly what the
+real subscriber does, rather than setting `status: "quoted"` directly. A second direct write would
+have produced the same visible state and the same class of problem one step further on: no audit row,
+no activity-feed entry, and none of §3's checks.
+
+**The rule for every seed after this one:** a seed may decline to make a decision, and must say so.
+It may not leave the database in a state the decision would never have produced.
+
+## #121 — The driver's screen could not be asked for a newer list
+
+Delivery mode holds its run for thirty minutes and does not refetch when the window regains focus.
+That is deliberate and correct: a driver who opened the list in the yard should still have it after
+losing signal on the road, and a refetch-on-focus would blank it at the worst moment.
+
+What was missing was any way to ask for a fresher one. The office issues a delivery receipt; the
+driver who opened the screen five minutes earlier sees nothing for half an hour, with nothing on
+screen admitting the list is old. "Nothing to take out right now" was a true statement about the
+query and a false one about the world.
+
+Now: a Refresh button sized for a gloved thumb, the time the list was fetched beside it, and
+`refetchOnReconnect: "always"` — regaining signal is the moment a driver most wants the office's
+latest and is least likely to have a spare hand for a button.
+
+**This was the fourth time Delivery mode came up empty, and the fourth different cause** — twice my
+seeding, once `dr_requested` against `dr_issued`, now a cache with no escape hatch. The screen itself
+was never at fault. Each time it was something upstream the screen had no vocabulary to describe,
+which is the general lesson: **a screen that can be empty needs to be able to say why**, and "why"
+includes "because this is what was true at 09:14".
+
+## #122 — The deployment could not say what it was running
+
+Pushing a batch of work left no way to tell whether Vercel had shipped it. The site answered, the
+login page rendered, and the only place the build sha appeared was the sidebar — behind a login with
+mandatory TOTP.
+
+That is not hypothetical here. Between `ea3d725` and `7ca06e5` **nothing deployed at all**: a cached
+Prisma Client failed every build on a type error while the live site served perfectly well, several
+commits behind. A phone pass was carried out against the wrong code and had to be repeated.
+
+`/api/health` now returns the commit alongside the status, and every deploy in this round was
+confirmed by polling it rather than by waiting and assuming. A commit sha of a private repository is
+not a secret in any useful sense — it identifies a build, it does not describe one.
+
+The route still queries nothing, and says so in its own comment: a green answer means the app is
+serving, **not** that the database is reachable. Anybody tempted to point an uptime monitor at it
+should know it cannot fail for the reason they care about.
+
