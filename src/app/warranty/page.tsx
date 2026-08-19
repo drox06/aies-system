@@ -199,7 +199,7 @@ export default function WarrantyPage() {
       </Card>
 
       <Card className="p-4">
-        <h2 className="text-sm font-semibold">Installed base</h2>
+        <h2 className="text-sm font-semibold">Installed base — equipment on customer sites</h2>
         <p className="mt-0.5 text-xs text-text-muted">
           §16&rsquo;s `Equipment`, built here because §11 has nothing to check without it. Equipment
           with no recorded window is not equipment out of warranty — it is a question nobody has
@@ -209,8 +209,24 @@ export default function WarrantyPage() {
           {equipment.data?.map((item) => (
             <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2">
               <span>
+                {/*
+                  The tag number leads, because it is how the plant refers to the thing.
+
+                  This listed the description and the serial only, so an instrument the customer
+                  calls FT-3011 appeared as "DN80 electromagnetic flowmeter, syrup line" and could
+                  not be found by the name anybody uses. A tag is what is on the loop diagram, on the
+                  P&ID, and on the phone when they ring to say it is reading low; the serial is what
+                  the manufacturer calls it, and matters only once you already have the right row.
+                */}
+                {item.tagNumber && <span className="tabular font-medium">{item.tagNumber}</span>}
+                {item.tagNumber ? " · " : ""}
                 {item.description}
-                {item.serialNumber ? ` · ${item.serialNumber}` : ""}
+                {item.serialNumber ? (
+                  <span className="text-text-muted">{` · ${item.serialNumber}`}</span>
+                ) : null}
+                {item.location ? (
+                  <span className="block text-xs text-text-muted">{item.location}</span>
+                ) : null}
               </span>
               <StatusBadge tone={COVERAGE_TONE[item.coverage.coverage] ?? "pending"}>
                 {COVERAGE_LABELS[item.coverage.coverage]}
@@ -281,7 +297,10 @@ function RaiseClaimForm({
           <option value="">Not identified</option>
           {equipment.map((item) => (
             <option key={item.id} value={item.id}>
+              {/* Tag first here too — somebody raising a claim is holding a tag, not a datasheet. */}
+              {item.tagNumber ? `${item.tagNumber} · ` : ""}
               {item.description}
+              {item.serialNumber ? ` · ${item.serialNumber}` : ""}
             </option>
           ))}
         </Select>
