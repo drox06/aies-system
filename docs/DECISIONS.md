@@ -4126,3 +4126,41 @@ The route still queries nothing, and says so in its own comment: a green answer 
 serving, **not** that the database is reachable. Anybody tempted to point an uptime monitor at it
 should know it cannot fail for the reason they care about.
 
+## #123 — Hiding a record and throwing it away are different acts
+
+"Start commissioning" is not a form that opens. It allocates an AIESTC number and creates a record on
+the first press, and once that record existed the worksheet became the whole panel with no way out.
+Somebody who pressed it to look, or pressed it on the wrong ticket, was stuck reading a long form
+with a stray record left behind on the job.
+
+The company asked for a way back, and then — correctly — for both.
+
+**Back** collapses the worksheet and says plainly that nothing has been discarded. The record keeps
+its number and whatever has been saved into it, and reopens with Continue. Collapsing must not be
+mistaken for cancelling, so the panel says which one just happened.
+
+**Discard** removes it, with a reason of at least ten characters, as a soft delete. The number stays
+consumed — Spec.md §5 permits gaps and forbids reuse — and the row survives, so "what happened to
+AIESTC-260041" has an answer months later. A record that vanished silently is indistinguishable from
+one that was never created, and the difference matters when somebody is reconstructing a site visit.
+
+### The refusal is the whole safety of it
+
+**A completed commissioning cannot be discarded.** It has already emitted `tc.completed`, so §5 may
+have made the installation milestone billable and the customer holds a signed certificate. Removing
+it would leave an invoice standing on nothing. A completed record that turns out to be wrong is
+corrected by a further round, which is also how the paper world does it.
+
+That is the same rule as the service report's discard — refuse once the customer has signed and the
+document has been billed against — and the two now read alike deliberately. Three discards exist in
+module 04 (checklist, service report, commissioning) and all three ask *why* rather than *are you
+sure*: a confirmation that only asks for certainty trains people to click yes, while one that asks
+for a reason does not, and the reason is the half worth keeping.
+
+### A note on how this was found, twice
+
+Both halves of this came from the company pressing a button and finding themselves somewhere with no
+exit. That is not a class of defect any test suite here would have caught: every automated test calls
+the service directly, so no test has ever *pressed* Start commissioning and then wanted to leave.
+Worth remembering when weighing what the suite's green means — see BUILD-PROTOCOL §7.1.
+

@@ -2844,7 +2844,7 @@ above end to end.
 **Modules 03 and 04 remain untagged.** Per BUILD-PROTOCOL §7 the tag is the company's signature and
 I do not apply it. Both are waiting on one walkthrough pass that covers them together.
 
-## The walkthrough pass — 2026-08-19, in progress
+## The walkthrough pass — 2026-08-19
 
 The company is walking the deal from part seven onward on the live site. Everything below was found
 by them during that pass and is fixed, deployed and verified live. Numbers are `/api/health`'s, which
@@ -2882,12 +2882,30 @@ anybody removes it.
   cause: this time a thirty-minute cache with no way to ask for a newer list. #121.
 - **Nothing could say which commit was live.** `/api/health` now reports it. #122.
 
-### Still open from this pass
+- **Commissioning could be started and not left.** "Start commissioning" allocates a number on the
+  first press, and the worksheet then had no exit. Back collapses it and says nothing was discarded;
+  Discard removes it, with a reason, refusing once the record is completed and has been billed
+  against. #123.
 
-- **Modules 03 and 04 remain untagged.** The pass is not finished; per BUILD-PROTOCOL §7 the tag is
-  the company's signature and I do not apply it.
-- **`docs/DECISIONS.md` is current to #122.** Anything found after this section was written is in the
-  commit messages and not yet here.
+### The company's own account of the pass
+
+They walked it from part seven to the end and reported it covered. **Every defect above was found by
+a person using the app; none by the suite** — which by this pass stands at 26 by the company against
+0 by 1,573 automated tests. That number is the whole argument of BUILD-PROTOCOL §7.1, and this round
+sharpened it: three of the six findings were *there is no control for this*, which no test that calls
+services directly can see, because no test has ever pressed a button and wanted to leave.
+
+### What tagging modules 03 and 04 now needs
+
+Per BUILD-PROTOCOL §7, and in order:
+
+1. **The company's verdict on the pass**, in writing here — what was walked, what was found, what is
+   accepted. Their signature, not mine.
+2. **A clean full-suite run** recorded with its numbers.
+3. **The sample data removed** — `PART7` and `WALKTHROUGH` both, each with its own `--remove`.
+4. **Then, and only then, the tags.** §7.3: Claude may not sign its own gate, so I do not apply them.
+
+`docs/DECISIONS.md` is current to #123.
 
 ## Module 05 — Finance, Billing and Collections
 
