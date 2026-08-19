@@ -36,10 +36,24 @@ type Drop = inferRouterOutputs<AppRouter>["operations"]["todaysDrops"]["drops"][
 
 export default function FieldPage() {
   const drops = trpc.operations.todaysDrops.useQuery(undefined, {
-    // The list is worth having stale — a driver who opened it in the yard should still see their
-    // run after losing signal on the road, and refetching on focus would blank it.
+    /*
+      The list is worth having stale — a driver who opened it in the yard should still see their run
+      after losing signal on the road, and refetching on focus would blank it.
+
+      That reasoning stands, and it had a cost nobody had paid yet: **there was no way to ask for a
+      fresh list.** The office issues a delivery receipt, and the driver who opened this screen five
+      minutes earlier sees nothing for half an hour, with nothing on screen admitting the list is
+      old. Reported on 2026-08-19 — the fourth time this screen has come up empty, and the first
+      time the data underneath it was actually correct.
+
+      So the staleness stays and a Refresh button sits beside it, with the time the list was
+      fetched. A driver can now tell "nothing to take out" from "this is what was true at 09:14".
+    */
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    // Regaining signal is the one moment a driver most wants the office's latest, and the least
+    // likely to have a spare hand for a button.
+    refetchOnReconnect: "always",
     retry: false,
   });
 
@@ -140,6 +154,33 @@ export default function FieldPage() {
       )}
 
       <main className="p-4">
+        {/*
+          When this list was fetched, and how to get a newer one.
+
+          Big enough for a gloved thumb per §14, and stating the time rather than "just now" —
+          a relative label would need re-rendering to stay true and would lie quietly when it did
+          not. `isFetching` rather than `isPending`, so the button reports a background refetch
+          instead of appearing to do nothing.
+        */}
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-sm">
+            {drops.dataUpdatedAt
+              ? `As of ${new Date(drops.dataUpdatedAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : "Not loaded yet"}
+          </p>
+          <button
+            type="button"
+            className="border-2 border-black px-4 py-3 text-base font-semibold disabled:opacity-50"
+            disabled={drops.isFetching}
+            onClick={() => void drops.refetch()}
+          >
+            {drops.isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+
         {drops.isPending && <p className="text-base">Loading your run…</p>}
         {drops.error && (
           <p className="border-2 border-black p-3 text-base">
@@ -151,6 +192,10 @@ export default function FieldPage() {
         {drops.data?.drops.length === 0 && (
           <div className="text-base">
             <p>Nothing to take out right now.</p>
+            <p className="mt-1 text-sm">
+              This list is held for up to half an hour so it survives losing signal. If the office
+              has just issued a receipt, press Refresh.
+            </p>
             {drops.data.awaitingReceipt > 0 && (
               <p className="mt-2 border-2 border-black p-3 font-semibold">
                 {drops.data.awaitingReceipt} delivery
