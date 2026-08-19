@@ -11,7 +11,7 @@ import {
   onDeliveryReceiptSigned,
   onGoodsDelivered,
   onProjectClosed,
-  onServiceReportApproved,
+  onQaPassed,
   onSupplierPoSent,
   onTcCompleted,
 } from "@/server/core/finance/billing-service";
@@ -513,10 +513,14 @@ describe("the subscribers", () => {
   });
 
   /**
-   * The trigger §2 named `ticket.completed`, which module 04 never emitted. If somebody "corrects"
-   * the trigger back to the spec's literal name, this test fails rather than the feature going quiet.
+   * The question that had three answers: `ticket.completed` (never emitted), then
+   * `service_report.approved`, then this. The company settled it — QA is where the **customer**
+   * signs, and a service report is AIES describing its own work.
+   *
+   * If somebody "corrects" the trigger back to either earlier answer, this fails rather than the
+   * feature going quiet.
    */
-  it("bills on_installation when the service report is approved", async () => {
+  it("bills on_installation when the customer accepts the work at QA", async () => {
     const term = await makeTerm([
       { label: "On installation", pct: "100", trigger: "on_installation" },
     ]);
@@ -525,11 +529,11 @@ describe("the subscribers", () => {
     scheduleIds.push(result.scheduleId);
     const ticket = await makeTicketOn(order);
 
-    await onServiceReportApproved({ ticketId: ticket.id, serviceReportId: "sr-1" });
+    await onQaPassed({ ticketId: ticket.id, number: "AIESQA-1" });
 
     const schedule = await getScheduleService(order.id);
     expect(schedule!.milestones[0]!.status).toBe("ready_to_bill");
-    expect(schedule!.milestones[0]!.readyReason).toContain("service report");
+    expect(schedule!.milestones[0]!.readyReason).toContain("accepted the work at QA");
   });
 
   it("bills on_supplier_order when the supplier order goes out", async () => {

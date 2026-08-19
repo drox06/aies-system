@@ -115,6 +115,43 @@ describe("the seeded templates", () => {
     }
   });
 
+  /**
+   * "Others" is where the question was reached, not where it was answered.
+   *
+   * Two failures are possible here and they point in opposite directions, so both are named:
+   * counting the specify box while it is hidden would block every ordinary enquiry on a question
+   * nobody is being shown, and *not* counting it once "Others" is chosen would let an enquiry reach
+   * quoting with its most important line reading "Others" — the exact round-trip §4 exists to stop.
+   */
+  describe("the conditional specify box", () => {
+    const supplied = (category: string, other?: string) => ({
+      "supply.equipment_category": category,
+      ...(other === undefined ? {} : { "supply.equipment_category_other": other }),
+    });
+
+    it("is not asked, and not missed, when a real category is chosen", () => {
+      const result = assessRequirements(SEED_REQUIREMENT_TEMPLATES, ["supply"], {
+        ...supplied("Flow Instrument"),
+      });
+      expect(result.missing.map((m) => m.key)).not.toContain("equipment_category_other");
+    });
+
+    it("becomes required the moment Others is chosen", () => {
+      const result = assessRequirements(SEED_REQUIREMENT_TEMPLATES, ["supply"], {
+        ...supplied("Others — specify"),
+      });
+      expect(result.missing.map((m) => m.key)).toContain("equipment_category_other");
+      expect(result.complete).toBe(false);
+    });
+
+    it("is satisfied once it is filled in", () => {
+      const result = assessRequirements(SEED_REQUIREMENT_TEMPLATES, ["supply"], {
+        ...supplied("Others — specify", "Ultrasonic clamp-on kit"),
+      });
+      expect(result.missing.map((m) => m.key)).not.toContain("equipment_category_other");
+    });
+  });
+
   it("gives every select field its options", () => {
     for (const template of SEED_REQUIREMENT_TEMPLATES) {
       for (const field of template.fields) {

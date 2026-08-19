@@ -1,5 +1,7 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { DateCell } from "@/components/ui/cells";
@@ -79,6 +81,7 @@ const WORKSTREAM_TONE: Record<string, StatusTone> = {
 const human = (value: string) => value.replace(/_/g, " ");
 
 export default function SalesOrdersPage() {
+  const router = useRouter();
   const [tableState, setTableState] = useState<DataTableState>({
     ...DEFAULT_TABLE_STATE,
     sortKey: "orderDate",
@@ -203,11 +206,19 @@ export default function SalesOrdersPage() {
         description="What AIES is committed to deliver, and where each commitment has got to."
       />
 
+      {/*
+        The row opens, not just the button at the end of it.
+
+        Reaching an order meant travelling the whole width of a wide table to a link in the last
+        column — a long mouse journey repeated all day, and on a laptop the column was often off
+        screen entirely. The Open button stays for keyboard and for anybody who expects it.
+      */}
       <DataTable
         columns={columns}
         rows={page}
         rowId={(row) => row.id}
         total={sorted.length}
+        onRowClick={(row) => router.push(`/sales-orders/${row.id}`)}
         state={tableState}
         onStateChange={setTableState}
         isLoading={list.isPending}

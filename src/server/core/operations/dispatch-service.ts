@@ -62,14 +62,47 @@ export interface BoardInput {
  * five-technician crew is tens of tickets, and a wrong colour on a dispatch board is a crew sent to
  * a site they cannot work.
  */
+/**
+ * Monday 00:00 to the instant the week ends, as a half-open range.
+ *
+ * ## The bug this exists to stop happening again
+ *
+ * Both week queries used to compute `sunday = monday + 6 days` and filter `lte: sunday`. That is
+ * Sunday at **midnight**, not Sunday at the end of the day — so a job booked for any time on a
+ * Sunday except exactly 00:00:00 fell outside the window. It did not appear on the dispatch board,
+ * and — worse — `scheduleTicketService` computes its clash report from that same board, so
+ * **double-booking somebody on a Sunday was written and never reported**. The one thing §17 says
+ * the scheduler must never do.
+ *
+ * It went unnoticed because the suite books `inDays(3)` and `inDays(4)` from whenever it runs, so
+ * it only lands on a Sunday one day in seven. It failed on 2026-08-19, a Wednesday, and had passed
+ * every previous run of a test written to catch exactly this.
+ *
+ * AIES works Sundays — outages are scheduled for when the plant is down, and that is the weekend.
+ * This was not a theoretical window.
+ *
+ * ## Why half-open
+ *
+ * `until` is the following Monday and the comparison is `lt`, which needs no end-of-day sentinel
+ * and cannot be wrong by a millisecond. `lte: sunday23:59:59.999` would work today and break the
+ * day somebody stores microseconds.
+ */
+function weekWindow(at: Date | string): { from: Date; until: Date } {
+  const from = new Date(weekOf(at));
+  return { from, until: new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000) };
+}
+
 export async function dispatchBoardService(input: BoardInput = {}) {
-  const monday = new Date(weekOf(input.weekOf ?? new Date()));
-  const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const { from: monday, until: nextMonday } = weekWindow(input.weekOf ?? new Date());
+  // Kept for the availability query below, which compares against a date the week contains rather
+  // than against the boundary.
+  const sunday = new Date(nextMonday.getTime() - 24 * 60 * 60 * 1000);
 
   const tickets = await db.ticket.findMany({
     where: {
       deletedAt: null,
-      scheduledStart: { gte: monday, lte: sunday },
+      // Half-open: see weekWindow. `lte: sunday` hid every Sunday booking after midnight.
+      scheduledStart: { gte: monday, lt: nextMonday },
     },
     select: {
       id: true,
@@ -264,15 +297,17 @@ export async function previewScheduleService(input: {
 
   if (crew.length === 0) return { conflicts: [], crew: [] as { id: string; name: string }[] };
 
-  const from = new Date(weekOf(input.scheduledStart));
-  const to = new Date(from.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const { from, until } = weekWindow(input.scheduledStart);
+  // The last day the week contains, for the availability query. The *ticket* query below uses the
+  // half-open boundary instead — see weekWindow for the Sunday bug that distinction fixes.
+  const to = new Date(until.getTime() - 24 * 60 * 60 * 1000);
 
   const [others, unavailability, people] = await Promise.all([
     db.ticket.findMany({
       where: {
         deletedAt: null,
         id: { not: ticket.id },
-        scheduledStart: { gte: from, lte: to },
+        scheduledStart: { gte: from, lt: until },
       },
       select: {
         id: true,

@@ -117,14 +117,6 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
     detail: caOverride ? `Overridden by an officer — ${caOverride}` : input.cashAdvance.message,
   });
 
-  items.push({
-    key: "materials",
-    label: "Materials issued",
-    state: input.materials.blocks ? "fail" : "pass",
-    mandatory: true,
-    detail: input.materials.message,
-  });
-
   /**
    * §6 scopes the method statement to new projects: "Only `new_project` tickets take this branch."
    * So it is mandatory there and shown as not applicable elsewhere — an after-sales callout does not
@@ -148,6 +140,23 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
       : methodOverride
         ? `Overridden by an officer — ${methodOverride}`
         : input.methodology.message,
+  });
+
+  /*
+    Materials come after the method statement, because that is the order the job happens in.
+
+    The method statement is what says which materials the job needs; issuing stock before it is
+    approved is guessing. The list used to read cash advance → materials → method statement, which
+    is neither the order of the work nor the order of the panels on the ticket, and the company
+    asked for the two to match. A readiness list that disagrees with the screen it sits on teaches
+    people to read it as a bag of unrelated checks rather than as a sequence.
+  */
+  items.push({
+    key: "materials",
+    label: "Materials issued",
+    state: input.materials.blocks ? "fail" : "pass",
+    mandatory: true,
+    detail: input.materials.message,
   });
 
   items.push({

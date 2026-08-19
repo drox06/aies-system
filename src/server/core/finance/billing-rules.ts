@@ -32,23 +32,29 @@ export const BILLING_TRIGGERS = {
   on_supplier_order: "supplier_po.sent",
   on_delivery: "sales_order.goods_delivered",
   /**
-   * **`service_report.approved`, not `ticket.completed`.**
+   * **`qa.passed`** — the customer's own acceptance.
    *
-   * §2's table says `ticket.completed` (type = installation). Module 04 does not emit that event and
-   * never has — it emits `ticket.mobilized`, `ticket.started`, `ticket.demobilized`,
-   * `service_report.approved` and `project.closed`. Wiring the spec's name literally would have
-   * produced a milestone that could never become billable, which is worse than a deviation: it looks
-   * configured and silently bills nothing.
+   * ## Three answers, in order, and why the third is right
    *
-   * `service_report.approved` is also the better answer on its own terms. A ticket being marked
-   * complete is a status AIES set; an approved service report is the **artefact** saying what was
-   * done — and §12 makes it the document the customer's copy is cut from. Billing on the second is
-   * billing on something that survives an argument.
+   * §2's table says `ticket.completed`. Module 04 has never emitted that, so wiring it literally
+   * would have produced a milestone that reads as configured and silently bills nothing.
    *
-   * Flagged for the company: if they want installation billing to fire earlier, at demobilisation
-   * rather than at the report, that is a one-word change here.
+   * It was then pointed at `service_report.approved`, on the reasoning that an approved service
+   * report is an artefact rather than a status. Better, and still not right.
+   *
+   * The company settled it on 2026-08-19: **QA is the trigger, because QA is where the customer
+   * signs.** A service report is AIES describing its own work — thorough, useful, and written by the
+   * party being paid. A QA approval carries the customer's inspector, their signature and their
+   * evidence document, which §9 makes mandatory. Billing on the first is billing on our own account
+   * of events; billing on the second is billing on theirs.
+   *
+   * That is the same principle that put a signed delivery receipt ahead of a despatch note, and it is
+   * why QA now sits last on the ticket: it is not one more record to fill in, it is the moment the
+   * customer accepts the work and the money becomes collectable.
+   *
+   * Supersedes the note in docs/DECISIONS.md #109.
    */
-  on_installation: "service_report.approved",
+  on_installation: "qa.passed",
   on_tc_accepted: "tc.completed",
   on_dr_signed: "delivery.dr_signed",
   on_project_close: "project.closed",
@@ -61,7 +67,7 @@ export const BILLING_TRIGGER_LABELS: Readonly<Record<BillingTrigger, string>> = 
   on_order: "When the order is raised",
   on_supplier_order: "When the supplier order goes out",
   on_delivery: "When the goods are delivered",
-  on_installation: "When the service report for the work is approved",
+  on_installation: "When the customer accepts the work at QA",
   on_tc_accepted: "When the customer accepts commissioning",
   on_dr_signed: "When the delivery receipt is signed",
   on_project_close: "When the project closes",
@@ -82,7 +88,7 @@ export const BILLING_TRIGGER_NOTES: Readonly<Record<BillingTrigger, string>> = {
   on_delivery:
     "When the quantities move. Faster than waiting for a signature, and weaker to argue with.",
   on_installation:
-    "The service report for the work has been approved — the document saying what was done. Use this when the scope is fitting rather than commissioning.",
+    "The customer signed off QA — their inspector, their signature, their evidence. The strongest thing to bill against, because it is their account of the work rather than ours.",
   on_tc_accepted:
     "The customer's own engineer signed the commissioning certificate. The strongest billing artefact this platform produces.",
   on_dr_signed:

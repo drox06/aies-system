@@ -103,6 +103,7 @@ export function MethodStatementDocument(props: MethodStatementPdfProps) {
       <Page size="A4" style={s.page}>
         <View style={s.headerRow}>
           <View>
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf's Image has no alt prop */}
             {props.logoSrc && <Image src={props.logoSrc} style={s.logo} />}
             <Text style={s.companyName}>{props.company.name}</Text>
             {props.company.addressLines.map((line, index) => (

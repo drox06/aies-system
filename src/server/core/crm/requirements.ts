@@ -20,6 +20,20 @@ export interface RequirementField {
   required: boolean;
   help?: string;
   options?: string[];
+  /**
+   * Ask this only when another field on the same template holds a particular answer.
+   *
+   * Added for "Others — specify": a category list that cannot say "none of these" makes somebody
+   * pick the nearest wrong answer, but a free-text box sitting open beside the list all day is
+   * clutter and gets filled in with a duplicate of the category. So the box appears when it is
+   * needed, and when it appears it is **required** — "Others" on its own is not an answer, it is
+   * the absence of one, and letting it through the gate is exactly the round-trip §4 exists to stop.
+   *
+   * `equals` is matched against the stored answer as a string. The scoring in `assessRequirements`
+   * and the form in RequirementsPanel both read this, so a conditional question is counted only when
+   * it is actually being asked — a field nobody can see must never sit in the missing list.
+   */
+  askWhen?: { key: string; equals: string };
 }
 
 export interface RequirementTemplateDef {
@@ -65,38 +79,41 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         type: "select",
         required: true,
         /**
-         * Widened 2026-08-19 at the company's request: the first list named transmitters and missed
-         * the gauges, which are a large part of what AIES actually supplies.
+         * The company's own categories, set 2026-08-19, replacing a longer list of mine.
          *
-         * The distinction matters beyond vocabulary. A **transmitter** sends a signal and needs a
-         * loop, a power supply and commissioning; a **gauge** is read by eye and needs none of them.
-         * Collapsing the two would put a pressure gauge through a commissioning gate it can never
-         * pass — which is the same shape of error as a freight line proposing a delivery ticket.
+         * Mine named individual products — "Pressure transmitter", "Pressure gauge", "Thermowell",
+         * eighteen of them. Theirs names the **instrument family**, which is how AIES actually
+         * organises the work: a pressure instrument is a pressure instrument whether it transmits or
+         * is read by eye, and the difference between the two is a requirements answer further down
+         * the form, not a different kind of enquiry. Their list is also the one their principals use,
+         * so an enquiry categorised here can be sent to a supplier without translation.
          *
-         * "Other" stays last and stays: a list that cannot say "none of these" makes somebody pick
-         * the nearest wrong answer, and then the requirements checklist asks the wrong questions.
+         * A shorter list has a second virtue: it is a list somebody can actually read. Eighteen
+         * options in a dropdown is a search problem, and people solve search problems by picking the
+         * first plausible entry.
+         *
+         * "Others — specify" stays last and now carries a free-text box that appears when it is
+         * chosen (see `equipment_category_other` below). "Other" with nothing after it records that
+         * the question was reached, not that it was answered.
          */
         options: [
-          "Flow meter",
-          "Pressure transmitter",
-          "Pressure gauge",
-          "Temperature transmitter",
-          "Temperature gauge",
-          "Thermowell / RTD / thermocouple",
-          "Level transmitter",
-          "Level gauge / sight glass",
-          "Analytical instrument",
-          "Gas detector",
-          "Control valve",
-          "Isolation valve",
-          "Safety relief valve",
-          "Actuator / positioner",
-          "Pressure switch",
-          "Indicator / recorder",
-          "Calibration equipment",
-          "Spare parts",
-          "Other",
+          "Pressure Instrument",
+          "Temperature Instrument",
+          "Mass Instrument",
+          "Flow Instrument",
+          "Analytical Instrument",
+          "Valve",
+          "Actuator",
+          "Others — specify",
         ],
+      },
+      {
+        key: "equipment_category_other",
+        label: "Specify what is being supplied",
+        type: "text",
+        required: true,
+        askWhen: { key: "equipment_category", equals: "Others — specify" },
+        help: "Named in the customer's own words, so the quotation and the RFQ can both use it.",
       },
       {
         key: "process_medium",
@@ -492,6 +509,12 @@ export function assessRequirements(
   for (const template of applicable) {
     for (const field of template.fields) {
       if (!field.required) continue;
+      // A question nobody is being asked cannot be missing. `askWhen` fields only enter the count
+      // once their trigger answer is present, so the gate never blocks on an invisible box.
+      if (field.askWhen) {
+        const trigger = answers[answerKey(template.serviceType, field.askWhen.key)];
+        if (String(trigger ?? "") !== field.askWhen.equals) continue;
+      }
       requiredTotal += 1;
       if (isAnswered(answers[answerKey(template.serviceType, field.key)])) {
         requiredAnswered += 1;

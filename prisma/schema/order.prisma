@@ -184,6 +184,22 @@ model SupplierPO {
   expectedShipDate    DateTime?
   expectedArrivalDate DateTime?
 
+  /// Where the supplier is to deliver, as it should print on the PO.
+  ///
+  /// Free text, and multi-line, for the same reason `CompanyDetails.addressLines` is: Philippine
+  /// addresses do not decompose into the usual structured fields, and the person raising the order
+  /// knows where the goods should land better than any schema does.
+  ///
+  /// Null means the company's own registered address — the overwhelmingly common case, so it is the
+  /// default rather than something to retype on every order. It is filled in when the goods go
+  /// somewhere else: straight to a customer's site, to a forwarder, to a job in the provinces.
+  /// Stored on the document rather than resolved at print time, because where a supplier was told
+  /// to deliver is a fact about *this order* and must not change when the company moves office.
+  ///
+  /// Asked for by the company on 2026-08-19: the PO had no delivery address on it at all, which
+  /// meant every supplier either guessed or rang to ask.
+  deliverTo    String?
+
   incoterm     String?
   /// air | sea | land | courier
   shipmentMode String?

@@ -572,3 +572,79 @@ export async function getProjectService(projectId: string) {
   }
   return project;
 }
+
+/**
+ * Throws away a service report that should not have been written.
+ *
+ * ## Why a report needs discarding at all
+ *
+ * A report gets started against the wrong ticket, or a technician writes one up and then finds the
+ * work carried on for another two days and the whole account is wrong. Before this there was no way
+ * out: the report sat on the ticket for ever, and — worse — it counted. `unapproved` reports hold
+ * the project open at close-out, so a mistyped draft blocked a finished job indefinitely and the
+ * only workaround was to approve something nobody meant. Raised by the company on 2026-08-19.
+ *
+ * ## Why it is a soft delete and not a status
+ *
+ * `deletedAt` already exists on this model and every list already filters on it, so a discarded
+ * report leaves the screens it should leave without a new status appearing in five `switch`
+ * statements that do not expect it. The row stays: §12's report is a record of what somebody said
+ * happened on a customer's site, and destroying that outright is not this platform's habit.
+ *
+ * ## What it refuses
+ *
+ * **An approved report.** That one has the customer's signature on it and has already triggered
+ * billing; taking it away would leave an invoice standing on nothing. Corrections to an approved
+ * report are a new report, which is how the paper world does it too.
+ *
+ * The reason is required. A report that vanished with no explanation is indistinguishable from one
+ * that was never written, and somebody looking at the ticket six months later deserves better.
+ */
+export async function discardServiceReportService(
+  actor: ActorMeta,
+  input: { id: string; reason: string },
+) {
+  const report = await db.serviceReport.findFirst({
+    where: { id: input.id, deletedAt: null },
+    select: { id: true, number: true, status: true, ticketId: true },
+  });
+  if (!report) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That service report no longer exists." });
+  }
+  if (report.status === "approved") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${report.number} is approved — the customer has signed it and it has already been billed ` +
+        `against. Write a new report rather than removing this one.`,
+    });
+  }
+
+  const reason = input.reason.trim();
+  if (reason.length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say why this report is being discarded, in enough words to be worth reading later.",
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.serviceReport.update({
+      where: { id: report.id },
+      data: { deletedAt: new Date(), version: { increment: 1 } },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "discard",
+      entityType: SERVICE_REPORT_ENTITY_TYPE,
+      entityId: report.id,
+      summary: `Discarded service report ${report.number} — ${reason}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { ok: true as const };
+}

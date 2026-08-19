@@ -14,6 +14,7 @@ import {
   type PartUsed,
   type ServiceReportStatus,
 } from "@/server/core/operations/close-out-rules";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -93,17 +94,40 @@ export function ServiceReportPanel({ ticketId }: { ticketId: string }) {
             )}
 
             {canApprove && row.status !== "approved" && (
-              <AdvanceControls id={row.id} onDone={() => void reports.refetch()} />
+              <AdvanceControls
+                id={row.id}
+                ticketId={ticketId}
+                onDone={() => void reports.refetch()}
+              />
+            )}
+
+            {/*
+              Discarding, for the report that should not have been written.
+
+              Offered to whoever can write one, and only while it is unapproved — a signed report has
+              been billed against and the service refuses it anyway. It asks before it acts and asks
+              *why*, which is the same shape as the checklist discard: the confirmation is not
+              ceremony, it is where the reason gets captured.
+            */}
+            {canWrite && row.status !== "approved" && (
+              <DiscardControl
+                id={row.id}
+                number={row.number}
+                onDone={() => void reports.refetch()}
+              />
             )}
           </li>
         ))}
       </ul>
 
       <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">Signature and photographs</h3>
+        <h3 className="text-sm font-semibold">
+          Signature, photographs, the customer&rsquo;s own form
+        </h3>
         <p className="mt-1 text-xs text-text-muted">
-          Upload the customer&rsquo;s signature here, then paste its id when marking the report
-          signed.
+          The signed page, the site photographs, or the customer&rsquo;s own service form where they
+          insist on theirs rather than ours. Attach it here and it becomes selectable when you mark
+          the report signed.
         </p>
         <div className="mt-2">
           <Attachments entityType={SERVICE_REPORT_ENTITY_TYPE} entityId={ticketId} />
@@ -130,13 +154,96 @@ export function ServiceReportPanel({ ticketId }: { ticketId: string }) {
   );
 }
 
-function AdvanceControls({ id, onDone }: { id: string; onDone: () => void }) {
+/**
+ * "This report should not exist" — with the question asked first, and the reason kept.
+ *
+ * Two clicks rather than one, deliberately. The first opens the box; the second, which is the one
+ * that destroys something, is disabled until there is a reason worth reading. A confirm dialog that
+ * only asks "are you sure?" trains people to click yes; one that asks *why* does not.
+ */
+function DiscardControl({
+  id,
+  number,
+  onDone,
+}: {
+  id: string;
+  number: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const discard = trpc.operations.discardServiceReport.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Discarded ${number}.`);
+      setOpen(false);
+      setReason("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" className="mt-2 text-danger" onClick={() => setOpen(true)}>
+        Discard this report
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border-2 border-danger/40 bg-danger/5 p-2.5">
+      <p className="text-sm font-semibold text-danger">Discard {number}?</p>
+      <p className="mt-0.5 text-xs">
+        It comes off the ticket and stops holding the project open at close-out. The record itself
+        is kept, with this reason against it.
+      </p>
+      <div className="mt-2">
+        <Label htmlFor={`sr-discard-${id}`}>Why</Label>
+        <Input
+          id={`sr-discard-${id}`}
+          value={reason}
+          placeholder="Written against the wrong ticket."
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={discard.isPending || reason.trim().length < 10}
+          onClick={() => discard.mutate({ id, reason: reason.trim() })}
+        >
+          {discard.isPending ? "Discarding…" : "Discard it"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Keep it
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AdvanceControls({
+  id,
+  ticketId,
+  onDone,
+}: {
+  id: string;
+  /** The attachments are filed against the ticket, not the report — see the card below. */
+  ticketId: string;
+  onDone: () => void;
+}) {
   const [target, setTarget] = useState<ServiceReportStatus>("pending_signature");
   const [signatureFileId, setSignatureFileId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [waiver, setWaiver] = useState("");
 
   const advance = trpc.operations.advanceServiceReport.useMutation({ onSuccess: onDone });
+  // The same list the attachments card renders, so uploading there fills this picker.
+  const files = trpc.files.forEntity.useQuery(
+    { entityType: SERVICE_REPORT_ENTITY_TYPE, entityId: ticketId },
+    { retry: false },
+  );
 
   const needsProof = target === "signed" || target === "submitted" || target === "approved";
 
@@ -159,12 +266,24 @@ function AdvanceControls({ id, onDone }: { id: string; onDone: () => void }) {
         </div>
         {needsProof && (
           <div>
-            <Label htmlFor={`sr-sig-${id}`}>Signature file id</Label>
-            <Input
+            <Label htmlFor={`sr-sig-${id}`}>The signed document</Label>
+            {/*
+              Chosen from what is attached, never typed. Asking somebody to copy a cuid between two
+              halves of one screen is not a workflow, and it is the sort of field people fill in with
+              anything to get past it. Raised by the company on 2026-08-19.
+            */}
+            <Select
               id={`sr-sig-${id}`}
               value={signatureFileId}
               onChange={(e) => setSignatureFileId(e.target.value)}
-            />
+            >
+              <option value="">Nothing signed attached</option>
+              {(files.data ?? []).map((file) => (
+                <option key={file.id} value={file.id}>
+                  {file.filename}
+                </option>
+              ))}
+            </Select>
           </div>
         )}
       </div>

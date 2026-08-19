@@ -236,6 +236,8 @@ export async function updateSupplierPoService(
     otherCharges?: string;
     expectedShipDate?: Date | null;
     expectedArrivalDate?: Date | null;
+    /** Blank means the company's own address — see the field's comment in order.prisma. */
+    deliverTo?: string | null;
     incoterm?: string | null;
     shipmentMode?: string | null;
     trackingRef?: string | null;
@@ -325,6 +327,7 @@ export async function updateSupplierPoService(
         ...(input.expectedArrivalDate !== undefined
           ? { expectedArrivalDate: input.expectedArrivalDate }
           : {}),
+        ...(input.deliverTo !== undefined ? { deliverTo: input.deliverTo } : {}),
         ...(input.incoterm !== undefined ? { incoterm: input.incoterm } : {}),
         ...(input.shipmentMode !== undefined ? { shipmentMode: input.shipmentMode } : {}),
         ...(input.trackingRef !== undefined ? { trackingRef: input.trackingRef } : {}),

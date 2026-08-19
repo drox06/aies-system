@@ -45,16 +45,37 @@ const ITEM_LABEL: Record<string, string> = {
  * Two of these are on this very panel, so they scroll rather than navigate; the rest are elsewhere.
  * `null` means the gate is cleared by editing the mobilisation row below, which is already in view.
  */
-const GATE_DESTINATION: Record<string, { label: string; panel: string } | null> = {
-  cash_advance: { label: "Open the cash advance", panel: "cash-advance" },
-  materials: { label: "Open materials", panel: "materials" },
-  methodology: { label: "Open the method statement", panel: "methodology" },
-  crew: null,
-  competence: null,
-  induction: null,
-  tools: null,
-  ppe: null,
-  customer_contact: null,
+type Destination =
+  { kind: "panel"; panel: string } | { kind: "here"; anchor: string } | { kind: "record" };
+
+/**
+ * Where each readiness item is answered.
+ *
+ * §8's readiness panel computes its answer from other people's records, which is right — but it left
+ * the reader holding a red badge and no idea which screen changes it. The company put it plainly: if
+ * it is not ready, the **title** should be clickable and take you to the place that fixes it. Not a
+ * separate "open the materials panel" link beside the title, which is what this had first: two
+ * things to read where one would do, and the one people reach for is the words naming the problem.
+ *
+ * Three kinds of destination, because there are three kinds of answer:
+ *
+ * - `panel` — a different panel on this same ticket. Opens it and scrolls.
+ * - `here` — a field on the mobilisation row further down this panel. Scrolls, no reload.
+ * - `record` — another module's screen entirely. "Customer contact confirmed" is read from the
+ *   site's contact list (see mobilization-service), and sites live on the account record, so that
+ *   is where this one goes.
+ */
+const GATE_DESTINATION: Record<string, Destination> = {
+  cash_advance: { kind: "panel", panel: "cash-advance" },
+  methodology: { kind: "panel", panel: "methodology" },
+  materials: { kind: "panel", panel: "materials" },
+  crew: { kind: "here", anchor: "mob-crew" },
+  // Competence is a property of the people assigned, so the fix is the crew list.
+  competence: { kind: "here", anchor: "mob-crew" },
+  induction: { kind: "here", anchor: "mob-induction" },
+  tools: { kind: "here", anchor: "mob-tools" },
+  ppe: { kind: "here", anchor: "mob-ppe" },
+  customer_contact: { kind: "record" },
 };
 
 /**
@@ -68,6 +89,15 @@ function goToPanel(ticketId: string, panel: string) {
   window.localStorage.setItem(`panel:${ticketId}:${panel}`, "open");
   window.location.hash = `panel-${panel}`;
   window.location.reload();
+}
+
+/** Scrolls to a field on this panel. No reload — it is already on screen, just further down. */
+function goToField(anchor: string) {
+  const target = document.getElementById(anchor);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Somebody sent to a field should land able to type in it.
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) target.focus();
 }
 
 export function MobilizationPanel({ ticketId }: { ticketId: string }) {
@@ -117,21 +147,23 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
             <StatusBadge tone={ITEM_TONE[item.state] ?? "draft"}>
               {ITEM_LABEL[item.state] ?? item.state}
             </StatusBadge>
-            <span className={item.mandatory ? "font-medium" : ""}>{item.label}</span>
+            {/*
+              The title is the link, and only while the item is unmet.
+
+              A cleared gate is a statement, not a task: making it clickable too would invite people
+              to go and re-do work that is already done. `record` links need a site to link to, so
+              they fall back to plain text when the ticket has no account — a link to nowhere is
+              worse than no link at all.
+            */}
+            <ItemTitle
+              item={item}
+              ticketId={ticketId}
+              accountId={data.accountId}
+              destination={GATE_DESTINATION[item.key]}
+            />
             {!item.mandatory && item.state !== "pass" && (
               // Shown but not blocking, and said plainly so nobody chases the wrong line.
               <span className="text-xs text-text-muted">(not blocking)</span>
-            )}
-
-            {/* An unmet gate that is fixed somewhere else says where, and goes there. */}
-            {item.state !== "pass" && GATE_DESTINATION[item.key] && (
-              <button
-                type="button"
-                className="text-xs underline text-text-muted hover:text-text"
-                onClick={() => goToPanel(ticketId, GATE_DESTINATION[item.key]!.panel)}
-              >
-                {GATE_DESTINATION[item.key]!.label} →
-              </button>
             )}
 
             <span className="w-full text-xs text-text-muted">{item.detail}</span>
@@ -165,6 +197,55 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
         />
       )}
     </Card>
+  );
+}
+
+/**
+ * A readiness title: a link when it is something you can go and fix, plain text when it is not.
+ *
+ * The two in-app jumps are buttons rather than anchors because they do not change the address; the
+ * account link is a real anchor, so it behaves like every other record link in the platform.
+ */
+function ItemTitle({
+  item,
+  ticketId,
+  accountId,
+  destination,
+}: {
+  item: { key: string; label: string; state: string; mandatory: boolean };
+  ticketId: string;
+  accountId: string | null;
+  destination: Destination | undefined;
+}) {
+  const weight = item.mandatory ? "font-medium" : "";
+  const done = item.state === "pass" || item.state === "not_applicable";
+
+  if (done || !destination) return <span className={weight}>{item.label}</span>;
+
+  if (destination.kind === "record") {
+    if (!accountId) return <span className={weight}>{item.label}</span>;
+    return (
+      <a
+        className={`${weight} underline decoration-dotted underline-offset-2`}
+        href={`/crm/accounts/${accountId}`}
+      >
+        {item.label} &rarr;
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`${weight} underline decoration-dotted underline-offset-2`}
+      onClick={() =>
+        destination.kind === "panel"
+          ? goToPanel(ticketId, destination.panel)
+          : goToField(destination.anchor)
+      }
+    >
+      {item.label} &rarr;
+    </button>
   );
 }
 
@@ -440,6 +521,7 @@ function MobilizationDetail({
 
           <label className="flex items-center gap-2 text-sm">
             <input
+              id="mob-induction"
               type="checkbox"
               checked={row.inductionCompleted}
               onChange={(e) =>

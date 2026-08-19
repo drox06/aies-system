@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { saveQuotationLinesService } from "@/server/core/quotation/quotation-line-service";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import { emit } from "@/server/core/events/emit";
@@ -200,6 +201,30 @@ export async function createDraftForInquiry(input: {
       contactId: true,
       ownerId: true,
       account: { select: { name: true } },
+      /*
+        The line items come too.
+
+        Until now the draft carried the inquiry's narrative and nothing else, so whoever priced it
+        retyped every line the customer had already given us — description, quantity, unit, make and
+        model — off a screen two clicks away. Retyping is not merely slow: it is where a DN150
+        becomes a DN100 and nobody finds out until the goods are on site.
+
+        Raised by the company on 2026-08-19. What carries across is only what the customer told us;
+        the prices are still the estimator's to put in.
+      */
+      items: {
+        orderBy: { lineNo: "asc" },
+        select: {
+          lineNo: true,
+          description: true,
+          quantity: true,
+          unit: true,
+          manufacturer: true,
+          modelNumber: true,
+          serviceType: true,
+          notes: true,
+        },
+      },
     },
   });
   if (!inquiry) return null;
@@ -230,6 +255,52 @@ export async function createDraftForInquiry(input: {
       scopeOfWork: inquiry.description ?? "",
     },
   );
+
+  /*
+    The customer's own lines, as the starting table.
+
+    Priced at zero on purpose. A carried-over line is a *transcription* of what was asked for, not
+    an estimate, and seeding it with an invented cost would put a number on the document that nobody
+    chose — which is how a quotation goes out at a price no one can account for. Zero reads as "not
+    yet priced" and the margin floor catches it before anything is sent.
+
+    `itemType` is guessed from the service type: a supply line is a product, everything else is
+    service. A guess, and a safe one — it drives grouping on the printed quotation and nothing
+    commercial.
+
+    Failure here must not lose the draft. The quotation is already created and numbered; if the
+    lines cannot be written the estimator gets an empty table, which is exactly where they were
+    before this existed.
+  */
+  if (inquiry.items.length > 0) {
+    try {
+      await saveQuotationLinesService(
+        { actorId: ownerId, actorLabel: "System (from inquiry)" },
+        {
+          quotationId: quotation.id,
+          version: quotation.version,
+          canSeeCost: true,
+          lines: inquiry.items.map((item, index) => ({
+            lineNo: index + 1,
+            itemType: item.serviceType === "supply" ? "product" : "service",
+            description: item.description,
+            quantity: item.quantity.toString(),
+            unit: item.unit,
+            manufacturer: item.manufacturer,
+            modelNumber: item.modelNumber,
+            notes: item.notes,
+            unitCost: "0",
+            unitPrice: "0",
+          })),
+        },
+      );
+    } catch (error) {
+      // Not fatal — see above; the draft is worth more than the convenience. But not silent either:
+      // a carry-over that quietly stops working would show up as estimators retyping lines again,
+      // which is the problem this exists to solve and the last place anybody would look.
+      console.error("[quotation] failed to carry inquiry lines onto", quotation.number, error);
+    }
+  }
 
   return { quotationId: quotation.id, created: true };
 }

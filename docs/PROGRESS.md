@@ -2774,6 +2774,76 @@ standing test, and a screen that heals rows already stranded. docs/DECISIONS.md 
 **Module 04 is still untagged.** Per BUILD-PROTOCOL §7, the tag is the company's signature and I do
 not apply it. Waiting on their re-check of the above.
 
+## The company's third review round — 2026-08-19
+
+Twenty-four items, raised while walking the inquiry-to-delivery walkthrough as far as part six. All
+closed. Same pattern as rounds one and two: **every one found by a person using the app, none by the
+suite** — which now stands at 21 defects by the company against 0 by 1,445 automated tests, and is
+the evidence BUILD-PROTOCOL §7.1 exists to record.
+
+### The two that changed behaviour rather than appearance
+
+**Billing now fires on QA, not on the service report.** The question has had three answers.
+§2's table names `ticket.completed`, which module 04 has never emitted — wiring it literally would
+have produced a milestone that reads as configured and silently bills nothing. It was then pointed
+at `service_report.approved`, on the reasoning that a report is an artefact rather than a status.
+The company settled it: **QA is where the customer signs.** A service report is AIES describing its
+own work, thorough and written by the party being paid; a QA approval carries the customer's
+inspector, their signature and their evidence document. Billing on the first is billing on our own
+account of events. docs/DECISIONS.md #109, superseded there and restated in `billing-rules.ts`.
+
+**The customer's line items now reach the quotation.** They were write-once on the inquiry, read-only
+afterwards, and did not carry across at all — so the estimator retyped a list sitting two clicks
+away. That is where a DN150 becomes a DN100 and nobody finds out until the meter will not fit the
+spool. The lines are editable now, and they carry into the draft priced at zero, which reads as "not
+yet priced" rather than as a figure nobody chose. #111.
+
+### The rest
+
+- **"What is being supplied" is the company's own eight instrument families**, not my eighteen
+  products — and "Others" now reveals a required specify box, because "Others" alone records that the
+  question was *reached*, not that it was answered. #112.
+- **Mobilisation readiness follows the ticket's own order**, and the **titles are the links** —
+  three kinds of destination, one of which caught me linking a gate to a route that does not exist.
+  #113.
+- **Two "paste the file id from above" fields are pickers** — fifth and sixth instances of #101 —
+  and the method statement gained the attachment area its client-approval gate never had. #114.
+- **"Site inspection is not needed"** clears a badge that could otherwise never be cleared, and
+  records who, when and why rather than ticking silently. #115.
+- **A service report can be discarded** — with a reason, refused once the customer has signed.
+- **The supplier PO carries a delivery address**, defaulting to the company's and shown rather than
+  left blank. #116.
+- **Nav groups fold and remember**, with the group holding the current page always open.
+- **Ticket panels are in the company's order**, QA last, because QA is the customer's acceptance.
+- **Sales order rows open on click**; the currency column reads "Currency" and is wide enough for
+  USD; the materials quantity box and Add button look like what they are.
+
+### One the suite did find — eventually
+
+Verifying the batch turned up a defect nothing in the twenty-four had asked about. **Anything booked
+on a Sunday was invisible on the dispatch board, and its double-bookings were never reported** — both
+week queries ended at Sunday *midnight* rather than at the end of Sunday. AIES works Sundays;
+outages happen when the plant is down.
+
+The test that caught it had been asserting the behaviour for weeks and passing, because it books
+"four days from now" and that lands on a Sunday one run in seven. It is now pinned to a computed
+Sunday, at a time of day that is not midnight, and both new cases were confirmed to fail against the
+old code before the fix was kept. docs/DECISIONS.md #117.
+
+### Seeded for the next pass
+
+`scripts/sample-part-seven.ts` builds a fresh deal standing exactly at part seven — inquiry
+acknowledged, evaluated, requirements answered, quotation raised, priced and issued. Everything
+through the real services except the move to `sent`, which §6 forbids without an approval and which
+is therefore written directly with an audit row saying so. It also exercises the line carry-over
+above end to end.
+
+    ALLOW_DEMO_DATA=1 npx tsx scripts/sample-part-seven.ts
+    ALLOW_DEMO_DATA=1 npx tsx scripts/sample-part-seven.ts --remove
+
+**Modules 03 and 04 remain untagged.** Per BUILD-PROTOCOL §7 the tag is the company's signature and
+I do not apply it. Both are waiting on one walkthrough pass that covers them together.
+
 ## Module 05 — Finance, Billing and Collections
 
 ### Session 1 — §2's billing schedule (2026-08-19)

@@ -21,6 +21,7 @@ import {
   type Attendee,
   type MeasurementRow,
 } from "./site-inspection-rules";
+import { TICKET_ENTITY_TYPE } from "./ticket-rules";
 
 /**
  * Site inspections (specs/04-operations-projects.md §6.1).
@@ -580,4 +581,132 @@ async function safeNotify(input: Parameters<typeof notify>[0]) {
   } catch {
     // A notification failure must never roll back the thing it announces.
   }
+}
+
+// ---- "this job does not need a survey" -----------------------------------------------------------
+
+/**
+ * The audit actions that record a waiver and its withdrawal.
+ *
+ * Stored as audit rows rather than a column on Ticket, the same way the cash-advance and methodology
+ * gates record their overrides. Two reasons. The waiver is a *decision somebody made on a date*, and
+ * a boolean column throws away who and when — which is the half that matters when a job goes wrong
+ * and somebody asks why nobody looked at the site. And it needs no migration on a schema the company
+ * is about to run live data through.
+ */
+export const INSPECTION_WAIVED_ACTION = "site_inspection_waived";
+export const INSPECTION_WAIVER_WITHDRAWN_ACTION = "site_inspection_waiver_withdrawn";
+
+export interface InspectionWaiver {
+  waived: boolean;
+  /** The reason, when there is one, as written. Null when the waiver has been withdrawn. */
+  summary: string | null;
+  at: Date | null;
+  by: string | null;
+}
+
+/**
+ * Whether somebody has said this ticket needs no site survey.
+ *
+ * Reads the newest of the two actions and lets it stand, so a waiver can be withdrawn and re-applied
+ * without the history being rewritten. An older waiver under a newer withdrawal is not a waiver.
+ */
+export async function inspectionWaiverForTicket(ticketId: string): Promise<InspectionWaiver> {
+  const log = await db.auditLog.findFirst({
+    where: {
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticketId,
+      action: { in: [INSPECTION_WAIVED_ACTION, INSPECTION_WAIVER_WITHDRAWN_ACTION] },
+    },
+    orderBy: { at: "desc" },
+    select: { action: true, summary: true, at: true, actorLabel: true },
+  });
+
+  if (!log || log.action === INSPECTION_WAIVER_WITHDRAWN_ACTION) {
+    return { waived: false, summary: null, at: null, by: null };
+  }
+  return { waived: true, summary: log.summary, at: log.at, by: log.actorLabel };
+}
+
+/**
+ * Records that no survey is needed, or withdraws that.
+ *
+ * ## Why this exists
+ *
+ * §6 puts a site survey before a new project is planned, and the ticket says so with a badge. But
+ * plenty of new projects are on a site AIES has worked for years, or are a like-for-like replacement
+ * of an instrument somebody photographed last month. The badge sat there permanently on those jobs,
+ * and a warning that can never be cleared is one people stop seeing — including on the job where it
+ * mattered. Raised by the company on 2026-08-19.
+ *
+ * ## Why it is not a silent tick
+ *
+ * A waiver is an answer, not an absence — the same distinction §7's undecided materials and §9's
+ * waived client inspection turn on. It carries who, when, and why, and it appears on the panel as a
+ * recorded decision rather than as the gate quietly disappearing. "Not needed" and "nobody has got
+ * to it yet" must never look the same on screen.
+ *
+ * The reason is required and has to be long enough to mean something. "n/a" is not a reason; "we
+ * surveyed this line in March and nothing has changed" is.
+ *
+ * ## What it does not do
+ *
+ * It does not stop anybody recording an inspection afterwards. If somebody goes anyway, the report
+ * still has somewhere to live — see `inspectionRequiredForTicket` for the same reasoning.
+ */
+export async function setInspectionWaiverService(
+  actor: ActorMeta,
+  input: { ticketId: string; waived: boolean; reason?: string },
+) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: input.ticketId, deletedAt: null },
+    select: { id: true, number: true },
+  });
+  if (!ticket) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
+  }
+
+  const reason = (input.reason ?? "").trim();
+  if (input.waived && reason.length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Say why no survey is needed, in enough words to be worth reading later — somebody will " +
+        "ask if the job turns out bigger than it looked.",
+    });
+  }
+
+  const existing = await db.auditLog.findFirst({
+    where: {
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticket.id,
+      action: { in: [INSPECTION_WAIVED_ACTION, INSPECTION_WAIVER_WITHDRAWN_ACTION] },
+    },
+    orderBy: { at: "desc" },
+    select: { action: true },
+  });
+  const alreadyWaived = existing?.action === INSPECTION_WAIVED_ACTION;
+  if (alreadyWaived === input.waived) {
+    // Nothing changed. Writing a second identical row would put a decision in the history that
+    // nobody made.
+    return { waived: input.waived };
+  }
+
+  await db.$transaction(async (tx) => {
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: input.waived ? INSPECTION_WAIVED_ACTION : INSPECTION_WAIVER_WITHDRAWN_ACTION,
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticket.id,
+      summary: input.waived
+        ? reason
+        : `${ticket.number} needs a site survey after all — the waiver was withdrawn.`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { waived: input.waived };
 }

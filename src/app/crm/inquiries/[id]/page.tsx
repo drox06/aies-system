@@ -12,6 +12,7 @@ import { trpc } from "@/lib/trpc/client";
 import { InquiryStatusActions } from "./InquiryStatusActions";
 import { CustomerPoPanel } from "./CustomerPoPanel";
 import { InspectionPanel } from "./InspectionPanel";
+import { ItemsPanel } from "./ItemsPanel";
 import { RequirementsPanel } from "./RequirementsPanel";
 
 export default function InquiryPage({ params }: { params: Promise<{ id: string }> }) {
@@ -120,42 +121,7 @@ export default function InquiryPage({ params }: { params: Promise<{ id: string }
             )}
           </Card>
 
-          <Card className="p-4">
-            <h2 className="text-sm font-semibold">What they asked for</h2>
-            {data.items.length === 0 ? (
-              <p className="mt-1 text-sm text-text-muted">No line items yet.</p>
-            ) : (
-              <table className="mt-2 w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs text-text-muted">
-                    <th className="py-1 font-medium">#</th>
-                    <th className="py-1 font-medium">Description</th>
-                    <th className="py-1 text-right font-medium">Qty</th>
-                    <th className="py-1 font-medium">Service</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.items.map((item) => (
-                    <tr key={item.id} className="border-b border-border last:border-0">
-                      <td className="py-1.5 tabular text-text-muted">{item.lineNo}</td>
-                      <td className="py-1.5">
-                        {item.description}
-                        {item.manufacturer && (
-                          <span className="block text-xs text-text-muted">
-                            {item.manufacturer} {item.modelNumber}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-1.5 text-right tabular">
-                        {item.quantity} {item.unit}
-                      </td>
-                      <td className="py-1.5 text-xs">{item.serviceType ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Card>
+          <ItemsPanel inquiry={data} />
 
           <RequirementsPanel inquiry={data} />
           <InspectionPanel inquiry={data} />

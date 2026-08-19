@@ -36,6 +36,10 @@ const UI_SAFE_SERVER_MODULES = [
   "@/server/core/quotation/quotation-number",
   "@/server/core/quotation/quotation-lifecycle",
   "@/server/core/quotation/archive-rules",
+  // AIES's own registered details. A file of constants behind a getter — no Prisma, no node
+  // builtins — and the screens need it for the same reason the PDFs do: the delivery address a
+  // buyer sees offered as the default must be the one that will actually print.
+  "@/server/core/company",
   "@/server/core/order/supplier-rules",
   "@/server/core/order/supplier-po-rules",
   "@/server/core/order/goods-receipt-rules",

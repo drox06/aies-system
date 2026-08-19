@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Card } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { METHODOLOGY_ENTITY_TYPE } from "@/server/core/operations/methodology-rules";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -112,6 +114,36 @@ export function MethodologyPanel({
           }}
           onCancel={() => setShowForm(false)}
         />
+      )}
+
+      {/*
+        The customer's copy, signed — or the customer's own form, filled in.
+
+        §6.2's gate is "approved by the client", and what proves that is a document with their name
+        on it: our method statement returned with a signature, or, on the plants that insist, their
+        own permit-to-work or method-of-statement form which they made us complete instead. Before
+        this there was nowhere to put either, so the approval was recorded on the record page with
+        nothing behind it — a gate whose evidence had no home, which is the shape of defect this
+        platform keeps finding. Raised by the company on 2026-08-19.
+
+        Filed against the methodology rather than the ticket because a revision is a new methodology:
+        R1's signed copy must not follow R2 around.
+      */}
+      {data.methodology && (
+        <Card className="mt-3 p-3">
+          <h3 className="text-sm font-semibold">The client&rsquo;s approval document</h3>
+          <p className="mt-1 text-xs text-text-muted">
+            Our method statement signed by them, or their own form completed by us — whichever this
+            site works to. It is what the approval on the record page rests on.
+          </p>
+          <div className="mt-2">
+            <Attachments
+              entityType={METHODOLOGY_ENTITY_TYPE}
+              entityId={data.methodology.id}
+              emptyText="Nothing attached yet. Recording the client's decision without it means taking somebody's word for it."
+            />
+          </div>
+        </Card>
       )}
 
       {data.blocks && canOverride && <OverrideBlock ticketId={ticketId} onDone={refresh} />}

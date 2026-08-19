@@ -140,6 +140,61 @@ describe("putting a ticket on the board", () => {
     expect(result.conflicts[0]!.reason).toMatch(/2 jobs the same day/);
   });
 
+  /**
+   * The same double-booking, pinned to a **Sunday**, because that is where it was actually broken.
+   *
+   * The test above books `inDays(4)`, which lands on a Sunday one run in seven. On 2026-08-19 it
+   * did, and it failed: both week queries filtered `lte: monday + 6 days` — Sunday at *midnight* —
+   * so a job booked at any other time on a Sunday was outside the window. It never reached the
+   * board, and since `scheduleTicketService` computes its clash report from the board, the
+   * double-booking was **written and never reported**. The one thing §17 says must not happen.
+   *
+   * A test that only catches a bug on one weekday in seven is a test that reports the bug fixed six
+   * times out of seven. So this one computes the next Sunday and books on it deliberately, at a
+   * time of day that is not midnight.
+   *
+   * AIES works Sundays. Outages happen when the plant is down, and that is the weekend.
+   */
+  it("reports a double-booking on a Sunday, which the week window used to hide", async () => {
+    const tech = await makeUser();
+
+    // The next Sunday from now, at 09:00 UTC — deliberately not midnight, which is the only instant
+    // the old boundary let through.
+    const sunday = new Date();
+    sunday.setUTCDate(sunday.getUTCDate() + ((7 - sunday.getUTCDay()) % 7 || 7));
+    sunday.setUTCHours(9, 0, 0, 0);
+
+    const first = await makeTicket();
+    const second = await makeTicket();
+
+    await scheduleTicketService(actor, {
+      ticketId: first.id,
+      scheduledStart: sunday,
+      assignedLeadId: tech.id,
+    });
+    const result = await scheduleTicketService(actor, {
+      ticketId: second.id,
+      scheduledStart: sunday,
+      assignedLeadId: tech.id,
+    });
+
+    expect(result.conflicts.length).toBeGreaterThan(0);
+    expect(result.conflicts[0]!.reason).toMatch(/2 jobs the same day/);
+  });
+
+  /** And the board itself shows it, which is the half a dispatcher actually looks at. */
+  it("puts a Sunday booking on the board", async () => {
+    const sunday = new Date();
+    sunday.setUTCDate(sunday.getUTCDate() + ((7 - sunday.getUTCDay()) % 7 || 7));
+    sunday.setUTCHours(16, 30, 0, 0);
+
+    const ticket = await makeTicket();
+    await scheduleTicketService(actor, { ticketId: ticket.id, scheduledStart: sunday });
+
+    const board = await dispatchBoardService({ weekOf: sunday });
+    expect(board.cards.map((card) => card.id)).toContain(ticket.id);
+  });
+
   it("reports scheduling somebody who is away, and says why", async () => {
     const tech = await makeUser();
     const availability = await recordUnavailabilityService(actor, {

@@ -3762,3 +3762,178 @@ A payment without its invoice is unbilled revenue that looks collected. An invoi
 payment is a declaration to the government that a sale happened. Both are worse than the write
 failing, which is the same lesson as #105 arriving from a different direction.
 
+## #111 — The customer told us once, and we made them tell us again
+
+The line items on an inquiry were write-once. They were typed on the quick-create form, rendered
+afterwards as a read-only table, and **did not reach the quotation at all** — `createDraftForInquiry`
+carried the narrative across and nothing else. So the estimator opened an empty quotation two clicks
+away from a list of exactly what the customer had asked for, and retyped it.
+
+Retyping is not merely slow. It is where a DN150 becomes a DN100, where a quantity of four becomes a
+quantity of one, and where nobody finds out until the goods are on site and the wrong meter will not
+fit the spool. The customer said it once; every subsequent restatement is a chance to be wrong about
+it, and the platform was manufacturing those chances.
+
+Both halves are fixed. The lines are now editable on the record — a customer who rings back to change
+a quantity has somewhere for that to live — and they **carry across into the quotation draft** with
+their descriptions, quantities, units, makes and model numbers intact.
+
+**They carry across priced at zero.** A carried line is a transcription of what was asked for, not an
+estimate; seeding it with an invented figure would put a number on the document that nobody chose.
+Zero reads as "not yet priced", and the margin floor catches it long before anything is sent.
+
+The item type is guessed from the service type — supply is a product, everything else is a service.
+A guess, and a safe one: it drives the grouping on the printed quotation and nothing commercial.
+
+## #112 — "Others" is where the question was reached, not where it was answered
+
+The supply template asked "What is being supplied" against a list of eighteen individual products I
+had written — transmitters, gauges, thermowells. The company replaced it with eight instrument
+*families*: pressure, temperature, mass, flow, analytical, valve, actuator, and "Others — specify".
+Theirs is better on two counts. It is how AIES organises the work, and it is the vocabulary their
+principals use, so a categorised enquiry can go to a supplier without translation. It is also a list
+somebody can read; eighteen options is a search problem, and people solve search problems by picking
+the first plausible entry.
+
+The interesting half is the last option. A list that cannot say "none of these" forces a wrong answer
+and the checklist then asks the wrong questions — but "Others" on its own is not an answer either. It
+records that the question was *reached*. So choosing it reveals a free-text box, and that box is
+**required**: an enquiry reaching `quoting` with its most important line reading "Others" is exactly
+the round-trip §4 exists to stop.
+
+This needed a general mechanism, `askWhen`, and the mechanism has a rule of its own: **a question
+nobody is being asked cannot be missing.** The scoring in `assessRequirements` and the form in
+`RequirementsPanel` read the same condition, so a hidden field never appears in the missing list and
+never blocks a gate somebody cannot see.
+
+## #113 — A readiness list that disagrees with the screen it sits on
+
+Mobilisation readiness listed cash advance, then materials, then the method statement. That is
+neither the order the work happens in — the method statement is what says which materials the job
+needs — nor the order of the panels on the ticket it sits on. The company asked for the two to match,
+and the reason it matters is not tidiness: a list whose order means nothing gets read as a bag of
+unrelated checks rather than as a sequence, and a sequence is precisely what mobilisation is.
+
+The second half was the links. An unmet gate carried a separate "Open materials →" link beside its
+title: two things to read where one would do, and the one people reach for is the words naming the
+problem. **The title is now the link**, and only while the item is unmet — a cleared gate is a
+statement, not a task, and making it clickable invites somebody to redo finished work.
+
+Three kinds of destination, because there are three kinds of answer: another panel on this ticket
+(opens it, then scrolls), a field further down this panel (scrolls, no reload), and another module's
+screen entirely. That last one caught a real bug on the way in. "Customer contact confirmed" is read
+from the site's contact list, so I pointed it at `/crm/sites/{id}` — a route that does not exist.
+Sites are a panel on the account record. Linking a gate to a 404 would have been the same defect as
+the gate having no link at all, wearing a better disguise.
+
+## #114 — Paste its id from the attachments above
+
+Two sign-off forms — testing and commissioning, and the service report — asked for a "signature file
+id" as a text input, with placeholder text instructing the user to copy it from the attachments panel
+higher up the same screen. A cuid, transcribed by hand, between two halves of one page.
+
+Nobody does that. What they do is type something to get past the field, or waive the signature with a
+reason, and both leave a billing trigger standing on nothing. §10 makes the commissioning certificate
+a billing trigger and §12 makes the service report the customer's copy; the evidence field on both
+was effectively unusable, which means the evidence was effectively optional.
+
+Both are now pickers over the files actually attached, by filename. Somebody recognises "Acme
+commissioning form.pdf"; nobody recognises `cmsyrix32002pl5045aucx6ca`.
+
+The same reasoning gave the method statement an attachment area it never had. §6.2's gate is "approved
+by the client", and what proves that is a document with their name on it — our statement returned
+signed, or the plant's own permit-to-work form that they made us complete instead. The approval was
+recordable with nothing behind it. Filed against the methodology rather than the ticket, because a
+revision is a new methodology and R1's signed copy must not follow R2 around.
+
+## #115 — A warning that can never be cleared is one nobody sees
+
+§6 puts a site survey before a new project is planned, and the ticket said so with a badge. Fine —
+except plenty of new projects are on a site AIES has worked for years, or are a like-for-like swap of
+an instrument somebody photographed last month. On those the badge sat there permanently. A gate that
+cannot be cleared is not a gate; it is decoration, and people stop seeing it, including on the job
+where it mattered.
+
+"Site inspection is not needed" now clears it, and the shape of that is the point. It is **not** a
+silent tick. It carries who, when and a reason of at least ten characters, and the panel then shows
+the answer where the badge was: *"No survey needed. We surveyed this line in March and nothing has
+changed. Recorded by KJ on 19 August."* Recorded N/A and nobody-has-got-to-it-yet must never look the
+same on screen — the same principle as §7's undecided materials and §9's waived client inspection.
+
+Stored as an audit row rather than a column, like the cash-advance and methodology overrides before
+it: the waiver is a decision somebody made on a date, and a boolean throws away the half that
+matters. It can be withdrawn, and it does not stop anybody filing an inspection anyway — waiving says
+none is *required*, not that none may be recorded.
+
+The same batch gave the service report a discard, for the mirror-image reason. A report written
+against the wrong ticket could not be removed, and unapproved reports hold the project open at
+close-out — so a mistyped draft blocked a finished job indefinitely, and the only way out was to
+approve something nobody meant. It is a soft delete with a reason, it refuses once the customer has
+signed (that one has been billed against; the correction is a new report), and the confirmation step
+is where the reason gets captured rather than ceremony for its own sake.
+
+## #116 — The supplier had to ring and ask where the goods go
+
+The supplier PO printed a delivery address derived from the sales order's site, falling back to
+AIES's own. Sensible, and invisible: nobody could see it and nobody could change it. Goods going to a
+forwarder, to a site the sales order does not know about, or to a job in the provinces had no way of
+being said, so suppliers guessed or telephoned.
+
+`SupplierPO.deliverTo` is free text and multi-line, for the same reason `CompanyDetails.addressLines`
+is: Philippine addresses do not decompose into the usual structured fields, and the buyer knows where
+the goods should land better than any schema does. Null means the company address, which is the
+common case and therefore the default rather than something to retype on every order.
+
+Two details worth keeping. It is **stored on the document, not resolved at print time** — where a
+supplier was told to deliver is a fact about that order, and it must not change when the company moves
+office. And on screen the default is *shown*, greyed, labelled "the company address", rather than
+left as an empty box: this question has always had an answer, and an empty field beside "Deliver to"
+reads as unanswered. Editing stops when the PO is no longer editable, because once a supplier holds
+paper with an address on it, quietly changing our copy makes the two disagree with nothing to show
+for it.
+
+## #117 — Sunday was not on the board, and nobody was told
+
+The dispatch board and the pre-booking clash check both computed their week as
+`monday = weekOf(date)` and `sunday = monday + 6 days`, then filtered `scheduledStart` with
+`lte: sunday`. That boundary is Sunday at **midnight**, not the end of Sunday. So a job booked for
+any time on a Sunday other than exactly 00:00:00 fell outside the window.
+
+Two consequences, and the second is the serious one.
+
+**A Sunday booking did not appear on the dispatch board.** Bad enough on its own — AIES works
+Sundays, because outages are scheduled for when the plant is down and that is the weekend.
+
+**And its clashes were never reported.** `scheduleTicketService` computes what a booking broke by
+reading the board back, so a technician double-booked on a Sunday had the second job written with
+`conflicts: []`. §17's whole position on double-booking is that it is *allowed and must be visible*
+— "what it must not do is let the double-booking happen unnoticed". On Sundays it did exactly that.
+
+### Why it survived a test written to catch it
+
+`dispatch.test.ts` had asserted this behaviour since module 04 session 1. It books `inDays(4)` from
+whenever the suite runs, so the assertion only lands on a Sunday one run in seven. It ran green for
+weeks and failed on 2026-08-19, a Wednesday — four days on from which is a Sunday.
+
+That is a worse failure than the bug. A test whose coverage depends on the day it runs reports the
+code correct six times out of seven, and the seventh looks like flakiness — which is precisely how I
+first read it, and I was wrong. Both new tests compute the next Sunday deliberately and book at
+09:00 and 16:30, so the case is pinned rather than sampled. Both were confirmed to fail against the
+old code before the fix was kept.
+
+### The fix, and why half-open
+
+The window is now `[monday, monday + 7 days)` with `lt`, through one shared `weekWindow` helper used
+by both queries. An end-of-day sentinel — `lte: sunday 23:59:59.999` — would work today and break
+the day something stores microseconds. A half-open range cannot be wrong by a millisecond, and
+having one helper rather than two hand-rolled arithmetic expressions is what stops the two queries
+drifting apart again; they had already been written twice, and both were wrong the same way.
+
+### The general lesson, restated
+
+This is the same failure mode as the ₱499 expense and `statusAfterAttempt`: **a test that pins the
+wrong answer, or pins the right answer only sometimes, is worse than no test.** It spends the
+credibility of a green suite on a check that is not being made. Twenty-one defects found by the
+company against zero by the suite (BUILD-PROTOCOL §7.1) is the headline number; this one is the
+mechanism behind it.
+

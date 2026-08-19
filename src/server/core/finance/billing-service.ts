@@ -608,21 +608,23 @@ export async function onGoodsDelivered(payload: {
 }
 
 /**
- * `service_report.approved` — bills `on_installation`.
+ * `qa.passed` — bills `on_installation`.
  *
- * See BILLING_TRIGGERS for why this is the event rather than the `ticket.completed` §2 names: module
- * 04 does not emit that, and an approved service report is the artefact rather than a status.
+ * The customer's acceptance, not ours. See BILLING_TRIGGERS for the three answers this question had
+ * and why this is the one that stands: a service report is AIES describing its own work, a QA
+ * approval carries the customer's inspector and their evidence.
  */
-export async function onServiceReportApproved(payload: {
+export async function onQaPassed(payload: {
   ticketId?: string;
-  serviceReportId?: string;
+  qaApprovalId?: string;
+  number?: string;
 }): Promise<void> {
   if (!payload.ticketId) return;
   const salesOrderIds = await orderForTicket(payload.ticketId);
-  await applyTriggerToOrdersService(systemActor("service_report.approved"), {
+  await applyTriggerToOrdersService(systemActor("qa.passed"), {
     salesOrderIds,
-    eventName: "service_report.approved",
-    reason: "the service report for the work was approved",
+    eventName: "qa.passed",
+    reason: `the customer accepted the work at QA${payload.number ? ` (${payload.number})` : ""}`,
   });
 }
 

@@ -174,38 +174,42 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             The panels, in the order the job happens.
             ============================================================================
 
-            Reordered 2026-08-19 at the company's request to follow the end-to-end walkthrough,
-            which is itself the order of the work: book the crew, get the money, look at the site,
-            agree the method, draw the materials, mobilise, do the work and record it, prove it,
-            commission it, write it up.
+            Set by the company 2026-08-19, and the order is theirs rather than mine. Two things in it
+            are worth understanding, because both look like sequencing and are actually about who
+            says the work is done.
 
-            The previous order had grown by accretion — each session appending its panel where it
-            happened to fit — and read as a list of features rather than as a job. Nobody noticed
-            until somebody tried to walk a real deal down the page.
+            **QA is last.** It used to sit before commissioning and the service report, on the
+            reading that QA is a quality step somewhere in the middle. It is not: a QA approval is
+            where the *customer's* inspector signs, and it is now what starts the billing — see
+            BILLING_TRIGGERS.on_installation in billing-rules.ts. Everything above it is AIES doing
+            and recording work; QA is the customer accepting it. Putting it last says so.
 
-            **Collapsed by default, and the choice sticks.** Thirteen panels all earn their place at
-            some point in a job and none of them earns it today. Scope of work stays open above,
-            because it is the one thing every reader of a ticket wants first.
+            **Daily progress sits near the end**, below hours and spend, because it is a log kept
+            while the work runs rather than a gate anybody waits on. It was higher up when the order
+            was mine, and it pushed the things people actually chase further down the page.
+
+            **Delivery is second**, right under the scope, for every ticket type rather than only
+            delivery tickets — an installation that needs its equipment on site cares about the
+            delivery too, and hiding it on the wrong ticket type is how somebody ends up asking
+            operations where the meter is.
           */}
 
-          {/* §13's lane and the project lane never meet, so a delivery ticket leads with delivery. */}
-          {data.type === "delivery" && (
-            <CollapsiblePanel title="Delivery" storageKey={`${data.id}:delivery`} defaultOpen>
-              <DeliveryPanel ticketId={data.id} ticketType={data.type} />
-            </CollapsiblePanel>
-          )}
+          <CollapsiblePanel
+            title="Delivery"
+            storageKey={`${data.id}:delivery`}
+            defaultOpen={data.type === "delivery"}
+          >
+            <DeliveryPanel ticketId={data.id} ticketType={data.type} />
+          </CollapsiblePanel>
 
-          {/* 1 — a date, which is what everything below is racing. */}
           <CollapsiblePanel title="Schedule" storageKey={`${data.id}:schedule`}>
             <SchedulePanel ticketId={data.id} />
           </CollapsiblePanel>
 
-          {/* 2 — money before anybody moves. §5 makes this a blocking gate on mobilisation. */}
           <CollapsiblePanel title="Cash advance" storageKey={`${data.id}:cash-advance`}>
             <CashAdvancePanel ticketId={data.id} />
           </CollapsiblePanel>
 
-          {/* 3 — see the site before promising a method for it. */}
           <CollapsiblePanel title="Site inspection" storageKey={`${data.id}:inspection`}>
             <InspectionPanel
               ticketId={data.id}
@@ -215,7 +219,6 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             />
           </CollapsiblePanel>
 
-          {/* 4 — §6.2: the client approves the method before work starts. Always. */}
           <CollapsiblePanel title="Method statement" storageKey={`${data.id}:methodology`}>
             <MethodologyPanel
               ticketId={data.id}
@@ -224,7 +227,6 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             />
           </CollapsiblePanel>
 
-          {/* 5 — the method says what is needed; this draws it. */}
           <CollapsiblePanel title="Materials" storageKey={`${data.id}:materials`}>
             <MaterialPanel
               ticketId={data.id}
@@ -233,14 +235,8 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             />
           </CollapsiblePanel>
 
-          {/* 6 — reads all the gates above rather than asking again. */}
           <CollapsiblePanel title="Mobilisation readiness" storageKey={`${data.id}:mobilisation`}>
             <MobilizationPanel ticketId={data.id} />
-          </CollapsiblePanel>
-
-          {/* 7, 8, 9 — the work, and what it turned out to cost. */}
-          <CollapsiblePanel title="Daily progress" storageKey={`${data.id}:progress`}>
-            <ProgressPanel ticketId={data.id} />
           </CollapsiblePanel>
 
           <CollapsiblePanel
@@ -248,15 +244,6 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             storageKey={`${data.id}:checklists`}
           >
             <ChecklistPanel ticketId={data.id} />
-          </CollapsiblePanel>
-
-          <CollapsiblePanel title="Hours and spend" storageKey={`${data.id}:hours`}>
-            <HoursPanel ticketId={data.id} />
-          </CollapsiblePanel>
-
-          {/* 10, 11, 12 — proving it, commissioning it, writing it up. */}
-          <CollapsiblePanel title="QA" storageKey={`${data.id}:qa`}>
-            <QaPanel ticketId={data.id} />
           </CollapsiblePanel>
 
           <CollapsiblePanel title="Testing and commissioning" storageKey={`${data.id}:tc`}>
@@ -267,8 +254,18 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             <ServiceReportPanel ticketId={data.id} />
           </CollapsiblePanel>
 
-          {/* A non-delivery ticket can still carry one; it renders itself away when it cannot. */}
-          {data.type !== "delivery" && <DeliveryPanel ticketId={data.id} ticketType={data.type} />}
+          <CollapsiblePanel title="Hours and spend" storageKey={`${data.id}:hours`}>
+            <HoursPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel title="Daily progress" storageKey={`${data.id}:progress`}>
+            <ProgressPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          {/* Last, and the only panel where somebody outside AIES signs. */}
+          <CollapsiblePanel title="QA — the customer's acceptance" storageKey={`${data.id}:qa`}>
+            <QaPanel ticketId={data.id} />
+          </CollapsiblePanel>
 
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>

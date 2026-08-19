@@ -91,20 +91,37 @@ export function RequirementsPanel({ inquiry }: { inquiry: InquiryDetail }) {
             <legend className="text-xs font-medium text-text-muted uppercase">
               {template.label}
             </legend>
-            {template.fields.map((field) => (
-              <FieldInput
-                key={field.key}
-                serviceType={template.serviceType}
-                field={field}
-                value={answers[answerKey(template.serviceType, field.key)]}
-                onChange={(value) =>
-                  setAnswers((current) => ({
-                    ...current,
-                    [answerKey(template.serviceType, field.key)]: value,
-                  }))
-                }
-              />
-            ))}
+            {template.fields
+              .filter((field) => {
+                /*
+                  A follow-up question appears when it is reached, and not before.
+
+                  "Specify what is being supplied" is only a question once somebody has chosen
+                  "Others" from the category list. Rendering it always would put an empty box under
+                  every enquiry, and an empty box beside a filled-in dropdown reads as something the
+                  engineer forgot rather than something that does not apply.
+
+                  The same rule scores the gate — see `askWhen` in requirements.ts — so a hidden
+                  question can never appear in the missing list.
+                */
+                if (!field.askWhen) return true;
+                const trigger = answers[answerKey(template.serviceType, field.askWhen.key)];
+                return String(trigger ?? "") === field.askWhen.equals;
+              })
+              .map((field) => (
+                <FieldInput
+                  key={field.key}
+                  serviceType={template.serviceType}
+                  field={field}
+                  value={answers[answerKey(template.serviceType, field.key)]}
+                  onChange={(value) =>
+                    setAnswers((current) => ({
+                      ...current,
+                      [answerKey(template.serviceType, field.key)]: value,
+                    }))
+                  }
+                />
+              ))}
           </fieldset>
         ))}
       </div>

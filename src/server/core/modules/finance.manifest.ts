@@ -190,10 +190,11 @@ export const financeManifest = defineManifest({
       },
     },
     {
-      event: "service_report.approved",
+      // The customer's acceptance is what starts the bill — see BILLING_TRIGGERS.on_installation.
+      event: "qa.passed",
       handler: async (payload) => {
-        const { onServiceReportApproved } = await import("@/server/core/finance/billing-service");
-        await onServiceReportApproved(payload as { ticketId?: string; serviceReportId?: string });
+        const { onQaPassed } = await import("@/server/core/finance/billing-service");
+        await onQaPassed(payload as { ticketId?: string; qaApprovalId?: string; number?: string });
       },
     },
     {

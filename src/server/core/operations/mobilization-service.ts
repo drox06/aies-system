@@ -271,6 +271,14 @@ export async function readinessForTicketService(ticketId: string) {
   return {
     ...readiness,
     ticket: { id: ticket.id, number: ticket.number, type: ticket.type, status: ticket.status },
+    // Returned so the readiness list can send somebody to the record that answers the contact gate.
+    // A gate whose evidence lives on another module's screen has to name that screen, or it reads
+    // as a fault in this one.
+    //
+    // The **account**, not the site: sites have no page of their own, they are a panel on the
+    // account record, and that is also where the contacts are added. Linking to a route that does
+    // not exist would have been the same bug in a new place.
+    accountId: ticket.accountId ?? null,
     mobilizationId: mobilization?.id ?? null,
     mobilizationStatus: mobilization?.status ?? null,
   };

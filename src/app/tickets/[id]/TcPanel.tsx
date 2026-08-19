@@ -153,14 +153,29 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
         </ul>
       )}
 
+      {/*
+        Where the customer's own paperwork lives.
+
+        Plenty of plants have their own commissioning form and will not accept ours — so this is not
+        only "the signed copy of what we printed", it is also "the form they made us fill in". Either
+        way it is the document the final bill rests on, and §10 makes that a billing trigger.
+
+        What used to be here told the user to "paste its id when signing off", which is a thing no
+        one should ever be asked to do: a cuid copied by hand between two parts of one screen. The
+        sign-off now picks from these files by name. Raised by the company on 2026-08-19.
+      */}
       <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">Certificate and signature</h3>
+        <h3 className="text-sm font-semibold">The customer&rsquo;s signed paperwork</h3>
         <p className="mt-1 text-xs text-text-muted">
-          Upload the signed certificate here, then paste its id when signing off. §10 makes this a
-          billing trigger — an unsigned one is AIES&rsquo;s word for it.
+          Our certificate signed, or the customer&rsquo;s own commissioning form filled in —
+          whichever they use. Attach it here and it becomes selectable when you sign off below.
         </p>
         <div className="mt-2">
-          <Attachments entityType={TC_ENTITY_TYPE} entityId={ticketId} />
+          <Attachments
+            entityType={TC_ENTITY_TYPE}
+            entityId={ticketId}
+            emptyText="Nothing attached yet. Sign-off will ask you to say why if there is nothing signed."
+          />
         </div>
       </Card>
 
@@ -180,6 +195,7 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
       {open && (
         <TcWorksheet
           record={open}
+          ticketId={ticketId}
           promisedLines={promised.data?.lines ?? []}
           promisedNote={promised.data?.note ?? null}
           canSignOff={canSignOff}
@@ -192,6 +208,7 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
 
 function TcWorksheet({
   record,
+  ticketId,
   promisedLines,
   promisedNote,
   canSignOff,
@@ -207,6 +224,8 @@ function TcWorksheet({
     customerWitnessName: string | null;
     customerWitnessPosition: string | null;
   };
+  /** The attachments are filed against the ticket, not the worksheet — see the card above. */
+  ticketId: string;
   promisedLines: { quotationLineId: string | null; description: string; promiseText: string }[];
   promisedNote: string | null;
   canSignOff: boolean;
@@ -231,6 +250,12 @@ function TcWorksheet({
 
   const save = trpc.operations.saveTc.useMutation({ onSuccess: onSaved });
   const complete = trpc.operations.completeTc.useMutation({ onSuccess: onSaved });
+
+  // The same list the attachments card above renders, so uploading there fills the picker here.
+  const signedFiles = trpc.files.forEntity.useQuery(
+    { entityType: TC_ENTITY_TYPE, entityId: ticketId },
+    { retry: false },
+  );
 
   const parsedFor = (draft: DraftTest) =>
     draft.criterionText.trim() ? parseCriterion(draft.criterionText) : { criterion: null };
@@ -513,13 +538,32 @@ function TcWorksheet({
               </Select>
             </div>
             <div>
-              <Label htmlFor="tc-signature">Customer signature file id</Label>
-              <Input
+              <Label htmlFor="tc-signature">The signed document</Label>
+              {/*
+                Chosen from what is attached, never typed. See the attachments card above for why.
+
+                An empty list is not an error — it means nothing is attached yet, and the warning
+                below already says what happens then. Naming the files rather than their ids is the
+                whole point: somebody signing off recognises "Acme commissioning form.pdf", and
+                nobody recognises a cuid.
+              */}
+              <Select
                 id="tc-signature"
-                placeholder="Paste from the attachments above"
                 value={signatureFileId}
                 onChange={(e) => setSignatureFileId(e.target.value)}
-              />
+              >
+                <option value="">Nothing signed attached</option>
+                {(signedFiles.data ?? []).map((file) => (
+                  <option key={file.id} value={file.id}>
+                    {file.filename}
+                  </option>
+                ))}
+              </Select>
+              {(signedFiles.data ?? []).length === 0 && (
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Attach it in the card above and it appears here.
+                </p>
+              )}
             </div>
           </div>
 

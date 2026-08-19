@@ -57,6 +57,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const groups = groupNav(nav.data ?? []);
 
+  /**
+   * Which groups are folded, remembered per browser.
+   *
+   * `false` means closed; anything else means open, so a group nobody has touched starts open — a
+   * sidebar that hides everything on first load is worse than one that shows too much.
+   */
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("nav:groups");
+    if (stored) {
+      try {
+        setOpenGroups(JSON.parse(stored) as Record<string, boolean>);
+      } catch {
+        // A corrupted preference is not worth a crash: fall back to everything open.
+      }
+    }
+  }, []);
+
+  function toggleGroup(group: string) {
+    setOpenGroups((current) => {
+      const next = { ...current, [group]: current[group] === false };
+      window.localStorage.setItem("nav:groups", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  /** The group holding the page you are on. It stays open regardless of what was stored. */
+  const activeGroup =
+    groups.find(({ entries }) =>
+      entries.some((entry) =>
+        entry.href === "/" ? pathname === "/" : pathname.startsWith(entry.href),
+      ),
+    )?.group ?? null;
+
   const sidebar = (
     <nav
       aria-label="Main"
@@ -95,54 +130,87 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <div className="flex-1 overflow-y-auto py-2">
-        {groups.map(({ group, entries }) => (
-          <div key={group ?? "_"} className="mb-3">
-            {group && !collapsed && (
-              <p className="px-4 pb-1 text-xs font-medium tracking-wide text-white/45 uppercase">
-                {group}
-              </p>
-            )}
-            {entries.map((entry) => {
-              const active =
-                entry.href === "/" ? pathname === "/" : pathname.startsWith(entry.href);
-              return (
-                <Link
-                  key={entry.href}
-                  href={entry.href}
-                  aria-current={active ? "page" : undefined}
-                  title={collapsed ? entry.label : undefined}
-                  className={cn(
-                    "flex items-center gap-3 py-2.5 pr-3 pl-4 text-sm transition-colors",
-                    // Spec.md §6.4: active nav marked with a 3px red-500 left bar — "the one place
-                    // brand red earns its keep in the chrome". Inactive items reserve the same 3px
-                    // with a transparent border so labels do not shift on selection.
-                    active
-                      ? "border-l-[3px] border-red-500 bg-white/10 pl-[13px] font-medium"
-                      : "border-l-[3px] border-transparent pl-[13px] text-white/75 hover:bg-white/5 hover:text-white",
-                  )}
+        {groups.map(({ group, entries }) => {
+          /*
+            A group folds away, and remembers.
+
+            Five headings — Sales, Customers, Orders, Operations, Admin — with thirty-odd entries
+            under them, and nobody works across all five in a day. Sales does not open the store;
+            operations does not raise quotations. Folding the ones you never touch is the difference
+            between a sidebar you scan and a sidebar you search.
+
+            **The group holding the current page always opens**, whatever was stored. Coming back to
+            a screen and finding its own menu heading collapsed reads as the app having lost your
+            place, and the fix — expanding a group to see the page already in front of you — is
+            pointless work.
+
+            Ungrouped entries have no heading to click, so they never fold.
+          */
+          const open = group === null || openGroups[group] !== false || activeGroup === group;
+
+          return (
+            <div key={group ?? "_"} className="mb-3">
+              {group && !collapsed && (
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  aria-expanded={open}
+                  className="flex w-full items-center gap-1.5 px-4 pb-1 text-left text-xs font-medium tracking-wide text-white/45 uppercase hover:text-white/80"
                 >
-                  {(() => {
-                    const Icon = ICONS[entry.icon ?? ""];
-                    return Icon ? (
-                      <Icon aria-hidden size={ICON_SIZE} strokeWidth={2.25} className="shrink-0" />
-                    ) : (
-                      // A module with an unmapped icon still gets an aligned placeholder rather
-                      // than a ragged row.
-                      <span
-                        aria-hidden
-                        className="flex shrink-0 items-center justify-center"
-                        style={{ width: ICON_SIZE, height: ICON_SIZE }}
-                      >
-                        <span className="size-1.5 rounded-full bg-current opacity-60" />
-                      </span>
-                    );
-                  })()}
-                  {!collapsed && <span className="truncate">{entry.label}</span>}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+                  <span aria-hidden className={`transition-transform ${open ? "rotate-90" : ""}`}>
+                    ›
+                  </span>
+                  {group}
+                </button>
+              )}
+              {(open || collapsed) &&
+                entries.map((entry) => {
+                  const active =
+                    entry.href === "/" ? pathname === "/" : pathname.startsWith(entry.href);
+                  return (
+                    <Link
+                      key={entry.href}
+                      href={entry.href}
+                      aria-current={active ? "page" : undefined}
+                      title={collapsed ? entry.label : undefined}
+                      className={cn(
+                        "flex items-center gap-3 py-2.5 pr-3 pl-4 text-sm transition-colors",
+                        // Spec.md §6.4: active nav marked with a 3px red-500 left bar — "the one place
+                        // brand red earns its keep in the chrome". Inactive items reserve the same 3px
+                        // with a transparent border so labels do not shift on selection.
+                        active
+                          ? "border-l-[3px] border-red-500 bg-white/10 pl-[13px] font-medium"
+                          : "border-l-[3px] border-transparent pl-[13px] text-white/75 hover:bg-white/5 hover:text-white",
+                      )}
+                    >
+                      {(() => {
+                        const Icon = ICONS[entry.icon ?? ""];
+                        return Icon ? (
+                          <Icon
+                            aria-hidden
+                            size={ICON_SIZE}
+                            strokeWidth={2.25}
+                            className="shrink-0"
+                          />
+                        ) : (
+                          // A module with an unmapped icon still gets an aligned placeholder rather
+                          // than a ragged row.
+                          <span
+                            aria-hidden
+                            className="flex shrink-0 items-center justify-center"
+                            style={{ width: ICON_SIZE, height: ICON_SIZE }}
+                          >
+                            <span className="size-1.5 rounded-full bg-current opacity-60" />
+                          </span>
+                        );
+                      })()}
+                      {!collapsed && <span className="truncate">{entry.label}</span>}
+                    </Link>
+                  );
+                })}
+            </div>
+          );
+        })}
       </div>
 
       {/* Which build this is. Seven characters that answer "has my fix deployed yet?" */}

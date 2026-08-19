@@ -9,6 +9,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { getCompanyDetails } from "@/server/core/company";
 import { SUPPLIER_PO_ENTITY_TYPE } from "@/server/core/order/supplier-po-rules";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -153,6 +154,13 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
             <Card className="p-4">
               <h2 className="text-sm font-semibold">Shipment</h2>
               <dl className="mt-2 space-y-1 text-sm">
+                <DeliverToRow
+                  supplierPOId={id}
+                  version={data.version}
+                  editable={data.editable}
+                  deliverTo={data.deliverTo}
+                  onSaved={() => void po.refetch()}
+                />
                 <Row label="Incoterm" value={data.incoterm ?? "—"} />
                 <Row label="Mode" value={data.shipmentMode ?? "—"} />
                 <Row
@@ -682,5 +690,116 @@ function ServiceLines({
         ))}
       </ul>
     </Card>
+  );
+}
+
+/**
+ * Where the supplier is to deliver — shown on every PO, editable while the PO still is.
+ *
+ * ## Why it is here at all
+ *
+ * The PO printed a delivery address derived from the sales order's site, or AIES's own when there
+ * was none, and neither the buyer nor anybody else could see or change it. The company reported the
+ * consequence on 2026-08-19: suppliers ringing to ask where the goods go. Derivation is right most
+ * of the time and there was no way to be right the rest of the time.
+ *
+ * ## Why it shows the default rather than an empty box
+ *
+ * An empty field beside "Deliver to" reads as *unanswered*, and this question has always had an
+ * answer. So the company address is rendered as the current value in grey with "the default" beside
+ * it, and typing replaces it. Absent is not the same as empty — the same distinction that separates
+ * a recorded N/A from an unasked question everywhere else in this platform.
+ *
+ * ## Why editing stops when the PO does
+ *
+ * `editable` is the service's own `isSupplierPoEditable`. Once a PO is sent, the supplier is holding
+ * a piece of paper with an address on it, and quietly changing our copy would make the two disagree
+ * with nothing to show for it. A sent PO that must go elsewhere is a conversation, not a text field.
+ */
+function DeliverToRow({
+  supplierPOId,
+  version,
+  editable,
+  deliverTo,
+  onSaved,
+}: {
+  supplierPOId: string;
+  version: number;
+  editable: boolean;
+  deliverTo: string | null;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(deliverTo ?? "");
+  const company = getCompanyDetails();
+  const fallback = [company.name, ...company.addressLines];
+
+  const update = trpc.order.updateSupplierPo.useMutation({
+    onSuccess: () => {
+      toastSuccess("Delivery address saved.");
+      setOpen(false);
+      onSaved();
+    },
+    onError: toastError,
+  });
+
+  if (open) {
+    return (
+      <div className="py-1">
+        <Label htmlFor="spo-deliver-to">Deliver to</Label>
+        <Textarea
+          id="spo-deliver-to"
+          rows={3}
+          value={draft}
+          placeholder={fallback.join("\n")}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <p className="mt-0.5 text-xs text-text-muted">
+          One line each, as it should print. Leave it empty for the company address.
+        </p>
+        <div className="mt-2 flex gap-2">
+          <Button
+            size="sm"
+            disabled={update.isPending}
+            onClick={() =>
+              update.mutate({ supplierPOId, version, deliverTo: draft.trim() || null })
+            }
+          >
+            {update.isPending ? "Saving…" : "Save"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDraft(deliverTo ?? "");
+              setOpen(false);
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const lines = deliverTo?.trim() ? deliverTo.split("\n").filter(Boolean) : fallback;
+
+  return (
+    <div className="flex items-start justify-between gap-2 py-0.5">
+      <dt className="text-text-muted">Deliver to</dt>
+      <dd className="text-right">
+        {lines.map((line) => (
+          <span key={line} className={deliverTo ? "block" : "block text-text-muted"}>
+            {line}
+          </span>
+        ))}
+        {!deliverTo && <span className="block text-xs text-text-muted">the company address</span>}
+        {editable && (
+          <Button variant="ghost" size="sm" className="mt-0.5" onClick={() => setOpen(true)}>
+            Change
+          </Button>
+        )}
+      </dd>
+    </div>
   );
 }

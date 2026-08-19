@@ -210,11 +210,21 @@ function RequestForm({
               value={line.description}
               onChange={(e) => update(index, { description: e.target.value })}
             />
+            {/*
+              The quantity, made to look like the number it is.
+
+              Reported as hard to notice, and it was: four identical grey boxes in a row, one of
+              which decides how much stock leaves the store. A right-aligned, bolder field reads as a
+              figure rather than as another text box — the same treatment money gets everywhere else
+              in this platform, and for the same reason.
+            */}
             <Input
               aria-label="Quantity"
               type="number"
               min={0}
               step="any"
+              className="text-right font-semibold"
+              placeholder="Qty"
               value={line.quantity}
               onChange={(e) => update(index, { quantity: Number(e.target.value) })}
             />
@@ -239,9 +249,13 @@ function RequestForm({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
+        {/*
+          Adding a line is the main thing anybody does here, and it was a ghost button — the quietest
+          weight in the design system, reserved for actions people rarely want. Wrong call: a
+          material request with one line is the exception, not the rule.
+        */}
         <Button
-          variant="ghost"
-          size="sm"
+          variant="secondary"
           onClick={() =>
             setLines([
               ...lines,
@@ -249,7 +263,7 @@ function RequestForm({
             ])
           }
         >
-          Add a line
+          + Add another material
         </Button>
         <p className="text-xs text-text-muted">
           {/* §7's fan-out, said before somebody picks the source rather than after. */}

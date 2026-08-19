@@ -159,7 +159,7 @@ export function LineEditor({
               <th className="py-1 font-medium">Description</th>
               <th className="py-1 text-right font-medium">Qty</th>
               {canSeeCost && <th className="py-1 text-right font-medium">Unit cost</th>}
-              {canSeeCost && <th className="py-1 font-medium">Ccy</th>}
+              {canSeeCost && <th className="py-1 font-medium">Currency</th>}
               {canSeeCost && (
                 <th
                   className="py-1 text-right font-medium"
@@ -249,7 +249,9 @@ export function LineEditor({
                     <td className="py-1 pr-2">
                       <Select
                         aria-label={`Line ${index + 1} cost currency`}
-                        className="w-20"
+                        // Wide enough for the code plus the select's own chevron. At w-20 "USD"
+                        // rendered as "U" and half an S, which is a value nobody can check.
+                        className="w-24"
                         value={line.costCurrency}
                         disabled={!editable}
                         onChange={(e) => update(index, { costCurrency: e.target.value })}

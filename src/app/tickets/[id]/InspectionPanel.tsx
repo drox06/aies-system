@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Textarea } from "@/components/ui/input";
 import { Card } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { inspectionRequiredForTicket } from "@/server/core/operations/site-inspection-rules";
+import { toastError } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -42,6 +43,18 @@ export function InspectionPanel({
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
   const [showForm, setShowForm] = useState(false);
   const [scheduledFor, setScheduledFor] = useState("");
+  const [showWaive, setShowWaive] = useState(false);
+  const [waiveReason, setWaiveReason] = useState("");
+
+  const waiver = trpc.operations.inspectionWaiver.useQuery({ ticketId });
+  const setWaiver = trpc.operations.setInspectionWaiver.useMutation({
+    onSuccess: () => {
+      setShowWaive(false);
+      setWaiveReason("");
+      void waiver.refetch();
+    },
+    onError: toastError,
+  });
 
   const schedule = trpc.operations.scheduleInspection.useMutation({
     onSuccess: () => {
@@ -52,8 +65,16 @@ export function InspectionPanel({
   });
 
   const canRecord = (me.data?.permissions ?? []).includes("ticket.execute");
+  // Excusing the trip is a planning decision, not the surveyor's — see the router procedure.
+  const canWaive = (me.data?.permissions ?? []).includes("ticket.dispatch");
   const rows = inspections.data ?? [];
-  const required = inspectionRequiredForTicket({ type: ticketType });
+  const waived = waiver.data?.waived ?? false;
+  /*
+    §6 wants a survey on a new project — unless somebody has said, on the record, that this one does
+    not need it. A waiver is an answer, so the badge goes; what replaces it is the answer itself,
+    with who gave it and why. "Not needed" and "nobody has got to it yet" must not look the same.
+  */
+  const required = inspectionRequiredForTicket({ type: ticketType }) && !waived;
 
   return (
     <Card className="p-4">
@@ -98,10 +119,79 @@ export function InspectionPanel({
         </ul>
       )}
 
-      {canRecord && !showForm && (
-        <Button variant="secondary" size="sm" className="mt-3" onClick={() => setShowForm(true)}>
-          Book a site inspection
-        </Button>
+      {waived && (
+        <div className="mt-2 rounded border border-border bg-surface-2 p-2 text-xs">
+          <p>
+            <span className="font-medium">No survey needed.</span> {waiver.data?.summary}
+          </p>
+          <p className="mt-0.5 text-text-muted">
+            Recorded by {waiver.data?.by ?? "somebody"}
+            {waiver.data?.at ? ` on ${new Date(waiver.data.at).toLocaleDateString()}` : ""}.
+          </p>
+          {canWaive && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-1"
+              disabled={setWaiver.isPending}
+              onClick={() => setWaiver.mutate({ ticketId, waived: false })}
+            >
+              It does need one after all
+            </Button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {canRecord && !showForm && (
+          <Button variant="secondary" size="sm" onClick={() => setShowForm(true)}>
+            Book a site inspection
+          </Button>
+        )}
+
+        {/*
+          The tick that clears the gate.
+
+          Offered only while there is a gate to clear: once a survey exists, or once it is already
+          waived, the question has an answer and a second control asking it again is noise. Recording
+          an inspection afterwards is still allowed — waiving says none is *required*, not that none
+          may be filed.
+        */}
+        {canWaive && !waived && rows.length === 0 && !showWaive && (
+          <Button variant="ghost" size="sm" onClick={() => setShowWaive(true)}>
+            Site inspection is not needed
+          </Button>
+        )}
+      </div>
+
+      {showWaive && (
+        <div className="mt-2 rounded-md border border-border p-3">
+          <Label htmlFor="waive-reason">Why no survey is needed</Label>
+          <Textarea
+            id="waive-reason"
+            rows={2}
+            value={waiveReason}
+            placeholder="We surveyed this line in March and nothing has changed."
+            onChange={(e) => setWaiveReason(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-text-muted">
+            Somebody will read this if the job turns out bigger than it looked.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button
+              size="sm"
+              disabled={setWaiver.isPending || waiveReason.trim().length < 10}
+              onClick={() =>
+                setWaiver.mutate({ ticketId, waived: true, reason: waiveReason.trim() })
+              }
+            >
+              {setWaiver.isPending ? "Recording…" : "Record it"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowWaive(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
       )}
 
       {showForm && (

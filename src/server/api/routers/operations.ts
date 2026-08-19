@@ -127,6 +127,7 @@ import { ATTENDEE_PARTIES } from "@/server/core/operations/site-inspection-rules
 import { SERVICE_REPORT_STATUSES } from "@/server/core/operations/close-out-rules";
 import {
   advanceServiceReportService,
+  discardServiceReportService,
   closeOutChecklistForProjectService,
   closeOutProjectService,
   getProjectService,
@@ -185,7 +186,9 @@ import {
   approveInspectionService,
   completeInspectionService,
   getInspectionService,
+  inspectionWaiverForTicket,
   listInspectionsService,
+  setInspectionWaiverService,
   saveInspectionService,
   scheduleInspectionService,
 } from "@/server/core/operations/site-inspection-service";
@@ -550,6 +553,35 @@ export const operationsRouter = router({
         .optional(),
     )
     .query(({ ctx, input }) => listInspectionsService(ctx.user, input ?? {})),
+
+  /**
+   * Whether somebody has recorded that this job needs no site survey.
+   *
+   * A read, and a cheap one, so it sits on `ticket.view` with everything else on the ticket. The
+   * *setting* of it is a dispatcher decision — see below.
+   */
+  inspectionWaiver: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => inspectionWaiverForTicket(input.ticketId)),
+
+  /**
+   * Record that no survey is needed, or withdraw that.
+   *
+   * Gated on `ticket.dispatch` rather than `ticket.execute`: deciding a site does not need looking
+   * at is a planning call, and the person who would have gone is not the person to excuse the trip.
+   *
+   * The 10-character floor is enforced in the service too. Doing it in both places is deliberate —
+   * the schema gives the browser a usable error, the service is what makes it true.
+   */
+  setInspectionWaiver: p("ticket.dispatch")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        waived: z.boolean(),
+        reason: z.string().max(1000).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setInspectionWaiverService(actorMeta(ctx), input)),
 
   getInspection: p("ticket.view")
     .input(z.object({ inspectionId: z.string() }))
@@ -1245,6 +1277,17 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => advanceServiceReportService(actorMeta(ctx), input)),
+
+  /**
+   * Throw away a report that should not have been written.
+   *
+   * On `ticket.execute` rather than `service_report.approve`: the person who wrote it is the person
+   * who knows it is wrong, and making them find an approver to delete their own typo is how a bad
+   * draft ends up being approved instead. The service refuses once the customer has signed.
+   */
+  discardServiceReport: p("ticket.execute")
+    .input(z.object({ id: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => discardServiceReportService(actorMeta(ctx), input)),
 
   listServiceReports: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))

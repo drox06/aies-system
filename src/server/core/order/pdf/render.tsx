@@ -61,13 +61,29 @@ export async function buildSupplierPoPdfProps(supplierPOId: string): Promise<Sup
     shipmentMode: po.shipmentMode,
     expectedShipDate: po.expectedShipDate ? fmtDate(po.expectedShipDate) : null,
     expectedArrivalDate: po.expectedArrivalDate ? fmtDate(po.expectedArrivalDate) : null,
-    // The customer's site when there is one, so goods that ship direct go to the right place;
-    // otherwise AIES's own address. The customer's *name* is deliberately not passed — a supplier
-    // who learns whose job this is has what they need to go around AIES, the same reasoning that
-    // keeps it off the RFQ.
+    /*
+      Three answers in order of authority.
+
+      **What somebody typed on this order** wins, always. It is the only one of the three that is a
+      decision rather than an inference, and it is there precisely because the other two were wrong
+      for this order — goods going to a forwarder, or to a job in the provinces, or to a site the
+      sales order does not know about.
+
+      **The customer's site** comes next, so goods that ship direct land in the right place.
+
+      **AIES's own address** is the fallback and the overwhelmingly common case.
+
+      The customer's *name* is deliberately not passed in any of the three — a supplier who learns
+      whose job this is has what they need to go around AIES, the same reasoning that keeps it off
+      the RFQ.
+    */
     deliverTo: {
-      addressLines:
-        po.salesOrder?.site && addressLines(po.salesOrder.site.address).length > 0
+      addressLines: po.deliverTo?.trim()
+        ? po.deliverTo
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : po.salesOrder?.site && addressLines(po.salesOrder.site.address).length > 0
           ? addressLines(po.salesOrder.site.address)
           : [company.name, ...company.addressLines],
     },
