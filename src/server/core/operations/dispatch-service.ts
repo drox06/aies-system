@@ -352,6 +352,8 @@ export async function scheduleTicketService(
     scheduledEnd?: Date | null;
     assignedLeadId?: string | null;
     assignedUserIds?: string[];
+    /** A subcontractor doing the work. See Ticket.crewNote for why this is free text. */
+    crewNote?: string | null;
   },
 ) {
   const ticket = await db.ticket.findFirst({
@@ -375,6 +377,7 @@ export async function scheduleTicketService(
         scheduledEnd: input.scheduledEnd ?? null,
         ...(input.assignedLeadId !== undefined ? { assignedLeadId: input.assignedLeadId } : {}),
         ...(input.assignedUserIds ? { assignedUserIds: input.assignedUserIds } : {}),
+        ...(input.crewNote !== undefined ? { crewNote: input.crewNote } : {}),
         version: { increment: 1 },
       },
     });

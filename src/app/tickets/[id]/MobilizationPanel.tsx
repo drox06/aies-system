@@ -35,6 +35,41 @@ const ITEM_LABEL: Record<string, string> = {
   unknown: "unknown",
 };
 
+/**
+ * Where an unmet gate is actually fixed.
+ *
+ * §8's readiness panel computes its answer from other people's records, which is right — but it left
+ * the reader holding a red badge and no idea which screen changes it. The company put it plainly:
+ * if it is not ready, it should be clickable and take you to the place that fixes it.
+ *
+ * Two of these are on this very panel, so they scroll rather than navigate; the rest are elsewhere.
+ * `null` means the gate is cleared by editing the mobilisation row below, which is already in view.
+ */
+const GATE_DESTINATION: Record<string, { label: string; panel: string } | null> = {
+  cash_advance: { label: "Open the cash advance", panel: "cash-advance" },
+  materials: { label: "Open materials", panel: "materials" },
+  methodology: { label: "Open the method statement", panel: "methodology" },
+  crew: null,
+  competence: null,
+  induction: null,
+  tools: null,
+  ppe: null,
+  customer_contact: null,
+};
+
+/**
+ * Opens the panel that fixes a gate and scrolls to it.
+ *
+ * The panels collapse now, so a link that only scrolled would land on a closed heading — which is
+ * worse than no link, because it looks like the platform sent you to the wrong place. Writing the
+ * stored preference first means the panel is open by the time we arrive.
+ */
+function goToPanel(ticketId: string, panel: string) {
+  window.localStorage.setItem(`panel:${ticketId}:${panel}`, "open");
+  window.location.hash = `panel-${panel}`;
+  window.location.reload();
+}
+
 export function MobilizationPanel({ ticketId }: { ticketId: string }) {
   const readiness = trpc.operations.mobilizationReadiness.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
@@ -87,6 +122,18 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
               // Shown but not blocking, and said plainly so nobody chases the wrong line.
               <span className="text-xs text-text-muted">(not blocking)</span>
             )}
+
+            {/* An unmet gate that is fixed somewhere else says where, and goes there. */}
+            {item.state !== "pass" && GATE_DESTINATION[item.key] && (
+              <button
+                type="button"
+                className="text-xs underline text-text-muted hover:text-text"
+                onClick={() => goToPanel(ticketId, GATE_DESTINATION[item.key]!.panel)}
+              >
+                {GATE_DESTINATION[item.key]!.label} →
+              </button>
+            )}
+
             <span className="w-full text-xs text-text-muted">{item.detail}</span>
           </li>
         ))}

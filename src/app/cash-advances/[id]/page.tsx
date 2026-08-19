@@ -700,7 +700,7 @@ function SettlementReview({
         </>
       ) : (
         <p className="mt-2 text-xs text-text-muted">
-          Finance or the Vice President does this. Nothing is outstanding from you.
+          Finance does this. Nothing is outstanding from you.
         </p>
       )}
     </Card>

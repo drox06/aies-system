@@ -53,8 +53,27 @@ export function HoursPanel({ ticketId }: { ticketId: string }) {
     void utils.operations.listExpenses.invalidate({ ticketId });
   };
 
-  const saveHours = trpc.operations.saveTimesheet.useMutation({ onSuccess: refresh });
-  const saveExpense = trpc.operations.saveExpense.useMutation({ onSuccess: refresh });
+  /**
+   * Saving says so.
+   *
+   * The company asked where a saved row goes, which is the right question: the button did its work
+   * silently and the row appeared in a list further down the panel that they had already scrolled
+   * past. Silence after a write reads as failure — people press it again, and then there are two.
+   */
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const saveHours = trpc.operations.saveTimesheet.useMutation({
+    onSuccess: () => {
+      setSaved("Day recorded. It is in the list below, as a draft until you submit it.");
+      refresh();
+    },
+  });
+  const saveExpense = trpc.operations.saveExpense.useMutation({
+    onSuccess: () => {
+      setSaved("Expense recorded. It is in the list below, as a draft until you submit it.");
+      refresh();
+    },
+  });
   const submitHours = trpc.operations.submitTimesheets.useMutation({ onSuccess: refresh });
   const submitExpenses = trpc.operations.submitExpenses.useMutation({
     onSuccess: (result) => {
@@ -391,6 +410,8 @@ export function HoursPanel({ ticketId }: { ticketId: string }) {
           </p>
         </div>
       )}
+
+      {saved && <p className="mt-2 rounded-md bg-surface-2 p-2 text-sm">{saved}</p>}
 
       {(saveHours.error ?? saveExpense.error) && (
         <p className="mt-2 text-sm text-danger">

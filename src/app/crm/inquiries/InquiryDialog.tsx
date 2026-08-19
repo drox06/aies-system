@@ -261,7 +261,7 @@ export function InquiryDialog({
               </p>
               <div className="space-y-2">
                 {items.map((item, index) => (
-                  <div key={index} className="grid gap-2 sm:grid-cols-[1fr_5rem_6rem]">
+                  <div key={index} className="grid gap-2 sm:grid-cols-[1fr_5rem_6rem_2rem]">
                     <Input
                       aria-label={`Line ${index + 1} description`}
                       value={item.description}
@@ -286,6 +286,26 @@ export function InquiryDialog({
                         </option>
                       ))}
                     </Select>
+
+                    {/*
+                      Removing a line somebody added by mistake.
+
+                      Only offered when there is more than one: an inquiry with no lines at all
+                      cannot select a requirements checklist, so the last line is not removable and
+                      the control disappears rather than sitting there refusing.
+                    */}
+                    {items.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Remove line ${index + 1}`}
+                        title="Remove this line"
+                        onClick={() => setItems((current) => current.filter((_, i) => i !== index))}
+                      >
+                        ×
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>

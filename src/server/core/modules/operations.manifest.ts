@@ -127,13 +127,25 @@ export const operationsManifest = defineManifest({
       // app can record that receipts were filed, but only somebody holding the paper can say a BIR
       // official receipt exists.
       //
-      // **Finance alone**, set by the company on 2026-08-18. The draft also gave it to the
-      // president, the VP and the admin manager on the reasoning that a five-person company has no
-      // clean cover. The company's answer: the reminder tells a technician to hand the paper to
-      // finance, so finance is who checks it. A control that four roles can perform is not really
-      // a control, and a screen that says one thing while the permissions allow another teaches
-      // people that the words do not matter.
-      defaultRoles: ["finance_officer"],
+      /**
+       * **Finance checks them; the president is the fallback.** Set by the company across two
+       * conversations, and the pair of decisions is the interesting part.
+       *
+       * 2026-08-18: narrowed from four roles to finance alone. The reminder tells a technician to
+       * hand the paper to finance, so finance is who checks it — a control four roles can perform is
+       * not really a control, and a screen saying one thing while permissions allow another teaches
+       * people that the words do not matter.
+       *
+       * 2026-08-19: the president added back, deliberately, as **cover** rather than as a second
+       * approver. A five-person company has one finance officer, and one finance officer takes
+       * holidays. Without a fallback the liquidation queue stops for a fortnight, advances age past
+       * their deadline, and §5b's block on new requests starts biting crews who did nothing wrong.
+       *
+       * The vice-president is **not** on this list, which is the company's specific instruction and
+       * a sound one: the VP approves the advance in the first place, and the person who authorised
+       * the money should not also be the one who accepts the receipts for it.
+       */
+      defaultRoles: ["finance_officer", "president"],
     },
     {
       key: "cash_advance.view_register",
@@ -482,17 +494,24 @@ export const operationsManifest = defineManifest({
       href: "/checklists",
       icon: "clipboard-check",
       /**
-       * §15's library, reachable on its own.
+       * The **library**, not the filling-in. Set by the company 2026-08-19: president, vice-president
+       * and operations manager only.
        *
-       * Until 2026-08-18 the only route to a checklist template was the panel on a ticket, so the
-       * eleven seeded ones became invisible the moment there were no tickets — and the company
-       * reported, correctly, that they did not exist. A set of procedures is a thing somebody reads,
-       * reviews and revises without a job in front of them.
+       * A technician fills a checklist in from the ticket they are working on, which is where the
+       * work is. This entry is for the person who wants to see what templates exist and how they are
+       * worded — a supervisory question. `checklist.manage` is exactly that permission, so gating on
+       * it puts the entry in front of the three roles who hold it and nobody else.
        *
-       * Gated on `ticket.view`, not `checklist.manage`: everybody held to a procedure should be able
-       * to read it. Changing one is the narrower right, enforced inside the screen.
+       * The panel on a ticket is unaffected: `checklist.fill` still governs that, and a technician
+       * keeps it.
+       *
+       * §15's library needed a door: until 2026-08-18 the only route to a template was the panel on
+       * a ticket, so the eleven seeded ones vanished whenever there were no tickets. It had one, and
+       * it was `ticket.view` — everybody held to a procedure should be able to read it. The company
+       * narrowed it on 2026-08-19; a technician still reaches every checklist that matters to them
+       * from the job they are doing.
        */
-      permission: "ticket.view",
+      permission: "checklist.manage",
       group: "Operations",
       order: 43,
     },

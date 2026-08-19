@@ -66,6 +66,8 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
    * who opens the panel to change a date.
    */
   const [crew, setCrew] = useState<string[] | null>(null);
+  /** A subcontractor doing the work instead of, or alongside, AIES staff. Free text by design. */
+  const [subcontractor, setSubcontractor] = useState("");
 
   const schedule = trpc.operations.scheduleTicket.useMutation({
     onSuccess: () => {
@@ -92,6 +94,7 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
       scheduledEnd: endDate ? new Date(endDate) : null,
       ...(currentLead ? { assignedLeadId: currentLead } : {}),
       assignedUserIds: currentCrew,
+      crewNote: subcontractor.trim() || null,
     });
     setSaved(endDate ? `${startDate} to ${endDate}` : startDate);
   };
@@ -153,29 +156,79 @@ export function SchedulePanel({ ticketId }: { ticketId: string }) {
           </p>
 
           {/*
-            Ticks rather than a multi-select: a crew is a set, and a native multi-select is one of
-            the worst controls on a touch screen — it needs a modifier key nobody has on a phone.
+            Add one at a time from a list, and each one appears as a chip that can be taken off.
+
+            The company asked for a dropdown rather than a row of ticks, and it is the better control
+            once a crew can be four or five people: ticks make you read every name to find who is on,
+            whereas the chips say who is going and the list offers only who is not.
+
+            A **subcontractor** is a free-text entry rather than a user, because that is the truth —
+            they have no login, no timesheet and no competence record here. Recording the name is
+            still worth doing: §8's crew gate is about knowing who is on site, and "Delta Calibration
+            Services, two men" is an answer to that question even though the platform cannot check
+            their induction. What the platform must not do is pretend a subcontractor is staff.
           */}
           <div className="mt-2">
             <Label htmlFor="sched-crew">Who else is going</Label>
-            <div id="sched-crew" className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-              {(people.data ?? [])
-                .filter((person) => person.id !== currentLead)
-                .map((person) => (
-                  <label key={person.id} className="flex items-center gap-1.5 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4"
-                      checked={currentCrew.includes(person.id)}
-                      onChange={() => toggleCrew(person.id)}
-                    />
-                    {person.name}
-                  </label>
-                ))}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Select
+                id="sched-crew"
+                className="w-52"
+                value=""
+                onChange={(event) => {
+                  if (event.target.value) toggleCrew(event.target.value);
+                }}
+              >
+                <option value="">Add somebody…</option>
+                {(people.data ?? [])
+                  .filter((person) => person.id !== currentLead && !currentCrew.includes(person.id))
+                  .map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+              </Select>
+
+              {currentCrew.map((id) => {
+                const person = (people.data ?? []).find((candidate) => candidate.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-sm"
+                  >
+                    {person?.name ?? "Somebody"}
+                    <button
+                      type="button"
+                      aria-label={`Take ${person?.name ?? "them"} off the crew`}
+                      className="text-text-muted hover:text-danger"
+                      onClick={() => toggleCrew(id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
             </div>
+
+            <div className="mt-2">
+              <Label htmlFor="sched-subcontractor">Or a subcontractor</Label>
+              <Input
+                id="sched-subcontractor"
+                className="w-72"
+                placeholder="Company name, and how many they are sending"
+                value={subcontractor}
+                onChange={(event) => setSubcontractor(event.target.value)}
+              />
+              <p className="mt-1 text-xs text-text-muted">
+                Recorded as a note on the booking. They have no login here, so the platform cannot
+                check their induction or their hours — it can only record that they are the ones
+                going.
+              </p>
+            </div>
+
             <p className="mt-1 text-xs text-text-muted">
-              Everybody ticked is checked for clashes, and everybody ticked clears §8&rsquo;s crew
-              gate. Somebody who is going and is not ticked cannot be warned about.
+              Everybody named is checked for clashes and clears §8&rsquo;s crew gate. Somebody who
+              is going and is not named cannot be warned about.
             </p>
           </div>
 

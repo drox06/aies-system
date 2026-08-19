@@ -17,6 +17,7 @@ import { ChecklistPanel } from "./ChecklistPanel";
 import { HoursPanel } from "./HoursPanel";
 import { SchedulePanel } from "./SchedulePanel";
 import { DateCell } from "@/components/ui/cells";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { TICKET_ENTITY_TYPE } from "@/server/core/operations/ticket-rules";
@@ -169,48 +170,105 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             )}
           </Card>
 
-          {/* §17. First of the panels, because a date is what everything below is racing. */}
-          <SchedulePanel ticketId={data.id} />
+          {/*
+            The panels, in the order the job happens.
+            ============================================================================
 
-          <InspectionPanel
-            ticketId={data.id}
-            ticketType={data.type}
-            projectId={data.project?.id ?? null}
-            siteId={data.site?.id ?? null}
-          />
+            Reordered 2026-08-19 at the company's request to follow the end-to-end walkthrough,
+            which is itself the order of the work: book the crew, get the money, look at the site,
+            agree the method, draw the materials, mobilise, do the work and record it, prove it,
+            commission it, write it up.
 
-          <MethodologyPanel
-            ticketId={data.id}
-            ticketTitle={data.title}
-            projectId={data.project?.id ?? null}
-          />
+            The previous order had grown by accretion — each session appending its panel where it
+            happened to fit — and read as a list of features rather than as a job. Nobody noticed
+            until somebody tried to walk a real deal down the page.
 
-          <CashAdvancePanel ticketId={data.id} />
+            **Collapsed by default, and the choice sticks.** Thirteen panels all earn their place at
+            some point in a job and none of them earns it today. Scope of work stays open above,
+            because it is the one thing every reader of a ticket wants first.
+          */}
 
-          <MaterialPanel
-            ticketId={data.id}
-            projectId={data.project?.id ?? null}
-            methodologyId={null}
-          />
+          {/* §13's lane and the project lane never meet, so a delivery ticket leads with delivery. */}
+          {data.type === "delivery" && (
+            <CollapsiblePanel title="Delivery" storageKey={`${data.id}:delivery`} defaultOpen>
+              <DeliveryPanel ticketId={data.id} ticketType={data.type} />
+            </CollapsiblePanel>
+          )}
 
-          {/* Last, because it reads all three gates above rather than asking again. */}
-          <MobilizationPanel ticketId={data.id} />
+          {/* 1 — a date, which is what everything below is racing. */}
+          <CollapsiblePanel title="Schedule" storageKey={`${data.id}:schedule`}>
+            <SchedulePanel ticketId={data.id} />
+          </CollapsiblePanel>
 
-          <ProgressPanel ticketId={data.id} />
+          {/* 2 — money before anybody moves. §5 makes this a blocking gate on mobilisation. */}
+          <CollapsiblePanel title="Cash advance" storageKey={`${data.id}:cash-advance`}>
+            <CashAdvancePanel ticketId={data.id} />
+          </CollapsiblePanel>
 
-          <QaPanel ticketId={data.id} />
-          <TcPanel ticketId={data.id} />
-          <ServiceReportPanel ticketId={data.id} />
+          {/* 3 — see the site before promising a method for it. */}
+          <CollapsiblePanel title="Site inspection" storageKey={`${data.id}:inspection`}>
+            <InspectionPanel
+              ticketId={data.id}
+              ticketType={data.type}
+              projectId={data.project?.id ?? null}
+              siteId={data.site?.id ?? null}
+            />
+          </CollapsiblePanel>
 
-          {/* Renders itself away on every other ticket type — §13's lane and the project lane
-              never meet, and a delivery ticket has none of the gates above. */}
-          <DeliveryPanel ticketId={data.id} ticketType={data.type} />
+          {/* 4 — §6.2: the client approves the method before work starts. Always. */}
+          <CollapsiblePanel title="Method statement" storageKey={`${data.id}:methodology`}>
+            <MethodologyPanel
+              ticketId={data.id}
+              ticketTitle={data.title}
+              projectId={data.project?.id ?? null}
+            />
+          </CollapsiblePanel>
 
-          {/* §15 applies to every ticket type — a delivery has a checklist too. */}
-          <ChecklistPanel ticketId={data.id} />
+          {/* 5 — the method says what is needed; this draws it. */}
+          <CollapsiblePanel title="Materials" storageKey={`${data.id}:materials`}>
+            <MaterialPanel
+              ticketId={data.id}
+              projectId={data.project?.id ?? null}
+              methodologyId={null}
+            />
+          </CollapsiblePanel>
 
-          {/* §16. Last, because hours and spend are what the work above turns out to have cost. */}
-          <HoursPanel ticketId={data.id} />
+          {/* 6 — reads all the gates above rather than asking again. */}
+          <CollapsiblePanel title="Mobilisation readiness" storageKey={`${data.id}:mobilisation`}>
+            <MobilizationPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          {/* 7, 8, 9 — the work, and what it turned out to cost. */}
+          <CollapsiblePanel title="Daily progress" storageKey={`${data.id}:progress`}>
+            <ProgressPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel
+            title="Checklists filled in on site"
+            storageKey={`${data.id}:checklists`}
+          >
+            <ChecklistPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel title="Hours and spend" storageKey={`${data.id}:hours`}>
+            <HoursPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          {/* 10, 11, 12 — proving it, commissioning it, writing it up. */}
+          <CollapsiblePanel title="QA" storageKey={`${data.id}:qa`}>
+            <QaPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel title="Testing and commissioning" storageKey={`${data.id}:tc`}>
+            <TcPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel title="Service report" storageKey={`${data.id}:service-report`}>
+            <ServiceReportPanel ticketId={data.id} />
+          </CollapsiblePanel>
+
+          {/* A non-delivery ticket can still carry one; it renders itself away when it cannot. */}
+          {data.type !== "delivery" && <DeliveryPanel ticketId={data.id} ticketType={data.type} />}
 
           <Card className="p-4">
             <h2 className="text-sm font-semibold">What happens next</h2>

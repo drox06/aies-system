@@ -107,7 +107,9 @@ export function TcCertificateDocument(props: TcCertificatePdfProps) {
         </View>
         <View style={s.headerRule} fixed />
 
-        <Text style={s.docTitle}>Testing &amp; Commissioning Certificate</Text>
+        <Text style={{ ...s.docTitle, marginBottom: 4 }}>
+          Testing &amp; Commissioning Certificate
+        </Text>
         <Text style={s.docNumber}>{props.number}</Text>
 
         <View style={s.twoCol}>

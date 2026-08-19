@@ -64,15 +64,37 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "What is being supplied",
         type: "select",
         required: true,
+        /**
+         * Widened 2026-08-19 at the company's request: the first list named transmitters and missed
+         * the gauges, which are a large part of what AIES actually supplies.
+         *
+         * The distinction matters beyond vocabulary. A **transmitter** sends a signal and needs a
+         * loop, a power supply and commissioning; a **gauge** is read by eye and needs none of them.
+         * Collapsing the two would put a pressure gauge through a commissioning gate it can never
+         * pass — which is the same shape of error as a freight line proposing a delivery ticket.
+         *
+         * "Other" stays last and stays: a list that cannot say "none of these" makes somebody pick
+         * the nearest wrong answer, and then the requirements checklist asks the wrong questions.
+         */
         options: [
           "Flow meter",
           "Pressure transmitter",
+          "Pressure gauge",
           "Temperature transmitter",
-          "Level instrument",
+          "Temperature gauge",
+          "Thermowell / RTD / thermocouple",
+          "Level transmitter",
+          "Level gauge / sight glass",
           "Analytical instrument",
+          "Gas detector",
           "Control valve",
           "Isolation valve",
           "Safety relief valve",
+          "Actuator / positioner",
+          "Pressure switch",
+          "Indicator / recorder",
+          "Calibration equipment",
+          "Spare parts",
           "Other",
         ],
       },

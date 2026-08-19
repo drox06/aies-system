@@ -1742,6 +1742,7 @@ export const operationsRouter = router({
         scheduledEnd: z.coerce.date().nullish(),
         assignedLeadId: z.string().nullish(),
         assignedUserIds: z.array(z.string()).optional(),
+        crewNote: z.string().max(300).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => scheduleTicketService(actorMeta(ctx), input)),

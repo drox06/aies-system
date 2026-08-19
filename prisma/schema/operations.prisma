@@ -62,6 +62,17 @@ model Ticket {
   /// Plain ids, not a join: read whole, never queried across. Same choice as `productLines`.
   assignedUserIds String[] @default([])
 
+  /// A subcontractor doing the work, when it is not AIES staff.
+  ///
+  /// Free text, and deliberately not a user or a supplier link. A subcontractor has no login here,
+  /// no timesheet and no competence record, so modelling them as a person would create a user who
+  /// can never sign in and a competence gate that can never be satisfied.
+  ///
+  /// §8's crew gate is about **knowing who is on site**. "Delta Calibration, two men" answers that
+  /// question honestly, while making clear the platform cannot vouch for their induction — which is
+  /// the truth, and better than a record that implies it can.
+  crewNote String?
+
   requiredByDate DateTime?
 
   /// §17's dispatch board. **Distinct from `requiredByDate`**, and the distinction matters: that is
