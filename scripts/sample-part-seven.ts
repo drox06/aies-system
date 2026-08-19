@@ -307,12 +307,45 @@ async function main() {
     },
   });
 
+  /*
+    And the inquiry follows the quotation, because in production it would have.
+
+    ## The bug this replaced
+
+    The first version of this script stopped at the line above, and the deal it produced could not
+    be used. Recording the customer PO refused with "AIESINQ-… is quoting. A purchase order is
+    recorded against an inquiry whose quotation has been sent" — which is the gate in
+    customer-po-service doing its job, correctly, on a lie the seed had told.
+
+    Writing `status: "sent"` with a direct update does not emit `quotation.sent`, so module 01's
+    subscriber never ran and the inquiry stayed at `quoting`. The quotation *said* it had been sent
+    and the pipeline knew it had not.
+
+    ## Why this is a transition and not a second direct write
+
+    Setting `status: "quoted"` on the row would produce the same visible state and the same class of
+    problem one step further along: no audit row, no activity-feed entry, and none of §3's checks.
+    Going through `transitionInquiryService` with `bySystem: true` is exactly what the real
+    subscriber does — see crm.manifest.ts — so what a person reads on the inquiry afterwards is the
+    truth about how it got there.
+
+    The general rule this cost me: **a seed may skip a decision, but it must not skip a
+    consequence.** Skipping the VP's approval is honest and declared. Skipping the event that
+    approval would have caused leaves the database internally inconsistent, and the first gate that
+    checks catches it — which is the system working, and a wasted trip for whoever is walking the
+    document.
+  */
+  await transitionInquiryService(
+    { actorId: actor.actorId, actorLabel: "System (quotation sent)" },
+    { inquiryId: inquiry.id, to: "quoted", bySystem: true },
+  );
+
   console.log("");
   console.log(`Built ${MARK}, standing at the walkthrough's part seven.`);
   console.log("");
   console.log(`  Account     ${account.name}`);
   console.log(`  Site        ${site.name}`);
-  console.log(`  Inquiry     ${inquiry.number}  (quoting)`);
+  console.log(`  Inquiry     ${inquiry.number}  (quoted)`);
   console.log(`  Quotation   ${issued.number}  (sent, PHP ${issued.total.toString()})`);
   console.log("");
   console.log("Part seven starts on the quotation: record the customer's PO against it.");
