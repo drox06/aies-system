@@ -127,9 +127,20 @@ export function QaPanel({ ticketId }: { ticketId: string }) {
       )}
 
       <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">The client&rsquo;s documentation</h3>
+        {/*
+          Either party's paperwork, and the panel says so.
+
+          QA has one flow rather than the two §6.2, §10 and §12 needed, because it was always
+          document-first: nothing is recorded here until a file is attached. What was unclear was
+          *whose* file. "The client's documentation" read as though only their form would do, and
+          AIES has its own QA inspection sheet that customers sign just as often. Both satisfy §9 —
+          what the gate wants is the customer's acceptance in writing, not a particular letterhead.
+        */}
+        <h3 className="text-sm font-semibold">The signed QA document</h3>
         <p className="mt-1 text-xs text-text-muted">
-          Upload it here first — an approval cannot be recorded without at least one file.
+          Our own QA inspection form signed by them, or an externally written one filled in —
+          whichever this site uses. Upload it here first: an approval cannot be recorded without at
+          least one file.
         </p>
         <div className="mt-2">
           <Attachments entityType={QA_ENTITY_TYPE} entityId={ticketId} />

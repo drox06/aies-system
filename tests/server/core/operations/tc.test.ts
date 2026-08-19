@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   beginTcService,
   completeTcService,
+  recordExternalTcService,
   listTcForTicketService,
   promisedLinesForTicketService,
   saveTcService,
@@ -357,5 +358,106 @@ describe("§10's reading side", () => {
     const promised = await promisedLinesForTicketService(ticket.id);
     expect(promised.lines).toHaveLength(0);
     expect(promised.note).toMatch(/not linked to a sales order/);
+  });
+});
+
+/**
+ * §10's second path — commissioning carried out on an externally written form, already signed.
+ *
+ * The third of these after §6.2's method statement and §12's service report, and the one where the
+ * missing path cost money rather than tidiness: §10's acceptance is what makes the installation
+ * milestone billable, so a job commissioned on the customer's own sheet had cleared the real gate
+ * while the platform read "nothing recorded" and the milestone stayed unbillable.
+ */
+describe("an externally written commissioning form", () => {
+  async function makeSignedFile(uploader: AuthedUser) {
+    return db.fileObject.create({
+      data: {
+        entityType: TC_ENTITY_TYPE,
+        entityId: `pending-${randomUUID()}`,
+        filename: "customer-commissioning-sheet.pdf",
+        mimeType: "application/pdf",
+        size: 4096,
+        sha256: randomUUID(),
+        storageKey: `test/${randomUUID()}.pdf`,
+        uploaderId: uploader.id,
+      },
+    });
+  }
+
+  it("records an accepted commissioning with the signed sheet attached", async () => {
+    const engineer = await makeUser("operations_manager", ["tc.signoff", "ticket.view"]);
+    const ticket = await makeTicket(engineer);
+    const file = await makeSignedFile(engineer);
+
+    const created = await recordExternalTcService(actorFor(engineer), {
+      ticketId: ticket.id,
+      signedDocumentFileId: file.id,
+      customerWitnessName: "R. Santos",
+      customerWitnessPosition: "Instrument Engineer",
+      completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    });
+
+    const row = await db.testingCommissioning.findUniqueOrThrow({ where: { id: created.id } });
+    expect(row.result).toBe("accepted");
+    expect(row.completedAt).not.toBeNull();
+    expect(row.customerWitnessName).toBe("R. Santos");
+    expect(row.certificateFileId).toBe(file.id);
+    // Honest about its own provenance: the empty functionalTests are readings on somebody else's
+    // sheet, not readings nobody took.
+    expect(row.externalDocument).toBe(true);
+  });
+
+  /**
+   * The one that decides whether an invoice happens.
+   *
+   * `tc.completed` is what §5's billing subscriber listens for. Emitting it from the worksheet's
+   * sign-off and not from here would mean a job commissioned on the customer's form never became
+   * billable — the asymmetry that fires for some jobs and not others, in the place it costs most.
+   */
+  it("emits tc.completed, so the milestone becomes billable either way", async () => {
+    const engineer = await makeUser("operations_manager", ["tc.signoff", "ticket.view"]);
+    const ticket = await makeTicket(engineer);
+    const file = await makeSignedFile(engineer);
+
+    const created = await recordExternalTcService(actorFor(engineer), {
+      ticketId: ticket.id,
+      signedDocumentFileId: file.id,
+      customerWitnessName: "R. Santos",
+      completedAt: new Date(Date.now() - 1000),
+    });
+
+    const event = await db.eventOutbox.findFirst({
+      where: { event: "tc.completed", actorId: engineer.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(event).not.toBeNull();
+    expect((event!.payload as { testingCommissioningId?: string }).testingCommissioningId).toBe(
+      created.id,
+    );
+  });
+
+  it("refuses an unwitnessed sheet and a date in the future", async () => {
+    const engineer = await makeUser("operations_manager", ["tc.signoff", "ticket.view"]);
+    const ticket = await makeTicket(engineer);
+    const file = await makeSignedFile(engineer);
+
+    await expect(
+      recordExternalTcService(actorFor(engineer), {
+        ticketId: ticket.id,
+        signedDocumentFileId: file.id,
+        customerWitnessName: "   ",
+        completedAt: new Date(Date.now() - 1000),
+      }),
+    ).rejects.toThrow(/Name who witnessed/);
+
+    await expect(
+      recordExternalTcService(actorFor(engineer), {
+        ticketId: ticket.id,
+        signedDocumentFileId: file.id,
+        customerWitnessName: "R. Santos",
+        completedAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      }),
+    ).rejects.toThrow(/finished in the future/);
   });
 });

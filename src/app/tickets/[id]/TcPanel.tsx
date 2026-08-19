@@ -51,6 +51,7 @@ interface DraftTest extends FunctionalTest {
 }
 
 export function TcPanel({ ticketId }: { ticketId: string }) {
+  const [showExternal, setShowExternal] = useState(false);
   const tc = trpc.operations.listTc.useQuery({ ticketId });
   const promised = trpc.operations.promisedLines.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
@@ -179,7 +180,36 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
         </div>
       </Card>
 
-      {canExecute && !open && (
+      {/*
+        Two ways to satisfy §10, the same shape as §6.2's method statement and §12's service report.
+
+        This is the one where the missing path cost money rather than tidiness: §10's acceptance is
+        what makes the installation milestone billable, so a job commissioned on the customer's own
+        sheet had cleared the real gate while the platform read "nothing recorded".
+      */}
+      {canExecute && !open && !showExternal && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-3 ml-2"
+          onClick={() => setShowExternal(true)}
+        >
+          The customer signed an externally written commissioning form
+        </Button>
+      )}
+
+      {showExternal && (
+        <ExternalTcForm
+          ticketId={ticketId}
+          onDone={() => {
+            setShowExternal(false);
+            void tc.refetch();
+          }}
+          onCancel={() => setShowExternal(false)}
+        />
+      )}
+
+      {canExecute && !open && !showExternal && (
         <Button
           variant="secondary"
           size="sm"
@@ -203,6 +233,133 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
         />
       )}
     </Card>
+  );
+}
+
+/**
+ * Recording commissioning carried out on an externally supplied form and signed on site.
+ *
+ * Accepts only. A failure needs the worksheet's punch list and rework loop — filing a rejection here
+ * would record a failure with nothing for anybody to act on, which is worse than not recording it.
+ *
+ * The document is chosen from what is attached, and the date is not defaulted, for the reasons its
+ * two siblings give: a cuid should never be transcribed by hand, and a guessed date on a customer's
+ * signature survives into the certificate.
+ */
+function ExternalTcForm({
+  ticketId,
+  onDone,
+  onCancel,
+}: {
+  ticketId: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [fileId, setFileId] = useState("");
+  const [witness, setWitness] = useState("");
+  const [position, setPosition] = useState("");
+  const [completedAt, setCompletedAt] = useState("");
+  const [remarks, setRemarks] = useState("");
+
+  const files = trpc.files.forEntity.useQuery(
+    { entityType: TC_ENTITY_TYPE, entityId: ticketId },
+    { retry: false },
+  );
+  const record = trpc.operations.recordExternalTc.useMutation({ onSuccess: onDone });
+
+  const attached = files.data ?? [];
+  const ready = fileId !== "" && witness.trim().length > 0 && completedAt !== "";
+
+  return (
+    <div className="mt-3 space-y-3 rounded-md border border-border p-3">
+      <div>
+        <h3 className="text-sm font-semibold">Externally written commissioning form</h3>
+        <p className="mt-0.5 text-xs text-text-muted">
+          For a site that commissions to its own sheet. This records the customer&rsquo;s acceptance
+          — §10 makes it a billing trigger, so it counts exactly as our own certificate does.
+        </p>
+      </div>
+
+      <div>
+        <Label htmlFor="ext-tc-file">Which attached document did they sign</Label>
+        <Select id="ext-tc-file" value={fileId} onChange={(e) => setFileId(e.target.value)}>
+          <option value="">Choose an attachment…</option>
+          {attached.map((file) => (
+            <option key={file.id} value={file.id}>
+              {file.filename}
+            </option>
+          ))}
+        </Select>
+        {attached.length === 0 && (
+          <p className="mt-0.5 text-xs text-amber-800">
+            Nothing is attached yet. Upload the signed sheet above first.
+          </p>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <Label htmlFor="ext-tc-witness">Who witnessed and signed</Label>
+          <Input id="ext-tc-witness" value={witness} onChange={(e) => setWitness(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="ext-tc-position">Their position</Label>
+          <Input
+            id="ext-tc-position"
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="ext-tc-date">When it was completed</Label>
+          <Input
+            id="ext-tc-date"
+            type="date"
+            value={completedAt}
+            onChange={(e) => setCompletedAt(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div>
+        <Label htmlFor="ext-tc-remarks">Remarks</Label>
+        <Textarea
+          id="ext-tc-remarks"
+          rows={2}
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+        />
+      </div>
+
+      {record.error && <p className="text-sm text-danger">{record.error.message}</p>}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={record.isPending || !ready}
+          onClick={() =>
+            record.mutate({
+              ticketId,
+              signedDocumentFileId: fileId,
+              customerWitnessName: witness.trim(),
+              customerWitnessPosition: position.trim() || null,
+              completedAt: new Date(completedAt),
+              remarks: remarks.trim() || null,
+            })
+          }
+        >
+          {record.isPending ? "Recording…" : "Record their acceptance"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+
+      <p className="text-xs text-text-muted">
+        This path accepts only. If commissioning failed, use the worksheet — the punch list and the
+        rework loop are what a rejection needs.
+      </p>
+    </div>
   );
 }
 

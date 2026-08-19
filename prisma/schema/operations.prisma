@@ -1100,6 +1100,18 @@ model TestingCommissioning {
 
   certificateFileId String?
 
+  /// The commissioning was carried out to somebody else's form and arrived already signed.
+  ///
+  /// The third of these, after `Methodology.externalDocument` and `ServiceReport.externalDocument`,
+  /// and for the same reason: a plant that imposes its own method statement and its own service
+  /// report usually imposes its own commissioning sheet too. §10 makes the certificate a billing
+  /// trigger, so a job commissioned on the customer's form and signed on site had cleared the real
+  /// gate while the platform still read "nothing recorded".
+  ///
+  /// It also says what the empty `functionalTests` and `loopChecks` mean on such a row: readings
+  /// that live on the customer's sheet, not readings nobody took.
+  externalDocument Boolean @default(false)
+
   recordedById String
 
   /// The sign-off is the billing trigger, so it carries the customer's signature rather than AIES's

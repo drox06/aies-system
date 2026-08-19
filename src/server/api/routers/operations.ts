@@ -106,6 +106,7 @@ import {
 import {
   beginTcService,
   completeTcService,
+  recordExternalTcService,
   listTcForTicketService,
   promisedLinesForTicketService,
   saveTcService,
@@ -1163,6 +1164,27 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => completeTcService(actorMeta(ctx), input)),
+
+  /**
+   * §10's second path: commissioning carried out on an externally supplied form, already signed.
+   *
+   * On `tc.signoff` rather than `ticket.execute`, unlike its siblings on the method statement and
+   * the service report. The difference is what the record does: this one **makes a milestone
+   * billable**. Recording that the customer accepted the plant is the same act whichever form it
+   * was written on, and it belongs with the same people either way.
+   */
+  recordExternalTc: p("tc.signoff")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        signedDocumentFileId: z.string(),
+        customerWitnessName: z.string().min(1).max(200),
+        customerWitnessPosition: z.string().max(200).nullish(),
+        completedAt: z.coerce.date(),
+        remarks: z.string().max(5000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordExternalTcService(actorMeta(ctx), input)),
 
   listTc: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))

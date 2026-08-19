@@ -303,6 +303,153 @@ export interface CompleteTcInput {
  * the client approval document to and §9 holds QA evidence to: a status is something AIES set, an
  * artefact is something the customer produced, and only the second survives an argument.
  */
+/**
+ * §10's second path: commissioning carried out on an externally supplied form, already signed.
+ *
+ * The third of these, after §6.2's method statement and §12's service report, and the company asked
+ * for it before it bit them — a plant that imposes its own method statement and its own service
+ * report imposes its own commissioning sheet too. The readings go on their form, their engineer
+ * witnesses and signs it, and the van leaves.
+ *
+ * §10 makes the certificate a **billing trigger**, so this is the one of the three where a missing
+ * path costs money rather than tidiness: the job was commissioned and accepted, and the platform
+ * went on reading "nothing recorded" while the milestone that should have become billable did not.
+ *
+ * ## What it writes
+ *
+ * A completed record with the customer's signed document attached, so everything downstream — the
+ * billing trigger, the close-out pack, §10's certificate list — reads it exactly as it reads one
+ * filled in here. `externalDocument` says the empty `functionalTests` are readings on somebody
+ * else's sheet rather than readings nobody took.
+ *
+ * ## What it refuses
+ *
+ * **A rejected result.** This path exists for work the customer accepted on their own paperwork; a
+ * failure needs the punch list and the rework loop, which is what the worksheet here is for. Letting
+ * "rejected" through would file a failure with no punch items and nothing for anybody to act on.
+ *
+ * And, as with its two siblings: an unsigned document, an unnamed witness, and a date in the future.
+ */
+export async function recordExternalTcService(
+  actor: ActorMeta,
+  input: {
+    ticketId: string;
+    signedDocumentFileId: string;
+    customerWitnessName: string;
+    customerWitnessPosition?: string | null;
+    completedAt: Date;
+    remarks?: string | null;
+  },
+) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: input.ticketId, deletedAt: null },
+    select: { id: true, number: true, projectId: true },
+  });
+  if (!ticket) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
+  }
+
+  const witness = input.customerWitnessName.trim();
+  if (witness.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Name who witnessed and signed it. §10's certificate is a billing trigger — an unwitnessed " +
+        "one is AIES's word for it.",
+    });
+  }
+
+  if (input.completedAt.getTime() > Date.now()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commissioning cannot have finished in the future. Check the date.",
+    });
+  }
+
+  const file = await db.fileObject.findFirst({
+    where: { id: input.signedDocumentFileId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!file) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That attachment no longer exists. Upload the signed sheet and choose it again.",
+    });
+  }
+
+  const number = await allocateNumber(TC_DOCUMENT_TYPE);
+  const now = new Date();
+
+  const created = await db.$transaction(async (tx) => {
+    const row = await tx.testingCommissioning.create({
+      data: {
+        number,
+        ticketId: ticket.id,
+        projectId: ticket.projectId,
+        startedAt: input.completedAt,
+        completedAt: input.completedAt,
+        result: "accepted",
+        externalDocument: true,
+        witnessedByCustomer: true,
+        customerWitnessName: witness,
+        customerWitnessPosition: input.customerWitnessPosition?.trim() || null,
+        certificateFileId: file.id,
+        customerSignatureFileId: file.id,
+        signOffRemarks: input.remarks?.trim() || null,
+        recordedById: actor.actorId,
+        signedOffById: actor.actorId,
+        signedAt: now,
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "create",
+      entityType: TC_ENTITY_TYPE,
+      entityId: row.id,
+      summary:
+        `Recorded ${row.number} on ${ticket.number} — commissioning on an externally written form, ` +
+        `witnessed and signed by ${witness}` +
+        `${input.customerWitnessPosition ? `, ${input.customerWitnessPosition.trim()}` : ""}.`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    /*
+      The same event the worksheet's sign-off emits, inside the same transaction, for the same
+      reason.
+
+      §10's acceptance is what makes the installation milestone billable, and a job commissioned on
+      an externally written form is billable on exactly the same footing as one commissioned on ours.
+      Emitting from one path and not the other is the asymmetry that fires for some jobs and not
+      others — and here it would be the difference between an invoice and no invoice.
+
+      No punch items, so no `punch_item.raised`: this path only accepts, and a failure needs the
+      worksheet's punch list and rework loop rather than a filed acceptance with nothing to act on.
+    */
+    await emit(
+      tx,
+      "tc.completed",
+      {
+        testingCommissioningId: row.id,
+        number: row.number,
+        ticketId: ticket.id,
+        projectId: ticket.projectId,
+        result: "accepted",
+        openPunchItems: 0,
+        closeoutBlockers: 0,
+      },
+      { actorId: actor.actorId },
+    );
+
+    return row;
+  });
+
+  return { id: created.id, number: created.number };
+}
+
 export async function completeTcService(actor: ActorMeta, input: CompleteTcInput) {
   const record = await loadOrThrow(input.id);
   if (record.completedAt) {
