@@ -480,6 +480,8 @@ function RaiseClaimForm({
   const [equipmentId, setEquipmentId] = useState("");
   const [fault, setFault] = useState("");
   const [attribution, setAttribution] = useState<Attribution>("undetermined");
+  const [manufacturerCovers, setManufacturerCovers] = useState(false);
+  const [manufacturerCoversReason, setManufacturerCoversReason] = useState("");
   const [rootCauseCategory, setRootCauseCategory] = useState<RootCauseCategory | "">("");
   const [rootCause, setRootCause] = useState("");
   const [coverage, setCoverage] = useState<Coverage | "">("");
@@ -492,7 +494,7 @@ function RaiseClaimForm({
   const effectiveCoverage = (coverage || reading) as Coverage;
   const overriding = !!chosen && effectiveCoverage !== reading;
 
-  const verdict = determine({ coverage: effectiveCoverage, attribution });
+  const verdict = determine({ coverage: effectiveCoverage, attribution, manufacturerCovers });
 
   return (
     <div className="mt-3 space-y-3 rounded-md border border-border p-3">
@@ -614,6 +616,50 @@ function RaiseClaimForm({
         </div>
       )}
 
+      {/*
+        The exception to "misuse is chargeable", offered only where it applies.
+
+        Shown when the equipment is in warranty and somebody other than AIES caused the fault — the
+        one case where the answer turns on the principal's terms rather than on the dates. Hiding it
+        the rest of the time keeps it from becoming a box people tick out of habit, which is exactly
+        what would hollow the rule out.
+
+        It demands a reason. "The manufacturer covers it" with nothing behind it is the claim, not
+        the evidence, and the next person deciding a similar claim needs to know which it was.
+      */}
+      {effectiveCoverage === "in_warranty" &&
+        (attribution === "customer_caused" || attribution === "third_party") && (
+          <div className="rounded-md border border-border p-2.5">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={manufacturerCovers}
+                onChange={(e) => setManufacturerCovers(e.target.checked)}
+              />
+              <span>
+                The manufacturer&rsquo;s terms cover this anyway
+                <span className="mt-0.5 block text-xs text-text-muted">
+                  Misuse is chargeable by default — a warranty covers the equipment being defective,
+                  not the equipment being broken. Tick this only if their terms genuinely cover it,
+                  or AIES is choosing to honour it commercially.
+                </span>
+              </span>
+            </label>
+            {manufacturerCovers && (
+              <div className="mt-2">
+                <Label htmlFor="wc-mfr-reason">Why it is covered</Label>
+                <Input
+                  id="wc-mfr-reason"
+                  value={manufacturerCoversReason}
+                  placeholder="E+H covers accidental damage in year one under the extended terms."
+                  onChange={(e) => setManufacturerCoversReason(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
       <div className="rounded-md border border-border bg-surface-muted p-2.5 text-sm">
         <strong>{verdict.billable ? "Chargeable" : "Not billable"}</strong>
         {verdict.ncrRequired ? " · raises an NCR" : ""}
@@ -644,6 +690,10 @@ function RaiseClaimForm({
               rootCause: rootCause || null,
               rootCauseCategory: rootCauseCategory || null,
               coverageOverrideReason: overrideReason || null,
+              manufacturerCovers,
+              manufacturerCoversReason: manufacturerCovers
+                ? manufacturerCoversReason.trim() || null
+                : null,
             })
           }
         >

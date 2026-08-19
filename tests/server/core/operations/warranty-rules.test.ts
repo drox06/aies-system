@@ -263,3 +263,55 @@ describe("§16's renewal loop, the half §11 needs", () => {
     expect(expiring.map((entry) => entry.id)).toEqual(["a", "b"]);
   });
 });
+
+/**
+ * Misuse is not a defect — the company's correction to §11, 2026-08-20.
+ *
+ * §11 as written said "in warranty → billable = false" and stopped there, which made a customer who
+ * ran a pump dry inside the warranty year AIES's cost to bear. That is not what a warranty is: it
+ * covers the equipment being defective, not the equipment being broken, and AIES cannot offer cover
+ * the principal behind it does not.
+ */
+describe("misuse inside the warranty window", () => {
+  it("charges the customer who caused it, even in warranty", () => {
+    const verdict = determine({ coverage: "in_warranty", attribution: "customer_caused" });
+    expect(verdict.billable).toBe(true);
+    expect(verdict.referToSales).toBe(true);
+    // No warranty ticket: this is quoted work, not rectification the company owes.
+    expect(verdict.raisesTicket).toBe(false);
+  });
+
+  it("charges third-party damage the same way", () => {
+    // A contractor putting a forklift through it is not the equipment failing.
+    expect(determine({ coverage: "in_warranty", attribution: "third_party" }).billable).toBe(true);
+  });
+
+  it("does not charge when the manufacturer's terms cover it anyway", () => {
+    const verdict = determine({
+      coverage: "in_warranty",
+      attribution: "customer_caused",
+      manufacturerCovers: true,
+    });
+    expect(verdict.billable).toBe(false);
+    expect(verdict.raisesTicket).toBe(true);
+    // And says it is an exception rather than the ordinary answer, because the next person reading
+    // this needs to know which it was.
+    expect(verdict.reason).toMatch(/exception/);
+  });
+
+  it("still covers an ordinary defect in warranty", () => {
+    // The rule change must not have made the common case chargeable.
+    const verdict = determine({ coverage: "in_warranty", attribution: "undetermined" });
+    expect(verdict.billable).toBe(false);
+    expect(verdict.raisesTicket).toBe(true);
+  });
+
+  it("still refuses to charge for AIES's own defect, in or out of warranty", () => {
+    // aies_caused is decided before coverage is even read, and must stay that way.
+    for (const coverage of ["in_warranty", "out_of_warranty"] as const) {
+      const verdict = determine({ coverage, attribution: "aies_caused" });
+      expect(verdict.billable, coverage).toBe(false);
+      expect(verdict.ncrRequired, coverage).toBe(true);
+    }
+  });
+});

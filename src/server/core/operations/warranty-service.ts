@@ -117,6 +117,9 @@ export interface RaiseClaimInput {
   rootCause?: string | null;
   rootCauseCategory?: RootCauseCategory | null;
   coverageOverrideReason?: string | null;
+  /** The manufacturer's terms cover misuse. Requires a reason — see warranty-rules' misuse branch. */
+  manufacturerCovers?: boolean;
+  manufacturerCoversReason?: string | null;
   remarks?: string | null;
 }
 
@@ -160,7 +163,11 @@ export async function raiseWarrantyClaimService(actor: ActorMeta, input: RaiseCl
     throw new TRPCError({ code: "BAD_REQUEST", message: check.errors.join(" ") });
   }
 
-  const verdict = determine({ coverage, attribution });
+  const verdict = determine({
+    coverage,
+    attribution,
+    manufacturerCovers: input.manufacturerCovers,
+  });
   const number = await allocateNumber(WARRANTY_DOCUMENT_TYPE);
   const overrode = equipment !== null && reading.coverage !== coverage;
 
@@ -197,6 +204,12 @@ export async function raiseWarrantyClaimService(actor: ActorMeta, input: RaiseCl
         coverageDeterminedAt: new Date(),
         coverageDeterminedById: actor.actorId,
         coverageOverrideReason: overrode ? (input.coverageOverrideReason ?? null) : null,
+        // Misuse the manufacturer covers anyway. Recorded with its reason, or not at all — a flag
+        // with no explanation is the thing this exception exists to avoid being.
+        manufacturerCovers: input.manufacturerCovers ?? false,
+        manufacturerCoversReason: input.manufacturerCovers
+          ? (input.manufacturerCoversReason?.trim() ?? null)
+          : null,
         attribution,
         rootCause: input.rootCause ?? null,
         rootCauseCategory: input.rootCauseCategory ?? null,
@@ -284,6 +297,8 @@ export async function determineWarrantyClaimService(
     rootCause?: string | null;
     rootCauseCategory?: RootCauseCategory | null;
     coverageOverrideReason?: string | null;
+    manufacturerCovers?: boolean;
+    manufacturerCoversReason?: string | null;
   },
 ) {
   const claim = await db.warrantyClaim.findFirst({
@@ -310,7 +325,13 @@ export async function determineWarrantyClaimService(
     throw new TRPCError({ code: "BAD_REQUEST", message: check.errors.join(" ") });
   }
 
-  const verdict = determine({ coverage: input.coverage, attribution: input.attribution });
+  // The determination screen carries the same exception the claim form does: a re-determination that
+  // dropped it would silently make a covered misuse chargeable on the second look.
+  const verdict = determine({
+    coverage: input.coverage,
+    attribution: input.attribution,
+    manufacturerCovers: input.manufacturerCovers ?? claim.manufacturerCovers,
+  });
 
   let resultingTicketId = claim.resultingTicketId;
   if (verdict.raisesTicket && !resultingTicketId) {

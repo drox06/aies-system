@@ -1228,6 +1228,9 @@ export const operationsRouter = router({
         rootCause: z.string().max(2000).nullish(),
         rootCauseCategory: z.enum(ROOT_CAUSE_CATEGORIES).nullish(),
         coverageOverrideReason: z.string().max(2000).nullish(),
+        // Misuse the manufacturer covers anyway — see warranty-rules' misuse branch.
+        manufacturerCovers: z.boolean().optional(),
+        manufacturerCoversReason: z.string().max(2000).nullish(),
         remarks: z.string().max(5000).nullish(),
       }),
     )
@@ -1243,6 +1246,9 @@ export const operationsRouter = router({
         rootCause: z.string().max(2000).nullish(),
         rootCauseCategory: z.enum(ROOT_CAUSE_CATEGORIES).nullish(),
         coverageOverrideReason: z.string().max(2000).nullish(),
+        // Misuse the manufacturer covers anyway — see warranty-rules' misuse branch.
+        manufacturerCovers: z.boolean().optional(),
+        manufacturerCoversReason: z.string().max(2000).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => determineWarrantyClaimService(actorMeta(ctx), input)),

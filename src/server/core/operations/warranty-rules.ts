@@ -190,7 +190,17 @@ export interface Determination {
  *  - **Unknown window, or undetermined cause** → neither. Somebody establishes it first, because
  *    every other route commits the company to a position on who pays.
  */
-export function determine(input: { coverage: Coverage; attribution: Attribution }): Determination {
+export function determine(input: {
+  coverage: Coverage;
+  attribution: Attribution;
+  /**
+   * The manufacturer's terms cover this even though the customer or a third party caused it.
+   *
+   * Absent means they do not, which is the ordinary case — see the misuse branch below. Setting it
+   * is an act with a reason attached, not a checkbox somebody leaves ticked.
+   */
+  manufacturerCovers?: boolean;
+}): Determination {
   if (input.attribution === "aies_caused") {
     return {
       billable: false,
@@ -220,6 +230,45 @@ export function determine(input: { coverage: Coverage; attribution: Attribution 
     };
   }
 
+  /*
+    Misuse is not a defect, so the window does not cover it.
+
+    §11 as written says "in warranty → billable = false" and stops there, which made a customer who
+    ran a pump dry inside the warranty year AIES's cost to bear. The company corrected it on
+    2026-08-20: **equipment misuse is billable, unless the manufacturer's terms say otherwise.**
+
+    That is what a warranty is. It covers the thing being defective, not the thing being broken —
+    every manufacturer's terms carve out misuse, and AIES cannot offer cover the principal behind it
+    does not. Absorbing it silently is how a warranty book turns into a maintenance contract nobody
+    priced.
+
+    **`manufacturerCovers` is the exception, and it must be recorded.** Some principals do cover
+    accidental damage, and AIES sometimes chooses to honour a claim commercially to keep a customer.
+    Both are legitimate and neither is a default: the flag is set deliberately, with a reason, and
+    the reason is what somebody reads when the same customer does it again.
+
+    Third-party damage — a contractor putting a forklift through it — is treated the same way. It is
+    not the equipment failing and it is not AIES's doing, so it is chargeable to whoever is paying.
+  */
+  const misuse = input.attribution === "customer_caused" || input.attribution === "third_party";
+
+  if (input.coverage === "in_warranty" && misuse && !input.manufacturerCovers) {
+    return {
+      billable: true,
+      ncrRequired: false,
+      referToSales: true,
+      raisesTicket: false,
+      route: "sales_quote",
+      reason:
+        input.attribution === "customer_caused"
+          ? "In warranty, but the customer caused it. A warranty covers the equipment being " +
+            "defective, not the equipment being misused — chargeable, and sales quotes the " +
+            "rectification. Record that the manufacturer covers it if their terms genuinely do."
+          : "In warranty, but a third party caused it. Not a defect and not AIES's doing, so it is " +
+            "chargeable work rather than warranty work.",
+    };
+  }
+
   if (input.coverage === "in_warranty") {
     return {
       billable: false,
@@ -227,8 +276,10 @@ export function determine(input: { coverage: Coverage; attribution: Attribution 
       referToSales: false,
       raisesTicket: true,
       route: "warranty_ticket",
-      reason:
-        "In warranty: a non-billable after-sales ticket, back into execution as the flowchart draws it.",
+      reason: misuse
+        ? "In warranty. The customer caused it, but the manufacturer's terms cover it — recorded as " +
+          "an exception, not as the normal answer."
+        : "In warranty: a non-billable after-sales ticket, back into execution as the flowchart draws it.",
     };
   }
 

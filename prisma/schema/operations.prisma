@@ -1256,6 +1256,18 @@ model WarrantyClaim {
   /// open | routed | closed
   status  String  @default("open")
 
+  /// The manufacturer's terms cover this even though the customer or a third party caused it.
+  ///
+  /// Misuse is chargeable by default — a warranty covers the equipment being defective, not the
+  /// equipment being broken, and AIES cannot offer cover the principal behind it does not. Some
+  /// principals do cover accidental damage, and AIES sometimes honours a claim commercially to keep
+  /// a customer. Both are legitimate, neither is the default, and the reason beside this is what
+  /// somebody reads when the same customer does the same thing again.
+  ///
+  /// Set by the company on 2026-08-20, correcting §11's flat "in warranty means non-billable".
+  manufacturerCovers       Boolean @default(false)
+  manufacturerCoversReason String?
+
   /// What the rectification cost AIES, once somebody knows.
   ///
   /// §11 asks for warranty to be reported by "count, cost, and root cause" and says why: "warranty
