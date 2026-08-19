@@ -39,6 +39,8 @@ export const financeManifest = defineManifest({
     "BillingSchedule",
     "BillingMilestone",
     "BillingStatement",
+    "CollectionActivity",
+    "CollectionReminder",
     "BillingStatementLine",
     "ServiceInvoice",
     "Payment",
@@ -139,6 +141,7 @@ export const financeManifest = defineManifest({
     "payment.received",
     "payment.cleared",
     "service_invoice.issued",
+    "billing_statement.overdue",
   ],
 
   /**
@@ -205,5 +208,6 @@ export const financeManifest = defineManifest({
   nav: [
     { label: "Ready to bill", href: "/finance/billing", icon: "receipt", order: 1 },
     { label: "Receivables", href: "/finance/receivables", icon: "wallet", order: 2 },
+    { label: "Collections", href: "/finance/collections", icon: "phone", order: 3 },
   ],
 });

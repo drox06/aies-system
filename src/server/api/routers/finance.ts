@@ -21,6 +21,17 @@ import {
 } from "@/server/core/finance/invoice-service";
 import { PAYMENT_METHODS, STATEMENT_TYPES, VAT_MODES } from "@/server/core/finance/invoice-rules";
 import { finalBillingGate } from "@/server/core/finance/final-billing-gate";
+import {
+  collectionHistoryService,
+  collectionWorklistService,
+  creditExposureService,
+  logCollectionActivityService,
+  setRemindersEnabledService,
+} from "@/server/core/finance/collection-service";
+import {
+  COLLECTION_ACTIVITY_TYPES,
+  COLLECTION_OUTCOMES,
+} from "@/server/core/finance/collection-rules";
 
 /**
  * Module 05's procedures. Session 1 covers §2's billing schedule only.
@@ -170,6 +181,54 @@ export const financeRouter = router({
   bounceCheque: p("payment.record")
     .input(z.object({ paymentId: z.string(), reason: z.string().min(3).max(500) }))
     .mutation(({ ctx, input }) => bounceChequeService(actorMeta(ctx), input)),
+
+  // ---- §5's collections -------------------------------------------------------------------------
+
+  /** The queue somebody works from each morning: what to chase first, and what was said last time. */
+  collectionWorklist: p("ar.view")
+    .input(z.object({ accountId: z.string().optional() }).optional())
+    .query(({ input }) => collectionWorklistService(input ?? {})),
+
+  collectionHistory: p("ar.view")
+    .input(z.object({ statementId: z.string() }))
+    .query(({ input }) => collectionHistoryService(input.statementId)),
+
+  /**
+   * §5's one-click follow-up.
+   *
+   * Gated on `ar.view` rather than a write permission: logging that you phoned somebody is not a
+   * financial act, and putting it behind the permission to raise bills would mean whoever makes the
+   * calls cannot record them — which is how a collection log stops being kept.
+   */
+  logCollectionActivity: p("ar.view")
+    .input(
+      z.object({
+        statementId: z.string(),
+        type: z.enum(COLLECTION_ACTIVITY_TYPES),
+        notes: z.string().min(3).max(2000),
+        contactId: z.string().nullish(),
+        contactName: z.string().max(200).nullish(),
+        promisedDate: z.coerce.date().nullish(),
+        outcome: z.enum(COLLECTION_OUTCOMES).nullish(),
+        contactedAt: z.coerce.date().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => logCollectionActivityService(actorMeta(ctx), input)),
+
+  setRemindersEnabled: p("billing_statement.issue")
+    .input(
+      z.object({
+        accountId: z.string(),
+        enabled: z.boolean(),
+        reason: z.string().max(500).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setRemindersEnabledService(actorMeta(ctx), input)),
+
+  /** §5's credit limit check, for the screen that raises an order. Warns; never blocks. */
+  creditExposure: p("finance.view")
+    .input(z.object({ accountId: z.string(), newOrderAmount: z.number().int().nonnegative() }))
+    .query(({ input }) => creditExposureService(input)),
 
   cancelInvoice: p("invoice.cancel")
     .input(z.object({ serviceInvoiceId: z.string(), reason: z.string().min(5).max(1000) }))

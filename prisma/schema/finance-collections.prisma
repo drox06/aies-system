@@ -1,0 +1,76 @@
+/// Module 05 §5 — collections.
+///
+/// The half of finance that is not arithmetic. Ageing tells you what is late; this is the record of
+/// what anybody did about it, which is the part that actually recovers money.
+
+/// One attempt to collect: a call, an email, a visit, a promise.
+///
+/// ## Why this is a log rather than fields on the statement
+///
+/// A collection is a sequence — four calls and two broken promises is the normal case — and columns
+/// can only hold the last one. The same reasoning as module 02's negotiation log: "we chased twice
+/// and they promised the 15th" is exactly the kind of thing that is invisible if only the most
+/// recent contact is kept, and it is what somebody needs before deciding whether to escalate.
+model CollectionActivity {
+  id          String @id @default(cuid())
+  statementId String
+  accountId   String
+
+  /// call | email | visit | letter | promise_broken | note
+  type String
+
+  contactedAt DateTime @default(now())
+  /// Who at the customer, when it was a person rather than a system.
+  contactId   String?
+  contactName String?
+
+  notes String
+
+  /// When they said they would pay. §5 asks for it on the worklist because a promised date is the
+  /// single most useful thing to know before making the next call — chasing somebody the day after
+  /// they promised the 15th damages a relationship for nothing.
+  promisedDate DateTime?
+
+  /// reached | no_answer | promised | disputed | refused | left_message
+  outcome String?
+
+  byId      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([statementId, contactedAt])
+  @@index([accountId, contactedAt])
+  @@index([promisedDate])
+}
+
+/// A reminder that was sent, so it is not sent twice.
+///
+/// §5 asks for reminders "at configurable intervals (default: 3 days before due, on due date, +7,
+/// +15, +30)". The interval is what makes a row unique: without recording which one was sent, a
+/// nightly sweep would send the +7 reminder every night from day seven onwards, and a customer who
+/// receives the same demand daily stops reading any of them.
+///
+/// Module 10 owns the sending. This records the decision to send, which is what makes the sweep
+/// idempotent whether or not an email ever leaves.
+model CollectionReminder {
+  id          String @id @default(cuid())
+  statementId String
+  accountId   String
+
+  /// The interval this reminder is for, in days relative to the due date: -3, 0, 7, 15, 30.
+  offsetDays Int
+
+  scheduledFor     DateTime
+  sentAt           DateTime?
+  /// Set when the sweep decided not to send after all — an account with reminders switched off, or a
+  /// statement paid between scheduling and sending. Recorded rather than deleted: "we did not chase
+  /// them, and here is why" is a different fact from "nobody looked".
+  suppressedAt     DateTime?
+  suppressedReason String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([statementId, offsetDays])
+  @@index([scheduledFor, sentAt])
+}

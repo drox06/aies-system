@@ -1,3 +1,7 @@
+import {
+  sweepCollectionRemindersService,
+  sweepOverdueStatementsService,
+} from "@/server/core/finance/collection-service";
 import { NextResponse } from "next/server";
 import {
   sweepAccreditationRenewals,
@@ -59,6 +63,30 @@ async function handle(request: Request) {
   } catch (error) {
     console.error("[cron/nightly] accreditation renewal sweep failed:", error);
     results.accreditationRenewals = { error: String(error) };
+  }
+
+  /**
+   * specs/05-finance-billing.md §5's two collection sweeps.
+   *
+   * The overdue sweep runs **first**: it sets the status that the reminder sweep, the worklist and
+   * the ageing report all read. Running them the other way round would chase on yesterday's picture
+   * for one night — harmless once, and exactly the kind of ordering nobody re-derives later.
+   *
+   * Neither sends anything. The reminder sweep records which reminders are due, which is what makes
+   * it safe to run twice; module 10 owns the transport.
+   */
+  try {
+    results.overdueStatements = await sweepOverdueStatementsService();
+  } catch (error) {
+    console.error("[cron/nightly] overdue statement sweep failed:", error);
+    results.overdueStatements = { error: String(error) };
+  }
+
+  try {
+    results.collectionReminders = await sweepCollectionRemindersService();
+  } catch (error) {
+    console.error("[cron/nightly] collection reminder sweep failed:", error);
+    results.collectionReminders = { error: String(error) };
   }
 
   try {

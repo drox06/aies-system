@@ -44,6 +44,7 @@ const UI_SAFE_SERVER_MODULES = [
   // must be the ones the service computed, not a second copy that drifts.
   "@/server/core/finance/billing-rules",
   "@/server/core/finance/invoice-rules",
+  "@/server/core/finance/collection-rules",
   "@/server/core/operations/ticket-rules",
   "@/server/core/operations/cash-advance-rules",
   "@/server/core/operations/site-inspection-rules",

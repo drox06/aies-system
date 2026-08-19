@@ -54,7 +54,16 @@ model CustomerAccount {
   // Decimal, never Float. Money compared or summed as binary floating point is how you get a
   // credit limit that is off by a centavo and a customer who disputes it.
   creditLimit    Decimal? @db.Decimal(14, 2)
-  currency       String   @default("PHP")
+
+  /// §5 of module 05: "an off switch per account — some customers must be handled by phone only."
+  ///
+  /// A default of true with an explicit way off, rather than opt-in: a customer nobody chases is a
+  /// customer who does not pay, and the failure mode of forgetting to switch reminders *on* is
+  /// silent. Switching them off is a deliberate act somebody takes for a named reason.
+  collectionRemindersEnabled   Boolean @default(true)
+  /// Why they are off, when they are. A switch with no reason is one nobody dares turn back on.
+  collectionRemindersOffReason String?
+  currency                     String  @default("PHP")
 
   ownerId String
   // active | dormant | blacklisted

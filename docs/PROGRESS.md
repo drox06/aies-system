@@ -2854,9 +2854,42 @@ on file *or* the requirement was explicitly waived with a reason.
 **Downpayments and progress bills are not gated.** A downpayment before work starts is the point of a
 downpayment; gating it would make the platform refuse the terms the company sells on.
 
-**Next concrete step — session 4:** §5's collection worklist (overdue statements by amount × days
-overdue, last contact, promised date, one-click follow-up), the `CollectionActivity` model, and the
-reminder schedule. Then §5b's release queue and §6's project P&L.
+### Session 4 — §5's collections (2026-08-19)
+
+- [x] `CollectionActivity` (a log, not fields — four calls and two broken promises is the normal
+      case) and `CollectionReminder`, migrated.
+- [x] `collection-rules.ts` — the amount × days ranking, the next-move suggestion, the five reminder
+      intervals, the credit limit check.
+- [x] `collection-service.ts` — worklist, log a follow-up, history, the reminders off switch, and two
+      nightly sweeps.
+- [x] Both sweeps wired into `/api/cron/nightly`, **overdue first** so the reminder sweep reads
+      today's picture rather than yesterday's.
+- [x] `/finance/collections` — the queue, worst first, with what to do and why on every row.
+- [x] 27 tests.
+
+**Why amount × days overdue.** Sorting by amount puts a ₱2M bill overdue by a day above a ₱50k one
+nobody has chased in four months — but the first is in somebody's payment run and the second has been
+forgotten. The product is peso-days of money not in the bank, which is what is actually being
+minimised.
+
+**The reminder sweep records its decision rather than sending.** Module 10 owns the transport. The
+recorded row is what makes the sweep idempotent: without it a nightly job finds the +7 reminder due
+every night from day seven onwards, and a customer receiving the same demand daily stops reading any
+of them — which costs more than never having chased.
+
+**Suppression is recorded, not skipped.** "We did not chase them, and here is why" is a different
+fact from "nobody looked", and only one is defensible when somebody asks why a debt sat for three
+months.
+
+**A broken promise is the case an ageing report cannot show.** Somebody who said the 15th and did not
+pay has changed the situation, and the worklist says so in words.
+
+**The credit limit warns rather than blocks**, by §5's own default. A block people meet daily gets
+answered by raising the limit until it never bites, and then the control is gone.
+
+**Next concrete step — session 5:** §5b's finance side of cash advances — the release queue sorted by
+`neededBy`, release recording that emits `cash_advance.released`, and the outstanding advances
+register with ageing. Module 04 owns the records; this is the money.
 
 ## Not started
 - [ ] Modules 05–10
