@@ -333,26 +333,62 @@ function MobilizationDetail({
           */}
           <div>
             <Label htmlFor="mob-crew">Who is in the van</Label>
-            <div id="mob-crew" className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-              {(people.data ?? []).map((person) => (
-                <label key={person.id} className="flex items-center gap-1.5 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4"
-                    disabled={update.isPending}
-                    checked={row.crewIds.includes(person.id)}
-                    onChange={() =>
-                      update.mutate({
-                        mobilizationId,
-                        crewIds: row.crewIds.includes(person.id)
-                          ? row.crewIds.filter((id) => id !== person.id)
-                          : [...row.crewIds, person.id],
-                      })
-                    }
-                  />
-                  {person.name}
-                </label>
-              ))}
+            {/*
+              A picker plus chips, matching the schedule panel — the company asked for a dropdown
+              rather than a row of ticks, and it is the better control once a van holds four or five
+              people: ticks make you read every name to work out who is on, whereas the chips say who
+              is going and the list offers only who is not.
+
+              As many as you like. The van is whoever is in it.
+            */}
+            <div id="mob-crew" className="mt-1 flex flex-wrap items-center gap-2">
+              <Select
+                className="w-52"
+                value=""
+                disabled={update.isPending}
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  update.mutate({
+                    mobilizationId,
+                    crewIds: [...row.crewIds, event.target.value],
+                  });
+                }}
+              >
+                <option value="">Add somebody…</option>
+                {(people.data ?? [])
+                  .filter((person) => !row.crewIds.includes(person.id))
+                  .map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+              </Select>
+
+              {row.crewIds.map((id) => {
+                const person = (people.data ?? []).find((candidate) => candidate.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-sm"
+                  >
+                    {person?.name ?? "Somebody"}
+                    <button
+                      type="button"
+                      aria-label={`Take ${person?.name ?? "them"} out of the van`}
+                      className="text-text-muted hover:text-danger"
+                      disabled={update.isPending}
+                      onClick={() =>
+                        update.mutate({
+                          mobilizationId,
+                          crewIds: row.crewIds.filter((crewId) => crewId !== id),
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
             </div>
             {row.crewIds.length === 0 && (
               <p className="mt-1 text-xs text-danger">

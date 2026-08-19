@@ -289,3 +289,75 @@ export function listCustomerPosForQuotation(quotationId: string) {
     include: { salesOrder: { select: { id: true, number: true } } },
   });
 }
+
+/**
+ * Withdraws a customer PO recorded with the wrong details, so it can be recorded again.
+ *
+ * ## Why this exists
+ *
+ * The company hit it immediately: a PO number typed wrong, or the wrong file attached, and no way
+ * back. Recording one is data entry from a document somebody else wrote — it is *exactly* the kind
+ * of act that gets a digit wrong, and a platform that cannot correct data entry forces the
+ * correction to happen somewhere it cannot see.
+ *
+ * ## Why it stops once an order exists
+ *
+ * A sales order raised against a PO is a commitment: supplier orders, tickets and a billing schedule
+ * hang off it. Withdrawing the PO underneath all that would leave an order whose authority does not
+ * exist. So the door closes the moment `AIESSO` is raised, and the message says why rather than
+ * simply refusing.
+ *
+ * Soft-deleted, not erased. The wrong number was recorded, somebody noticed, and that sequence is
+ * part of the account's history even though the row should no longer count.
+ */
+export async function withdrawCustomerPoService(
+  actor: ActorMeta,
+  input: { customerPOId: string; reason: string },
+) {
+  if (input.reason.trim().length < 5) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Say what was wrong with it — the next person to look needs to know it was corrected.",
+    });
+  }
+
+  const po = await db.customerPO.findFirst({
+    where: { id: input.customerPOId, deletedAt: null },
+    include: { salesOrder: { select: { id: true, number: true } } },
+  });
+  if (!po) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That purchase order no longer exists." });
+  }
+
+  if (po.salesOrder) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${po.salesOrder.number} was already raised from this PO, and supplier orders, tickets and ` +
+        `billing may hang off it. Withdrawing the PO now would leave an order with no authority ` +
+        `behind it — cancel the sales order first if it really was raised in error.`,
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.customerPO.update({
+      where: { id: po.id },
+      data: { deletedAt: new Date() },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "withdrawn",
+      entityType: CUSTOMER_PO_ENTITY_TYPE,
+      entityId: po.id,
+      summary: `Withdrew PO ${po.poNumber} — ${input.reason.trim()}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { withdrawn: true };
+}

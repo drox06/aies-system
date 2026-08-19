@@ -3,6 +3,7 @@ import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
   listCustomerPosForInquiry,
+  withdrawCustomerPoService,
   listCustomerPosForQuotation,
   recordCustomerPoService,
 } from "@/server/core/order/customer-po-service";
@@ -20,6 +21,7 @@ import {
   inspectGoodsReceiptService,
   listGoodsReceiptsService,
   outstandingForSupplierPoService,
+  confirmServicePerformedService,
 } from "@/server/core/order/goods-receipt-service";
 import { buildSupplierPoEmailText } from "@/server/core/order/pdf/render";
 import {
@@ -80,6 +82,19 @@ function actorMeta(ctx: Context & { user: { id: string; name: string } }): Actor
 }
 
 export const orderRouter = router({
+  /** Correcting a PO recorded with the wrong details. Refuses once a sales order exists. */
+  withdrawCustomerPo: p("customer_po.record")
+    .input(z.object({ customerPOId: z.string(), reason: z.string().min(5).max(500) }))
+    .mutation(({ ctx, input }) => withdrawCustomerPoService(actorMeta(ctx), input)),
+
+  /**
+   * A bought-in service was performed. See confirmServicePerformedService for why this is not a
+   * goods receipt — nothing arrives, so there is nothing to count or match.
+   */
+  confirmServicePerformed: p("goods_receipt.record")
+    .input(z.object({ supplierPOLineId: z.string(), performed: z.boolean() }))
+    .mutation(({ ctx, input }) => confirmServicePerformedService(actorMeta(ctx), input)),
+
   /**
    * Records the PO and moves the inquiry out of "Sent".
    *

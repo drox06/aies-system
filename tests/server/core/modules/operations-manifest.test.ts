@@ -161,10 +161,23 @@ describe("operations manifest", () => {
   /**
    * The library needs its own door, for the same reason `/field` did: a screen reachable only from a
    * record disappears when there are no records, and the seeded checklists did exactly that.
+   *
+   * **Who gets that door narrowed on 2026-08-19**, at the company's instruction: the officers and
+   * the operations manager. The library is where somebody reads what the procedures say and revises
+   * them, which is supervisory work — `checklist.manage` is precisely that permission.
+   *
+   * A technician is not shut out of anything they need: `checklist.fill` still governs the panel on
+   * a ticket, and the ticket is where a checklist is actually filled in.
    */
-  it("offers the checklist library to anybody who can see a ticket", () => {
+  it("offers the checklist library to the officers and operations, not to everybody", () => {
     expect(visibleNavFor(new Set<string>()).map((e) => e.href)).not.toContain("/checklists");
-    expect(visibleNavFor(new Set(["ticket.view"])).map((e) => e.href)).toContain("/checklists");
+    // A technician can see tickets and fill checklists in; the library is not theirs.
+    expect(
+      visibleNavFor(new Set(["ticket.view", "checklist.fill"])).map((e) => e.href),
+    ).not.toContain("/checklists");
+    expect(visibleNavFor(new Set(["checklist.manage"])).map((e) => e.href)).toContain(
+      "/checklists",
+    );
   });
 
   /** §16's loop is only worth anything if the people who sell can see it. */

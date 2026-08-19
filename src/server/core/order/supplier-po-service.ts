@@ -145,6 +145,15 @@ export async function createSupplierPosFromSalesOrderService(
         unit: source.unit,
         unitCost,
         lineTotal: (Number(quantity) * Number(unitCost)).toFixed(2),
+        /**
+         * Whether anything physically arrives.
+         *
+         * Taken from the sales order line rather than asked for again: `requiresExecution` already
+         * means "somebody has to go and do this", and a bought-in installation or calibration is
+         * exactly that seen from the supplier's side. Asking a second time would let the two answers
+         * disagree, and the disagreement would show up as a purchase order that never closes.
+         */
+        isService: source.requiresExecution === true,
       };
     });
 

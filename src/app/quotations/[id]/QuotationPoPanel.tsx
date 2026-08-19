@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card } from "@/components/ui/layout";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Textarea } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
@@ -139,6 +139,18 @@ export function QuotationPoPanel({
                 salesOrder={po.salesOrder}
                 onChanged={onRecorded}
               />
+
+              {/*
+                Correcting a PO recorded with the wrong number or the wrong file.
+
+                Recording one is data entry from a document somebody else wrote, which is exactly the
+                kind of act that gets a digit wrong — and until now there was no way back. The door
+                closes once a sales order exists, because supplier orders, tickets and billing hang
+                off it by then; the service says so rather than simply refusing.
+              */}
+              {!po.salesOrder && canRecord && (
+                <PoWithdraw customerPOId={po.id} poNumber={po.poNumber} onDone={onRecorded} />
+              )}
             </li>
           ))}
         </ul>
@@ -211,5 +223,71 @@ export function QuotationPoPanel({
         </form>
       )}
     </Card>
+  );
+}
+
+/** Withdrawing a PO recorded wrongly, so the right one can be recorded. */
+function PoWithdraw({
+  customerPOId,
+  poNumber,
+  onDone,
+}: {
+  customerPOId: string;
+  poNumber: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+
+  const withdraw = trpc.order.withdrawCustomerPo.useMutation({
+    onSuccess: () => {
+      setOpen(false);
+      setReason("");
+      onDone();
+    },
+  });
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" className="mt-1 px-0" onClick={() => setOpen(true)}>
+        Recorded wrongly? Withdraw it
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border-2 border-amber-400 bg-amber-50 p-3">
+      <p className="text-sm font-semibold text-amber-900">Withdraw PO {poNumber}?</p>
+      <p className="mt-1 text-sm text-amber-900">
+        It comes off this quotation and you can record the right one. The withdrawal is kept in the
+        history — the wrong number was recorded and somebody noticed, which is part of the story.
+      </p>
+      <Textarea
+        className="mt-2"
+        rows={2}
+        placeholder="What was wrong with it?"
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
+      {withdraw.error && <p className="mt-2 text-sm text-danger">{withdraw.error.message}</p>}
+      {reason.trim().length < 5 && (
+        <p className="mt-1 text-xs text-amber-900">
+          Say what was wrong before it can be withdrawn.
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={withdraw.isPending || reason.trim().length < 5}
+          onClick={() => withdraw.mutate({ customerPOId, reason })}
+        >
+          {withdraw.isPending ? "Withdrawing…" : "Yes, withdraw it"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Keep it
+        </Button>
+      </div>
+    </div>
   );
 }

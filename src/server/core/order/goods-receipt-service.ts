@@ -695,3 +695,89 @@ export async function outstandingForSupplierPoService(supplierPOId: string) {
     qtyOutstanding: (Number(line.quantity) - Number(line.qtyReceived)).toFixed(3),
   }));
 }
+
+/**
+ * Confirms a bought-in **service** was performed.
+ *
+ * ## Why this is not a goods receipt
+ *
+ * A subcontracted calibration has no truck, no packing list and nothing to count off it. §6's
+ * three-way match exists to catch a supplier billing for more than they sent — and where nothing was
+ * sent, there is nothing to match, so demanding a goods receipt for one produces a document that
+ * says nothing and a purchase order that never closes.
+ *
+ * What matters instead is that **somebody says it happened, and is named**. That is the same shape
+ * as every other artefact in this platform: a status AIES set means little, a person confirming they
+ * saw the work means a great deal. So this records who and when, and nothing else pretends to be a
+ * measurement.
+ *
+ * Raised by the company 2026-08-19.
+ */
+export async function confirmServicePerformedService(
+  actor: ActorMeta,
+  input: { supplierPOLineId: string; performed: boolean },
+) {
+  const line = await db.supplierPOLine.findFirst({
+    where: { id: input.supplierPOLineId },
+    include: { supplierPO: { select: { id: true, number: true, status: true } } },
+  });
+  if (!line) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That purchase order line no longer exists.",
+    });
+  }
+  if (!line.isService) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${line.description} is goods, not a service. Record what arrived on a goods receipt so the ` +
+        `three-way match has something to compare.`,
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.supplierPOLine.update({
+      where: { id: line.id },
+      data: {
+        performedAt: input.performed ? new Date() : null,
+        performedById: input.performed ? actor.actorId : null,
+        // Mirrors what a receipt does to a goods line, so "is this line settled" has one answer.
+        qtyReceived: input.performed ? line.quantity : 0,
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: input.performed ? "service_performed" : "service_unconfirmed",
+      entityType: "SupplierPOLine",
+      entityId: line.id,
+      summary: input.performed
+        ? `Confirmed "${line.description}" was performed on ${line.supplierPO.number}`
+        : `Withdrew the confirmation that "${line.description}" was performed`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  /**
+   * Close the PO when nothing is outstanding on it — counting service lines as settled once
+   * confirmed, exactly as a fully received goods line is.
+   */
+  const outstanding = await db.supplierPOLine.count({
+    where: {
+      supplierPOId: line.supplierPOId,
+      qtyReceived: { lt: db.supplierPOLine.fields.quantity },
+    },
+  });
+  if (outstanding === 0) {
+    await db.supplierPO.update({
+      where: { id: line.supplierPOId },
+      data: { status: "received" },
+    });
+  }
+
+  return { performed: input.performed, poClosed: outstanding === 0 };
+}

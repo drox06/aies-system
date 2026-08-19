@@ -253,8 +253,26 @@ model SupplierPOLine {
   /// behind — see `allocateLandedCost` in supplier-po-rules.ts.
   lineTotal Decimal @default(0) @db.Decimal(14, 2)
 
-  qtyReceived  Decimal @default(0) @db.Decimal(14, 3)
-  leadTimeDays Int?
+  qtyReceived Decimal @default(0) @db.Decimal(14, 3)
+
+  /// Whether anything physically arrives against this line.
+  ///
+  /// Raised by the company 2026-08-19: "buying it in is not always goods, some are services like
+  /// installation or calibration, these do not need to have to be booked in a delivery."
+  ///
+  /// A subcontracted calibration has no truck, no packing list and nothing to count off it. Holding
+  /// the purchase order open until somebody records a goods receipt for it means the PO never
+  /// closes — and §6's three-way match, which exists to catch a supplier billing for more than they
+  /// sent, has nothing to compare because nothing was ever sent.
+  ///
+  /// So a service line is **confirmed as performed** rather than received. The mirror of module 04's
+  /// `isPhysicallyDeliverable` on the customer side, and the same principle: only things that
+  /// physically move get a movement document.
+  isService     Boolean   @default(false)
+  /// When the service was confirmed as done, by whom. The service equivalent of a goods receipt.
+  performedAt   DateTime?
+  performedById String?
+  leadTimeDays  Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

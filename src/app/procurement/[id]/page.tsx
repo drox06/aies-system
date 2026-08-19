@@ -201,6 +201,13 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
                     <th className="py-1.5 pr-2 font-medium">#</th>
                     <th className="py-1.5 pr-2 font-medium">Item</th>
                     <th className="py-1.5 pr-2 text-right font-medium">Qty</th>
+                    {/*
+                      What is still coming. The company asked for it here rather than inside each
+                      goods receipt: counting a part-delivered order by opening three GRNs and adding
+                      up is exactly the arithmetic a system should have done already, and it is the
+                      question somebody asks before phoning the supplier.
+                    */}
+                    <th className="py-1.5 pr-2 text-right font-medium">Outstanding</th>
                     <th className="py-1.5 pr-2 text-right font-medium">Unit cost</th>
                     <th className="py-1.5 pr-2 text-right font-medium">Goods</th>
                     {charges > 0 && <th className="py-1.5 pr-2 text-right font-medium">Landed</th>}
@@ -220,6 +227,20 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
                       </td>
                       <td className="tabular py-1.5 pr-2 text-right">
                         {line.quantity} {line.unit}
+                      </td>
+                      <td className="tabular py-1.5 pr-2 text-right">
+                        {(() => {
+                          const outstanding = Number(line.quantity) - Number(line.qtyReceived ?? 0);
+                          if (!Number.isFinite(outstanding)) return "—";
+                          if (outstanding <= 0) {
+                            return <span className="text-text-muted">all in</span>;
+                          }
+                          return (
+                            <span className="font-medium">
+                              {outstanding} {line.unit}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="tabular py-1.5 pr-2 text-right">
                         {formatMoney(line.unitCost, data.currency)}

@@ -13,6 +13,7 @@ import {
 } from "@/server/core/quotation/costing";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
+import { QUOTE_CURRENCIES } from "@/server/core/quotation/costing";
 import { trpc } from "@/lib/trpc/client";
 
 export interface DraftLine {
@@ -38,7 +39,15 @@ export interface DraftLine {
   isOptional: boolean;
 }
 
-export const BLANK_LINE: DraftLine = {
+export /**
+ * What a cost can be denominated in.
+ *
+ * The same list the quotation itself uses. A cost currency the quote cannot be issued in would be a
+ * rate nobody can check.
+ */
+const COST_CURRENCIES = QUOTE_CURRENCIES;
+
+const BLANK_LINE: DraftLine = {
   groupLabel: "",
   description: "",
   quantity: "1",
@@ -93,7 +102,13 @@ export function LineEditor({
   );
   const [headerDiscount, setHeaderDiscount] = useState(initialDiscount);
   const [vatMode, setVatMode] = useState<VatMode>(initialVatMode);
-  const [fxBufferPct, setFxBufferPct] = useState(initialFxBuffer);
+  /**
+   * Read-only now: the form no longer offers it, and lines inherit it when their own cell is blank.
+   *
+   * Still sent on save so an existing quotation keeps pricing the way it was priced. See the note
+   * where the control used to be.
+   */
+  const [fxBufferPct] = useState(initialFxBuffer);
 
   const save = trpc.quotation.saveLines.useMutation();
 
@@ -144,6 +159,15 @@ export function LineEditor({
               <th className="py-1 font-medium">Description</th>
               <th className="py-1 text-right font-medium">Qty</th>
               {canSeeCost && <th className="py-1 text-right font-medium">Unit cost</th>}
+              {canSeeCost && <th className="py-1 font-medium">Ccy</th>}
+              {canSeeCost && (
+                <th
+                  className="py-1 text-right font-medium"
+                  title="What one unit of the cost currency is worth in the quote's currency today"
+                >
+                  Rate
+                </th>
+              )}
               {canSeeCost && (
                 <th className="py-1 text-right font-medium" title="Blank uses the quotation's">
                   FX buff %
@@ -206,6 +230,52 @@ export function LineEditor({
                         value={line.unitCost}
                         disabled={!editable}
                         onChange={(e) => update(index, { unitCost: e.target.value })}
+                      />
+                    </td>
+                  )}
+                  {/*
+                    The supplier's currency and today's rate, entered by whoever is quoting.
+
+                    These were round-tripped invisibly: stored, redisplayed nowhere, and impossible
+                    to correct without a database edit. The company asked for the rate to be an entry
+                    on the line — which is right, because the rate that matters is the one on the day
+                    the quote goes out, and only the person quoting knows it.
+
+                    With both editable, every line converts into the quotation's own currency before
+                    anything is printed, so a PHP quotation prints entirely in pesos however many
+                    currencies the costs came in.
+                  */}
+                  {canSeeCost && (
+                    <td className="py-1 pr-2">
+                      <Select
+                        aria-label={`Line ${index + 1} cost currency`}
+                        className="w-20"
+                        value={line.costCurrency}
+                        disabled={!editable}
+                        onChange={(e) => update(index, { costCurrency: e.target.value })}
+                      >
+                        {COST_CURRENCIES.map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                  )}
+                  {canSeeCost && (
+                    <td className="py-1 pr-2">
+                      <Input
+                        aria-label={`Line ${index + 1} exchange rate`}
+                        className="w-24 text-right"
+                        inputMode="decimal"
+                        value={line.costFxRate}
+                        disabled={!editable || line.costCurrency === currency}
+                        title={
+                          line.costCurrency === currency
+                            ? "Same currency as the quotation, so the rate is 1."
+                            : `One ${line.costCurrency} in ${currency}, today`
+                        }
+                        onChange={(e) => update(index, { costFxRate: e.target.value })}
                       />
                     </td>
                   )}
@@ -336,22 +406,20 @@ export function LineEditor({
             ))}
           </Select>
         </div>
-        {canSeeCost && (
-          <div>
-            <Label htmlFor="q-buffer">FX buffer %</Label>
-            <Input
-              id="q-buffer"
-              inputMode="decimal"
-              value={fxBufferPct}
-              disabled={!editable}
-              onChange={(e) => setFxBufferPct(e.target.value)}
-            />
-            {/* §4: "Show the buffer explicitly — it is a margin decision, not a hidden fudge." */}
-            <p className="mt-0.5 text-xs text-text-muted">
-              Applied on top of each line&apos;s rate.
-            </p>
-          </div>
-        )}
+        {/*
+          The header FX buffer is gone from this form, on the company's instruction of 2026-08-19.
+
+          It was one figure for a whole quotation, and lines carry their own cost currencies — so a
+          USD line, a EUR line and a locally-sourced peso line all got the same cushion, including
+          the peso line that carries no exchange risk at all. The buffer belongs on the line, where
+          the exposure is, and that is where it now lives: the **FX buff %** column above.
+
+          The stored header value is left alone rather than forced to zero. Quotations already
+          priced under it must keep pricing the way they were priced — rewriting history to match a
+          new form is how a document stops matching the copy the customer holds. Lines inherit it
+          only when their own cell is blank, so a new quotation with blank cells simply has no
+          buffer, which is the explicit answer.
+        */}
       </div>
 
       <dl className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
