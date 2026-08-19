@@ -423,15 +423,31 @@ The flowchart's warranty diamond after T&C loops back to Project Execution. This
 warranty callback: work already commissioned comes back for rectification.
 
 - On `warranty` determination, the platform checks the equipment's warranty window (§14) and:
-  - **In warranty** → raises an `after_sales` ticket with `subType = warranty`, `billable =
-    false`, linked to the original project, which re-enters the execution lane at Project
-    Execution exactly as the flowchart shows.
+  - **In warranty, and the equipment was defective** → raises an `after_sales` ticket with
+    `subType = warranty`, `billable = false`, linked to the original project, which re-enters the
+    execution lane at Project Execution exactly as the flowchart shows.
+  - **In warranty, but the customer or a third party caused it** → **chargeable**, and sales quotes
+    the rectification. *(Company decision, 2026-08-20, correcting the flat rule this section carried
+    until then.)* A warranty covers the equipment being **defective**, not the equipment being
+    **broken**: every manufacturer carves misuse out of their terms, and AIES cannot offer cover the
+    principal behind it does not. Absorbing misuse silently is how a warranty book becomes a
+    maintenance contract nobody priced.
+    - **Unless the manufacturer's terms cover it anyway**, which is recorded on the claim as
+      `manufacturerCovers` **with a reason**. Some principals do cover accidental damage, and AIES
+      sometimes honours a claim commercially to keep a customer; both are legitimate and neither is
+      a default. The control appears only where it can apply — in warranty, not AIES's fault — so it
+      cannot become a box that is left ticked.
   - **Out of warranty** → prompts sales to quote the rectification (module 01/02), because it is
     chargeable work.
   - **AIES-caused defect** → the warranty ticket is non-billable *and* auto-raises an NCR
     (module 08), because a defect the company caused is a quality event, not just a job.
 - Warranty tickets are reported separately: count, cost, and root cause by product and by
   technician. Warranty cost that nobody totals is warranty cost that never gets fixed.
+  - `WarrantyClaim.cost` is **entered**, not derived from the ticket. A callout routinely carries
+    costs §16 never sees — a part couriered overnight, a subcontracted crane, a flight to Cebu — and
+    a confident figure that is quietly too low is worse than an honest blank. Null means nobody has
+    costed it, which is not the same as zero. When module 08 closes the loop between a ticket's
+    actual cost and its claim, this becomes the override rather than the source.
 - Passing the gate with no claim proceeds to Service Report.
 
 ---

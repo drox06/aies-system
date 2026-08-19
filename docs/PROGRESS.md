@@ -2905,7 +2905,22 @@ Per BUILD-PROTOCOL §7, and in order:
 3. **The sample data removed** — `PART7` and `WALKTHROUGH` both, each with its own `--remove`.
 4. **Then, and only then, the tags.** §7.3: Claude may not sign its own gate, so I do not apply them.
 
-`docs/DECISIONS.md` is current to #126.
+`docs/DECISIONS.md` is current to #128.
+
+### The warranty gate — walked 2026-08-20
+
+§11 was the last unwalked gate in module 04, and walking it produced one rule change and three gaps.
+
+- **Misuse inside the warranty window is now chargeable.** §11 said "in warranty means non-billable"
+  flat, which made a customer who ran a pump dry AIES's cost. The exception — the manufacturer's
+  terms covering it anyway — is recorded with a reason and offered only where it can apply. The spec
+  is updated to match, because the spec was the source of the error. #127.
+- **Warranty dates are visible and correctable**, and **claim cost can be recorded** — §11's
+  reporting half had been built on data nobody could enter, so its cost figure could never move off
+  "not yet totalled". #128.
+
+`scripts/sample-warranty.ts` seeds three instruments positioned for the three answers the gate has to
+tell apart: comfortably covered, out by three weeks, and eleven days from expiry.
 
 ### Found after the walkthrough, during the PC pass
 

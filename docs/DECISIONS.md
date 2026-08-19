@@ -4254,3 +4254,74 @@ A smaller note with a real cost attached: the command blocks offered to the comp
 The command failed before it started, and read as the script being broken. Commands handed to
 somebody to run must be in the shell they actually have.
 
+## #127 — A warranty covers the equipment being defective, not the equipment being broken
+
+§11 said "in warranty → `billable = false`" and stopped there. Walked, that meant a customer who ran
+a pump dry inside the warranty year was AIES's cost to bear. The company corrected it on 2026-08-20:
+**equipment misuse should not be covered and should be billable, unless the manufacturer states
+otherwise.**
+
+They are right, and the reasoning is worth keeping because it generalises. Every manufacturer carves
+misuse out of their own terms, so AIES would be offering cover the principal behind it does not —
+paying twice for somebody else's accident, with nobody to claim against. Absorbing it silently is how
+a warranty book quietly becomes a maintenance contract nobody priced or agreed.
+
+`customer_caused` and `third_party` inside the window now go to sales to quote rather than raising a
+non-billable ticket. Third-party damage is treated the same way for the same reason: a contractor
+putting a forklift through an instrument is not the instrument failing.
+
+### The exception has to be recordable, and must not become the habit
+
+Some principals do cover accidental damage, and AIES sometimes honours a claim commercially to keep a
+customer. Both are legitimate; neither is a default. So `manufacturerCovers` is a flag **with a
+reason**, and the control appears **only where it can apply** — in warranty, not AIES's fault. A
+checkbox available on every claim is a checkbox that ends up ticked; one that appears in the single
+situation it belongs to is a decision.
+
+The re-determination path reads the stored flag rather than defaulting it away, so looking at a claim
+a second time cannot silently turn a covered misuse into a chargeable one.
+
+### What the change deliberately did not touch
+
+`aies_caused` is still decided **before** coverage is read: not billable in or out of the window, plus
+an NCR. And an ordinary defect in warranty is still covered. Both have tests asserting it, because
+the risk in a rule change like this is not that the new case is wrong — it is that the old ones
+quietly move with it.
+
+### The order this happened in is the point
+
+The company found it by **using** the gate: they raised a claim, changed the attribution, and noticed
+that only one of four answers changed anything. Nothing in 1,600 tests could have found it, because
+the tests asserted the rule as specified and the rule as specified was the mistake. It is the same
+lesson as the ₱499 expense and #117's Sunday — **a test that pins the wrong answer is worse than no
+test**, and only somebody who knows the business can tell you which answer is wrong.
+
+`specs/04-operations-projects.md` §11 is updated to match, including why. The spec was the source of
+the error, so leaving it to say the old thing would guarantee the next person reintroduced it.
+
+## #128 — §11's reporting was built on data nobody could enter
+
+Three findings from the same pass, all the same shape: the warranty gate's **reporting** half was
+finished and its **entry** half was not.
+
+- The installed base showed a coverage badge and no dates. A badge whose evidence is hidden has to be
+  taken on trust, and this one decides who pays. Each row now carries the window and the days left.
+- There was no way to correct a warranty date — `upsertEquipmentService` existed with no screen, so a
+  wrong window was unarguable in the worst sense. It is now editable, and **only the two dates**:
+  description, serial and tag are how the record is *identified*, and quietly editing those from a
+  warranty screen is how one instrument's history becomes another's.
+- `WarrantyClaim` had **no cost column at all**, so §11's cost figure read "not yet totalled" on every
+  claim and always would have. §11 says why it matters in one line — "warranty cost that nobody
+  totals is warranty cost that never gets fixed" — and nobody could total it.
+
+The cost is **entered, not derived** from the ticket's timesheets and materials. Deriving is the right
+answer eventually and the wrong one now: a callout routinely carries costs §16 never sees — a part
+couriered overnight, a subcontracted crane, a flight to Cebu — and a confident figure that is quietly
+too low is worse than an honest blank, on precisely the number the company would use to argue for
+fixing a recurring defect. Null means nobody has costed it, which the summary treats differently from
+zero.
+
+**The general fault is worth naming.** A report and the data it reads are built at different moments,
+and it is easy to finish the half that is visible. A metric that cannot move is worse than a missing
+metric: it looks like an answer. Anywhere a figure is defined before its input exists, the figure
+should say so — and the check is to ask, of any number on a screen, *who types this, and where*.
