@@ -178,7 +178,7 @@ export function MethodologyPanel({
         actually for.
       */}
       <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">The client&rsquo;s approval document</h3>
+        <h3 className="text-sm font-semibold">Externally written method statement</h3>
         <p className="mt-1 text-xs text-text-muted">
           Our method statement signed by them, or their own form completed by us — whichever this
           site works to. Attach it whether or not a method statement was written here.
@@ -245,7 +245,7 @@ function ExternalForm({
   return (
     <div className="mt-3 space-y-3 rounded-md border border-border p-3">
       <div>
-        <h3 className="text-sm font-semibold">Externally written method statement</h3>
+        <h3 className="text-sm font-semibold">Record the client&rsquo;s approval</h3>
         <p className="mt-0.5 text-xs text-text-muted">
           For a site that works to its own permit-to-work or method-of-statement form. This records
           their approval — it is not an override, and it clears the gate because the approval
