@@ -256,10 +256,18 @@ function RaiseClaimForm({
   onDone,
   onCancel,
 }: {
+  /*
+    Restated by hand, and it drifted — the list above started showing tag and serial while this
+    still declared neither, so widening the display broke the build. Kept narrow rather than
+    inferred because this form needs only these fields, but the lesson is the usual one: a hand-copy
+    of a server shape is a second source of truth.
+  */
   equipment: {
     id: string;
     accountId: string;
     description: string;
+    tagNumber: string | null;
+    serialNumber: string | null;
     coverage: { coverage: Coverage; reason: string };
   }[];
   onDone: () => void;
