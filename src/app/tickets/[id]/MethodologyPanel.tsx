@@ -112,7 +112,7 @@ export function MethodologyPanel({
           </Button>
           <span className="text-xs text-text-muted">or</span>
           <Button variant="ghost" size="sm" onClick={() => setShowExternal(true)}>
-            The client already approved their own
+            The client approved an externally written method statement
           </Button>
         </div>
       )}
