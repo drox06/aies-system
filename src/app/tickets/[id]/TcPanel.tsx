@@ -52,6 +52,7 @@ interface DraftTest extends FunctionalTest {
 
 export function TcPanel({ ticketId }: { ticketId: string }) {
   const [showExternal, setShowExternal] = useState(false);
+  const [worksheetHidden, setWorksheetHidden] = useState(false);
   const tc = trpc.operations.listTc.useQuery({ ticketId });
   const promised = trpc.operations.promisedLines.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
@@ -166,10 +167,11 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
         sign-off now picks from these files by name. Raised by the company on 2026-08-19.
       */}
       <Card className="mt-3 p-3">
-        <h3 className="text-sm font-semibold">The customer&rsquo;s signed paperwork</h3>
+        <h3 className="text-sm font-semibold">Signed commissioning paperwork</h3>
         <p className="mt-1 text-xs text-text-muted">
-          Our certificate signed, or the customer&rsquo;s own commissioning form filled in —
-          whichever they use. Attach it here and it becomes selectable when you sign off below.
+          Our certificate signed, or an externally written commissioning form filled in — whichever
+          this site uses. Attach it here and it becomes selectable both when you sign off below and
+          when you record an externally written one.
         </p>
         <div className="mt-2">
           <Attachments
@@ -187,15 +189,28 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
         what makes the installation milestone billable, so a job commissioned on the customer's own
         sheet had cleared the real gate while the platform read "nothing recorded".
       */}
+      {/*
+        The default first, the exception second — the reading order everywhere else on this ticket.
+
+        They were the wrong way round, which put the longer, rarer sentence where the eye lands and
+        left the ordinary action trailing after it. One row, one condition, so they cannot drift
+        apart again.
+      */}
       {canExecute && !open && !showExternal && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mt-3 ml-2"
-          onClick={() => setShowExternal(true)}
-        >
-          The customer signed an externally written commissioning form
-        </Button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={begin.isPending}
+            onClick={() => begin.mutate({ ticketId })}
+          >
+            Start commissioning
+          </Button>
+          <span className="text-xs text-text-muted">or</span>
+          <Button variant="ghost" size="sm" onClick={() => setShowExternal(true)}>
+            The customer signed an externally written commissioning form
+          </Button>
+        </div>
       )}
 
       {showExternal && (
@@ -208,29 +223,48 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
           onCancel={() => setShowExternal(false)}
         />
       )}
-
-      {canExecute && !open && !showExternal && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="mt-3"
-          disabled={begin.isPending}
-          onClick={() => begin.mutate({ ticketId })}
-        >
-          Start commissioning
-        </Button>
-      )}
       {begin.error && <p className="mt-2 text-sm text-danger">{begin.error.message}</p>}
 
-      {open && (
-        <TcWorksheet
-          record={open}
-          ticketId={ticketId}
-          promisedLines={promised.data?.lines ?? []}
-          promisedNote={promised.data?.note ?? null}
-          canSignOff={canSignOff}
-          onSaved={() => void tc.refetch()}
-        />
+      {/*
+        A way back out of the worksheet.
+
+        "Start commissioning" is not a form that opens — it **creates a numbered record**, and once
+        that exists the worksheet is the whole panel with no way to leave it. Somebody who pressed it
+        to look, or pressed it on the wrong ticket, was stuck reading a long form.
+
+        Collapsing is not cancelling, and the line underneath says so. The record keeps its number
+        and whatever has been saved into it; deleting it would burn an AIESTC number and could throw
+        away readings somebody took on site. It reopens with Continue.
+      */}
+      {open && !worksheetHidden && (
+        <div>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className="tabular text-xs text-text-muted">{open.number} — in progress</span>
+            <Button variant="ghost" size="sm" onClick={() => setWorksheetHidden(true)}>
+              Back
+            </Button>
+          </div>
+          <TcWorksheet
+            record={open}
+            ticketId={ticketId}
+            promisedLines={promised.data?.lines ?? []}
+            promisedNote={promised.data?.note ?? null}
+            canSignOff={canSignOff}
+            onSaved={() => void tc.refetch()}
+          />
+        </div>
+      )}
+
+      {open && worksheetHidden && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border p-2.5">
+          <span className="text-sm">
+            <span className="tabular font-medium">{open.number}</span> is in progress. Nothing has
+            been discarded.
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => setWorksheetHidden(false)}>
+            Continue commissioning
+          </Button>
+        </div>
       )}
     </Card>
   );
