@@ -23,6 +23,7 @@ import {
   type PunchSeverity,
   type TcResult,
 } from "@/server/core/operations/tc-rules";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -238,11 +239,30 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
       */}
       {open && !worksheetHidden && (
         <div>
-          <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <span className="tabular text-xs text-text-muted">{open.number} — in progress</span>
-            <Button variant="ghost" size="sm" onClick={() => setWorksheetHidden(true)}>
-              Back
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={() => setWorksheetHidden(true)}>
+                Back
+              </Button>
+              {/*
+                Two different things, side by side on purpose.
+
+                Back leaves the record alone; Discard removes it. They were one control until the
+                company asked for both — hiding something and throwing it away are not the same act,
+                and a panel that offers only the first leaves stray records on tickets for ever.
+              */}
+              {canExecute && (
+                <DiscardTc
+                  id={open.id}
+                  number={open.number}
+                  onDone={() => {
+                    setWorksheetHidden(false);
+                    void tc.refetch();
+                  }}
+                />
+              )}
+            </div>
           </div>
           <TcWorksheet
             record={open}
@@ -280,6 +300,70 @@ export function TcPanel({ ticketId }: { ticketId: string }) {
  * two siblings give: a cuid should never be transcribed by hand, and a guessed date on a customer's
  * signature survives into the certificate.
  */
+/**
+ * "This commissioning should not exist" — asked first, and the reason kept.
+ *
+ * Two presses rather than one, and the second is disabled until there is a reason worth reading. The
+ * same shape as the service report's discard, and for the same reason: a confirmation that only asks
+ * "are you sure?" trains people to click yes, while one that asks *why* does not.
+ *
+ * The service refuses a completed record — that one carries a signed certificate and has already
+ * made a milestone billable — so this control is only ever offered on work in progress.
+ */
+function DiscardTc({ id, number, onDone }: { id: string; number: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const discard = trpc.operations.discardTc.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Discarded ${number}.`);
+      setOpen(false);
+      setReason("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" className="text-danger" onClick={() => setOpen(true)}>
+        Discard
+      </Button>
+    );
+  }
+
+  return (
+    <div className="w-full rounded-md border-2 border-danger/40 bg-danger/5 p-2.5">
+      <p className="text-sm font-semibold text-danger">Discard {number}?</p>
+      <p className="mt-0.5 text-xs">
+        The worksheet and anything recorded on it go. The number stays used — it is never reissued —
+        and this reason is kept against it.
+      </p>
+      <div className="mt-2">
+        <Label htmlFor={`tc-discard-${id}`}>Why</Label>
+        <Input
+          id={`tc-discard-${id}`}
+          value={reason}
+          placeholder="Started on the wrong ticket."
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={discard.isPending || reason.trim().length < 10}
+          onClick={() => discard.mutate({ id, reason: reason.trim() })}
+        >
+          {discard.isPending ? "Discarding…" : "Discard it"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Keep it
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ExternalTcForm({
   ticketId,
   onDone,

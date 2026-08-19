@@ -304,6 +304,75 @@ export interface CompleteTcInput {
  * artefact is something the customer produced, and only the second survives an argument.
  */
 /**
+ * Throws away a commissioning that should not have been started.
+ *
+ * "Start commissioning" allocates a number and creates a record on the first press, so it is easy to
+ * start one on the wrong ticket, or to press it while looking around and leave a half-filled
+ * worksheet behind. Collapsing the panel hides it; this removes it.
+ *
+ * ## Why it refuses a completed one
+ *
+ * §10's completion is a **billing trigger** — `tc.completed` has already fired, the installation
+ * milestone may already be ready to bill, and the customer has a signed certificate. Removing that
+ * record would leave an invoice standing on nothing, which is the same reasoning that stops an
+ * approved service report being discarded. A completed commissioning that turns out to be wrong is
+ * corrected by a further round, not by deletion.
+ *
+ * ## Why it is a soft delete with a reason
+ *
+ * The number stays consumed — Spec.md §5 permits gaps and forbids reuse — and the row survives, so
+ * "what happened to AIESTC-260041" has an answer months later. A record that vanished silently is
+ * indistinguishable from one that was never created, and the difference matters when somebody is
+ * reconstructing what happened on a site.
+ */
+export async function discardTcService(actor: ActorMeta, input: { id: string; reason: string }) {
+  const record = await db.testingCommissioning.findFirst({
+    where: { id: input.id, deletedAt: null },
+    select: { id: true, number: true, completedAt: true, ticketId: true },
+  });
+  if (!record) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That commissioning no longer exists." });
+  }
+
+  if (record.completedAt) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${record.number} is completed — the customer has a certificate and §10 has already made ` +
+        `the milestone billable. Record a further round rather than removing this one.`,
+    });
+  }
+
+  const reason = input.reason.trim();
+  if (reason.length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say why this commissioning is being discarded, in words worth reading later.",
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.testingCommissioning.update({
+      where: { id: record.id },
+      data: { deletedAt: new Date(), version: { increment: 1 } },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "discard",
+      entityType: TC_ENTITY_TYPE,
+      entityId: record.id,
+      summary: `Discarded commissioning ${record.number} — ${reason}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { ok: true as const };
+}
+
+/**
  * §10's second path: commissioning carried out on an externally supplied form, already signed.
  *
  * The third of these, after §6.2's method statement and §12's service report, and the company asked

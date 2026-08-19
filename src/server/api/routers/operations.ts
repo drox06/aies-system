@@ -106,6 +106,7 @@ import {
 import {
   beginTcService,
   completeTcService,
+  discardTcService,
   recordExternalTcService,
   listTcForTicketService,
   promisedLinesForTicketService,
@@ -1185,6 +1186,18 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => recordExternalTcService(actorMeta(ctx), input)),
+
+  /**
+   * Throw away a commissioning started by mistake.
+   *
+   * On `ticket.execute`, like the service report's discard and for the same reason: the person who
+   * started it is the person who knows it was the wrong ticket, and making them find a signatory to
+   * remove their own slip is how a stray record ends up being completed instead. The service refuses
+   * once the record is completed, which is where the billing trigger lives.
+   */
+  discardTc: p("ticket.execute")
+    .input(z.object({ id: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => discardTcService(actorMeta(ctx), input)),
 
   listTc: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))

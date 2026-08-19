@@ -5,6 +5,7 @@ import {
   beginTcService,
   completeTcService,
   recordExternalTcService,
+  discardTcService,
   listTcForTicketService,
   promisedLinesForTicketService,
   saveTcService,
@@ -459,5 +460,74 @@ describe("an externally written commissioning form", () => {
         completedAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       }),
     ).rejects.toThrow(/finished in the future/);
+  });
+});
+
+/**
+ * Discarding a commissioning started by mistake.
+ *
+ * "Start commissioning" allocates a number on the first press, so starting one on the wrong ticket
+ * is a slip anybody makes. The refusal below is what keeps this from being dangerous.
+ */
+describe("discarding a commissioning", () => {
+  it("removes one that is still in progress, keeping the number used", async () => {
+    const engineer = await makeUser("operations_manager", ["tc.signoff", "ticket.view"]);
+    const ticket = await makeTicket(engineer);
+    const record = await beginTcService(actorFor(engineer), { ticketId: ticket.id });
+
+    await discardTcService(actorFor(engineer), {
+      id: record.id,
+      reason: "Started on the wrong ticket.",
+    });
+
+    const after = await db.testingCommissioning.findUniqueOrThrow({ where: { id: record.id } });
+    // Soft, not gone: "what happened to AIESTC-…" has an answer months later, and Spec.md §5
+    // forbids reissuing the number.
+    expect(after.deletedAt).not.toBeNull();
+    expect(
+      await db.testingCommissioning.findFirst({ where: { id: record.id, deletedAt: null } }),
+    ).toBeNull();
+  });
+
+  /**
+   * The one that matters. A completed commissioning has fired tc.completed, so §5 may already have
+   * made the installation milestone billable and the customer holds a signed certificate. Removing
+   * it would leave an invoice standing on nothing.
+   */
+  it("refuses to remove a completed one, because it has already been billed against", async () => {
+    const engineer = await makeUser("operations_manager", ["tc.signoff", "ticket.view"]);
+    const ticket = await makeTicket(engineer);
+    const file = await db.fileObject.create({
+      data: {
+        entityType: TC_ENTITY_TYPE,
+        entityId: ticket.id,
+        filename: "signed.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+        sha256: randomUUID(),
+        storageKey: `test/${randomUUID()}.pdf`,
+        uploaderId: engineer.id,
+      },
+    });
+    const created = await recordExternalTcService(actorFor(engineer), {
+      ticketId: ticket.id,
+      signedDocumentFileId: file.id,
+      customerWitnessName: "R. Santos",
+      completedAt: new Date(Date.now() - 1000),
+    });
+
+    await expect(
+      discardTcService(actorFor(engineer), { id: created.id, reason: "Changed my mind about it." }),
+    ).rejects.toThrow(/already made the milestone billable/);
+  });
+
+  it("refuses a discard with no reason worth reading", async () => {
+    const engineer = await makeUser("operations_manager", ["tc.signoff", "ticket.view"]);
+    const ticket = await makeTicket(engineer);
+    const record = await beginTcService(actorFor(engineer), { ticketId: ticket.id });
+
+    await expect(
+      discardTcService(actorFor(engineer), { id: record.id, reason: "oops" }),
+    ).rejects.toThrow(/worth reading later/);
   });
 });
