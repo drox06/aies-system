@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
@@ -19,6 +20,7 @@ import {
   recordPaymentService,
 } from "@/server/core/finance/invoice-service";
 import { PAYMENT_METHODS, STATEMENT_TYPES, VAT_MODES } from "@/server/core/finance/invoice-rules";
+import { finalBillingGate } from "@/server/core/finance/final-billing-gate";
 
 /**
  * Module 05's procedures. Session 1 covers §2's billing schedule only.
@@ -60,6 +62,17 @@ export const financeRouter = router({
 
   // ---- §3's two documents -----------------------------------------------------------------------
 
+  /**
+   * §4's gate as a checklist, for the statement draft screen.
+   *
+   * Read with `finance.view` rather than the issue permission: knowing what is holding up a bill is
+   * useful to anybody who can see the finance screens, and making it visible only to whoever can
+   * issue would put the person chasing operations behind a permission they do not need.
+   */
+  finalBillingGate: p("finance.view")
+    .input(z.object({ salesOrderId: z.string() }))
+    .query(({ input }) => finalBillingGate(input.salesOrderId)),
+
   /** §5's ageing, run on statements rather than invoices — see receivablesService for why. */
   receivables: p("ar.view").query(() => receivablesService()),
 
@@ -93,9 +106,29 @@ export const financeRouter = router({
         tcCertificateRef: z.string().max(120).nullish(),
         notes: z.string().max(2000).nullish(),
         terms: z.string().max(2000).nullish(),
+        overrideGateReason: z.string().min(10).max(1000).nullish(),
       }),
     )
-    .mutation(({ ctx, input }) => raiseStatementService(actorMeta(ctx), input)),
+    .mutation(({ ctx, input }) => {
+      /**
+       * §4: the override is the president's and vice-president's alone.
+       *
+       * Checked here rather than by gating the whole procedure, because raising a statement is
+       * finance's ordinary work and only *overriding the gate* is the officers' decision. One
+       * procedure, two permissions — the second only when the first is being set aside.
+       */
+      if (
+        input.overrideGateReason?.trim() &&
+        !ctx.user.permissions.has("finance.override_billing_gate")
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Only the president or vice-president can raise a final statement past the billing gate.",
+        });
+      }
+      return raiseStatementService(actorMeta(ctx), input);
+    }),
 
   issueStatement: p("billing_statement.issue")
     .input(z.object({ statementId: z.string() }))

@@ -2825,17 +2825,38 @@ tell finance with nothing behind it.
 **The spec named an event nothing emits.** §2 maps `on_installation` to `ticket.completed`; module 04
 has never emitted it. Wiring the name literally would have compiled and produced a milestone that can
 never become billable — configured on screen, silently billing nothing. It now listens to
-`service_report.approved`. **Open for the company:** should installation billing fire at the service
-report, or earlier at demobilisation? One word either way. docs/DECISIONS.md #109.
+`service_report.approved`. **Settled by the company 2026-08-19:** installation billing fires when the
+service report is approved, not at demobilisation. docs/DECISIONS.md #109.
 
 **§3's three quiet arithmetic traps**, each with a test naming the wrong answer: withholding computed
 on the gross rather than net of VAT (always favours the customer); VAT *added* to a price that
 already contains it; a post-dated cheque counted as cash. docs/DECISIONS.md #110.
 
-**Next concrete step — session 3:** §4's final billing gate. Six conditions, each blocking
-independently, shown as a checklist on the statement draft so finance sees what is missing and who
-owns it, with `finance.override_billing_gate` for the president and vice-president only. Then §5's
-collection worklist and reminders, and §5b's release queue.
+### Session 3 — §4's final billing gate (2026-08-19)
+
+- [x] `final-billing-gate.ts` — §4's seven conditions, each evaluated **independently** and reported
+      with what is missing **and who owns it**.
+- [x] Enforced on a `final` statement only, with `finance.override_billing_gate` (president and
+      vice-president) and a logged reason.
+- [x] 12 tests, one per condition plus the all-at-once case.
+
+**Why each condition reports separately.** §11 asks for it, and the reason is operational: six things
+missing is one conversation, and six refusals is six, spread over days while the money ages.
+
+**"Or the order has no executable scope"** does real work. Most of what AIES bills is equipment, and
+demanding a closed project for a goods-only order would block every delivery the company ever bills.
+Four of the seven conditions report as *not applicable* with a reason rather than silently passing —
+the same distinction as §7's recorded N/A.
+
+**A waiver is an answer; a blank is not.** The customer's acceptance certificate blocks unless it is
+on file *or* the requirement was explicitly waived with a reason.
+
+**Downpayments and progress bills are not gated.** A downpayment before work starts is the point of a
+downpayment; gating it would make the platform refuse the terms the company sells on.
+
+**Next concrete step — session 4:** §5's collection worklist (overdue statements by amount × days
+overdue, last contact, promised date, one-click follow-up), the `CollectionActivity` model, and the
+reminder schedule. Then §5b's release queue and §6's project P&L.
 
 ## Not started
 - [ ] Modules 05–10

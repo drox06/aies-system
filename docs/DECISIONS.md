@@ -3692,8 +3692,9 @@ its own terms. A ticket marked complete is a status AIES set; an approved servic
 from. Billing on the second is billing on something that survives an argument — the same principle
 as #85 and as §13's insistence on a signed DR rather than a despatch note.
 
-Flagged to the company as a decision they can reverse in one word if they want installation billing
-to fire at demobilisation instead.
+**Confirmed by the company 2026-08-19: billing fires when the service report is approved.** The
+alternative offered was demobilisation, which is a few days sooner and a weaker artefact. Settled —
+not to be revisited without a reason from the field.
 
 ### The shape of this class of bug
 

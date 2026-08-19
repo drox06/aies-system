@@ -109,6 +109,19 @@ export const financeManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "finance.override_billing_gate",
+      label: "Raise a final statement before the work is signed off",
+      group: "Finance",
+      /**
+       * §4 names the holders: "the president and vice president only".
+       *
+       * The gate's seven conditions are the things a customer can point at when disputing a final
+       * bill, so setting them aside is a commercial risk rather than an administrative shortcut —
+       * and the reason it demands is what AIES has to stand on if the dispute comes.
+       */
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
       key: "ar.view",
       label: "See what customers owe",
       group: "Finance",

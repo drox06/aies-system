@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import { emit } from "@/server/core/events/emit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
+import { finalBillingGate } from "./final-billing-gate";
 import {
   ageingBucket,
   checkAllocation,
@@ -61,6 +62,15 @@ export interface RaiseStatementInput {
   tcCertificateRef?: string | null;
   notes?: string | null;
   terms?: string | null;
+  /**
+   * §4's override, for a final statement the gate is refusing.
+   *
+   * `finance.override_billing_gate` — president and vice-president only — and it needs a reason.
+   * Present as a string rather than a boolean because §4 asks for a *logged* reason: a flag would
+   * record that somebody overrode the gate without recording why, which is the half of the audit
+   * trail that matters when the customer disputes the bill nine months later.
+   */
+  overrideGateReason?: string | null;
 }
 
 /**
@@ -84,6 +94,54 @@ export async function raiseStatementService(actor: ActorMeta, input: RaiseStatem
   });
   if (!account) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
+  }
+
+  /**
+   * §4's final billing gate.
+   *
+   * Only a `final` statement. A downpayment demanded before any work starts is the whole point of a
+   * downpayment, and a progress bill is by definition raised mid-project — gating either on a closed
+   * project would make the platform refuse the terms the company actually sells on.
+   *
+   * The seven conditions are evaluated independently and reported together, so finance chases all of
+   * them in one pass rather than discovering them one refusal at a time.
+   */
+  if ((input.type ?? "progress") === "final" && input.salesOrderId) {
+    const gate = await finalBillingGate(input.salesOrderId);
+
+    if (!gate.ok && !input.overrideGateReason?.trim()) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          `A final statement cannot be issued yet — ${gate.blockers.length} thing` +
+          `${gate.blockers.length === 1 ? "" : "s"} outstanding. ` +
+          gate.blockers
+            .map(
+              (blocker) =>
+                `${blocker.label} (${blocker.owner}${blocker.detail ? `: ${blocker.detail}` : ""})`,
+            )
+            .join("; ") +
+          ". Somebody with finance.override_billing_gate can proceed anyway with a reason.",
+      });
+    }
+
+    if (!gate.ok && input.overrideGateReason?.trim()) {
+      // Recorded before the statement is written, so the reason survives even if the write fails.
+      await writeAuditLog(db, {
+        actorId: actor.actorId,
+        actorLabel: actor.actorLabel,
+        action: "billing_gate_overridden",
+        entityType: BILLING_STATEMENT_ENTITY_TYPE,
+        entityId: input.salesOrderId,
+        summary:
+          `Raised a final statement past ${gate.blockers.length} unmet condition` +
+          `${gate.blockers.length === 1 ? "" : "s"} (${gate.blockers.map((b) => b.key).join(", ")}) ` +
+          `— ${input.overrideGateReason.trim()}`,
+        ip: actor.ip,
+        userAgent: actor.userAgent,
+        requestId: actor.requestId,
+      });
+    }
   }
 
   const vatMode: VatMode = input.vatMode ?? "exclusive";
