@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui/layout";
+import { NewChecklist } from "./NewChecklist";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { trpc } from "@/lib/trpc/client";
 
@@ -50,6 +51,16 @@ export default function ChecklistsPage() {
         title="Checklists"
         description="The procedures work is confirmed against. A published version is never edited — revising one creates the next."
       />
+
+      {/*
+        Creating one, which this screen could not do.
+
+        It nearly read as dead code: `saveChecklistDraft` was wired and looked like it superseded
+        `createChecklistTemplate`. It does not — `saveDraftService` requires an existing template and
+        only edits. The eleven seeded checklists could be revised forever and a twelfth could never
+        exist. docs/DECISIONS.md #135's triage, corrected.
+      */}
+      {canManage && <NewChecklist onCreated={() => void templates.refetch()} />}
 
       {templates.isPending && <p className="text-sm text-text-muted">Loading…</p>}
       {templates.error && <p className="text-sm text-danger">{templates.error.message}</p>}
