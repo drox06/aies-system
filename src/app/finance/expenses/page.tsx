@@ -244,7 +244,10 @@ function SubmitExpense({ onDone, onCancel }: { onDone: () => void; onCancel: () 
   const parsed = Number(amount);
   const canSubmit =
     projectId !== "" &&
-    description.trim().length >= 3 &&
+    // The same two conditions the service enforces. Mirrored rather than guessed at: a button that
+    // enables and then fails is worse than one that stays disabled with the reason above it.
+    description.trim().length >= 15 &&
+    description.trim().split(/\s+/).filter(Boolean).length >= 3 &&
     Number.isFinite(parsed) &&
     parsed > 0 &&
     expenseDate !== "";
@@ -350,7 +353,8 @@ function SubmitExpense({ onDone, onCancel }: { onDone: () => void; onCancel: () 
             onChange={(event) => setDescription(event.target.value)}
           />
           <p className="mt-1 text-xs text-text-muted">
-            A category alone cannot be argued with six months later.
+            A few words at least — what was bought or done, and for which part of the job. One word
+            just repeats the category, and six months later it cannot be told from any other.
           </p>
         </div>
       </div>

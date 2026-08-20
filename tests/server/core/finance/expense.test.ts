@@ -100,7 +100,9 @@ describe("recording a cost bought in for a job", () => {
         category: "rental",
         expenseDate: new Date(),
         amount: 5_000,
-        description: "Scaffold hire.",
+        // A description that passes its own rule, so this test isolates the charged-to-nothing
+        // refusal rather than tripping the one above it.
+        description: "Scaffold hire for the pump house platform",
         projectId: null,
         salesOrderId: null,
       }),
@@ -126,6 +128,35 @@ describe("recording a cost bought in for a job", () => {
     const project = await makeProject();
     // A category alone cannot be argued with six months later, and §6 exists so a cost can be.
     await expect(submit(project.id, { description: "x" })).rejects.toThrow(/Say what it was for/);
+  }, 60_000);
+
+  it("refuses a one-word description, which the first version of this rule let through", async () => {
+    const project = await makeProject();
+
+    /*
+      The company caught this walking the screen on 2026-08-20: the rule was `length < 3`, so
+      "crane" passed the check that exists to stop exactly that. The minimum was measuring the
+      wrong thing — length, when the problem is that a single word just repeats the category.
+    */
+    await expect(submit(project.id, { description: "crane" })).rejects.toThrow(
+      /Say what it was for/,
+    );
+    // Long enough by characters, still one word. Both conditions have to hold.
+    await expect(submit(project.id, { description: "cranehirefortheday" })).rejects.toThrow(
+      /Say what it was for/,
+    );
+  }, 60_000);
+
+  it("accepts a short but genuine description without demanding padding", async () => {
+    const project = await makeProject();
+
+    // 36 characters, five words, and a perfectly good answer. A threshold that rejected this would
+    // teach people to pad, which is worse than a short description.
+    const created = await submit(project.id, {
+      description: "Crane and riggers for the valve lift",
+    });
+    const saved = await db.expense.findUniqueOrThrow({ where: { id: created.id } });
+    expect(saved.description).toBe("Crane and riggers for the valve lift");
   }, 60_000);
 });
 

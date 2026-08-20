@@ -2,11 +2,62 @@ import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
+import { notify } from "@/server/core/notify/notify";
+import { registerNotificationType } from "@/server/core/notify/registry";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import { EXPENSE_CATEGORY_LABELS, type ExpenseCategory } from "@/server/core/finance/expense-rules";
 
 export const EXPENSE_ENTITY_TYPE = "Expense";
 export const EXPENSE_DOCUMENT_TYPE = "expense";
+
+export const EXPENSE_SUBMITTED_NOTIFICATION_TYPE = "expense.submitted";
+export const EXPENSE_DECIDED_NOTIFICATION_TYPE = "expense.decided";
+
+/*
+  Asked for by the company on 2026-08-20, and it is the answer to a real objection.
+
+  §6 refuses to let anybody approve their own expense, which leaves a gap AIES actually has: the
+  President arranges a crane at nine at night, submits it, and nobody else is online. Without a
+  notification that cost is invisible until somebody happens to open the screen — and an invisible
+  cost is exactly what the refusal was protecting the margin from in the first place.
+
+  So the control stays and the silence goes: whoever can approve is told the moment it is submitted.
+*/
+registerNotificationType({
+  key: EXPENSE_SUBMITTED_NOTIFICATION_TYPE,
+  label: "A cost was recorded against a job and needs approving",
+  // Not coalesced. Each expense is a separate decision with its own amount and its own reason, and
+  // rolling three into "3 expenses waiting" would make somebody open the screen to find out what
+  // they are — which is the trip the notification exists to save.
+  defaultChannels: { inApp: true, email: false, digest: true },
+});
+
+registerNotificationType({
+  key: EXPENSE_DECIDED_NOTIFICATION_TYPE,
+  label: "A cost you recorded was approved or rejected",
+  defaultChannels: { inApp: true, email: false, digest: true },
+});
+
+/**
+ * Everybody who could approve this, minus the person who submitted it.
+ *
+ * Excluding the submitter matters: the service refuses their approval anyway, so telling them the
+ * thing they cannot do is waiting for them is noise — and noise in a notification list is how the
+ * useful ones stop being read.
+ */
+async function approversOtherThan(submitterId: string) {
+  return db.user.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      id: { not: submitterId },
+      roles: {
+        some: { role: { permissions: { some: { permission: { key: "expense.approve" } } } } },
+      },
+    },
+    select: { id: true },
+  });
+}
 
 /**
  * §6's direct expenses — the costs that arrive on paper rather than through another module.
@@ -61,12 +112,28 @@ export async function submitExpenseService(
     });
   }
 
-  if (input.description.trim().length < 3) {
+  /*
+    A real sentence, not a word.
+
+    This was `length < 3`, which let "crane" through — and the company caught it walking the
+    screen: a one-word description passed the check that exists to stop one-word descriptions. The
+    minimum was measuring the wrong thing. "Crane" is a repeat of the category, and six months later
+    it cannot be told from any other crane on any other day.
+
+    Two conditions rather than one, because either alone is gameable: enough characters to be a
+    phrase, and enough words that a single long noun does not satisfy it. Deliberately not longer —
+    "Crane and riggers for the valve lift" is 36 characters and is a perfectly good answer, and a
+    threshold that rejected it would teach people to pad.
+  */
+  const description = input.description.trim();
+  const words = description.split(/\s+/).filter(Boolean);
+  if (description.length < 15 || words.length < 3) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        "Say what it was for. A category alone cannot be argued with six months later, and §6 " +
-        "exists so a cost can be argued with.",
+        "Say what it was for in a few words — what was bought or done, and for which part of the " +
+        "job. A word or two repeats the category, and §6 exists so a cost can be argued with six " +
+        "months later.",
     });
   }
 
@@ -102,7 +169,7 @@ export async function submitExpenseService(
           input.vatAmount === null || input.vatAmount === undefined
             ? null
             : input.vatAmount.toFixed(2),
-        description: input.description.trim(),
+        description,
         projectId: input.projectId ?? null,
         salesOrderId: input.salesOrderId ?? null,
         ticketId: input.ticketId ?? null,
@@ -126,7 +193,7 @@ export async function submitExpenseService(
         `Submitted ${row.number} — ${EXPENSE_CATEGORY_LABELS[input.category]}, ` +
         `PHP ${input.amount.toFixed(2)}` +
         (input.vendorName ? ` to ${input.vendorName.trim()}` : "") +
-        `: ${input.description.trim()}`,
+        `: ${description}`,
       ip: actor.ip,
       userAgent: actor.userAgent,
       requestId: actor.requestId,
@@ -134,6 +201,42 @@ export async function submitExpenseService(
 
     return row;
   });
+
+  /*
+    Told, not left to be found.
+
+    Outside the transaction and swallowed on failure, exactly as billing-service does it: the expense
+    is recorded whatever the notification does, and a notify that throws must never roll back a cost
+    somebody has correctly entered. A missing bell is an annoyance; a lost expense is a wrong margin.
+  */
+  try {
+    const project = input.projectId
+      ? await db.project.findUnique({
+          where: { id: input.projectId },
+          select: { code: true, name: true },
+        })
+      : null;
+
+    for (const approver of await approversOtherThan(actor.actorId)) {
+      await notify({
+        recipientId: approver.id,
+        type: EXPENSE_SUBMITTED_NOTIFICATION_TYPE,
+        title: `${actor.actorLabel} recorded PHP ${input.amount.toFixed(2)} against ${
+          project?.code ?? "a job"
+        }`,
+        // The amount and the reason in the body, so the decision can be made from the bell rather
+        // than only from the screen.
+        body:
+          `${created.number} — ${EXPENSE_CATEGORY_LABELS[input.category]}` +
+          (input.vendorName ? `, ${input.vendorName.trim()}` : "") +
+          `: ${description}`,
+        entityType: EXPENSE_ENTITY_TYPE,
+        entityId: created.id,
+      });
+    }
+  } catch {
+    // Deliberately swallowed. See the note above.
+  }
 
   return { id: created.id, number: created.number };
 }
@@ -203,6 +306,27 @@ export async function decideExpenseService(
       requestId: actor.requestId,
     });
   });
+
+  /*
+    And the person who submitted it is told what happened.
+
+    A rejection especially: §6 makes the approver write down why, and a reason nobody reads is a
+    reason nobody acts on. Same swallow — the decision is already committed.
+  */
+  try {
+    await notify({
+      recipientId: expense.submittedById,
+      type: EXPENSE_DECIDED_NOTIFICATION_TYPE,
+      title: input.approve ? `${expense.number} was approved` : `${expense.number} was rejected`,
+      body: input.approve
+        ? `${actor.actorLabel} approved it. It now counts against the job.`
+        : `${actor.actorLabel} rejected it — ${reason}`,
+      entityType: EXPENSE_ENTITY_TYPE,
+      entityId: expense.id,
+    });
+  } catch {
+    // Deliberately swallowed.
+  }
 
   return { status: input.approve ? ("approved" as const) : ("rejected" as const) };
 }
