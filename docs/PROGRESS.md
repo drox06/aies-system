@@ -3048,9 +3048,82 @@ pay has changed the situation, and the worklist says so in words.
 **The credit limit warns rather than blocks**, by §5's own default. A block people meet daily gets
 answered by raising the limit until it never bites, and then the control is gone.
 
-**Next concrete step — session 5:** §5b's finance side of cash advances — the release queue sorted by
-`neededBy`, release recording that emits `cash_advance.released`, and the outstanding advances
-register with ageing. Module 04 owns the records; this is the money.
+### Session 5 — §4's downpayment gate, connected at both ends (2026-08-20)
+
+Module 05's first job turned out to be finishing module 03's. `createSalesOrderFromPoService`
+hardcoded `downpaymentPct: 0` and `financeStatus: "not_required"` behind a comment saying module 05
+would wire it "when the terms exist". They existed from session 1 and nobody came back, so **no order
+ever reached the gate** — procurement was ungated on the customer's money while looking gated.
+
+Orders now take the downpayment from the quotation's payment term, with the amount computed from the
+order's own total so finance never chases a figure the order does not show. And finance can record
+the money arriving, with a reference, which never existed either — wiring only the first half would
+have swapped an invisible hole for a visible deadlock.
+
+**A placeholder with a plausible value is invisible.** `not_required` is a legitimate state, so
+nothing looked wrong on a screen, in a test or in the schema. One that threw, or that was null on a
+non-nullable column, would have been found the same afternoon.
+
+### Session 6 — §5b's release queue (2026-08-20)
+
+Approved advances awaiting the money, soonest needed first, at `/finance/releases`. A screen of its
+own rather than a filter on the register, because the two ask opposite questions: the register asks
+what is outstanding, sorted by liquidation deadline; this asks who is waiting. An advance approved
+this morning for a crew leaving tomorrow has no liquidation date yet, so on the register it sits near
+the bottom — exactly where §5b says it must not be.
+
+Nothing new is modelled: §5b says finance must not duplicate module 04's model, so this reads
+`CashAdvance` and links to the record where module 04's release action already lives. Visible to
+operations, as §5b asks by name.
+
+### Session 7 — §6's cost capture and project P&L (2026-08-20)
+
+A **Profitability** panel on every project: quoted margin against actual, and the gap in percentage
+points. §6's own justification — *"the single most useful number the platform can give management,
+because today it is unknowable"*.
+
+Costs are **read through, not posted**. No `ProjectCost` ledger: it doubles every write path, goes
+stale when a source is corrected, and makes "why is this figure what it is" unanswerable without a
+reconciliation. When scale makes that too slow, the fix is a snapshot checked *against* the live
+query — not a ledger that becomes the only truth.
+
+Three things were missing and are added: `Expense` for direct costs (deliberately not a second
+`FieldExpense`, which is a technician's out-of-pocket spend under a different approval), `CostRate` as
+a **history rather than a setting**, and `StockItem.lastPurchaseCost` — without which materials
+leaving the store were invisible and every job drawing on stock looked more profitable than it was.
+
+**Every absence is reported rather than absorbed, because they all push the same way.** Timesheet days
+with no rate, stock issues with no cost, and a project with no linked order are each stated beside the
+figure. A screen showing 34% without saying "eleven days have no rate" is worse than one showing
+nothing, because somebody acts on it.
+
+Rework is a **count of failed QA rounds, not a peso figure**: the hours are already inside labour and
+travel, and splitting them needs a link from a timesheet to the round that caused it, which module 04
+does not record. `pnl.view` is narrower than the rest of finance — labour cost over hours is close
+enough to somebody's pay that this cannot be an ordinary report.
+
+### Session 8 — §7 and §8, rules first (2026-08-20)
+
+Schemas and pure rules for payables and the accounting export, with 20 tests. **The services and
+screens are not built yet** — this is the half that decides what is true, committed before the half
+that displays it.
+
+§7's three-way match keeps its four findings apart rather than summing them, because the conversation
+with the supplier differs in each case: goods invoiced and never delivered look identical to a price
+rise on a summary screen, and only one of those is theft. An invoice with no purchase order is
+reported rather than refused — the goods may have arrived — but never silently, because it is how
+clause 8.4 gets bypassed after the fact. Tolerance is one peso, absolute; a percentage would wave
+through ₱20,000 on a ₱2,000,000 order.
+
+§8's weight is in one clause: a period must not be exported twice *unnoticed*. Double-posting a month
+is not caught by the accounting package — it balances perfectly and reports that AIES earned twice
+what it did. Each run records a hash of its own content, and a repeat is **warned about rather than
+refused**, with different advice depending on whether the figures changed. A flat refusal gets worked
+around by exporting under another filename, which loses the record entirely.
+
+**Next concrete step — session 9:** the payables service and screen (supplier invoice recording, the
+match run against its PO and receipts, the ageing list), then the export service and screen. Those two
+finish module 05.
 
 ## Not started
 - [ ] Modules 05–10
