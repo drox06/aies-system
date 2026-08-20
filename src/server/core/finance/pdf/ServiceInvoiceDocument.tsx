@@ -94,30 +94,6 @@ export function ServiceInvoiceDocument({
     <Document title={invoice.number}>
       <Page size="A4" style={pdfStyles.page}>
         {/*
-          The watermark, drawn first so everything else sits over it.
-
-          Light enough to read through — a reference copy is a working sheet somebody transcribes
-          figures from, and a watermark dark enough to obscure a digit would defeat the only purpose
-          the document has. `fixed` so it repeats if the statement list ever runs to a second page.
-        */}
-        <Text
-          fixed
-          style={{
-            position: "absolute",
-            top: 330,
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            fontFamily: "Helvetica-Bold",
-            fontSize: 62,
-            color: PDF_COLORS.border,
-            transform: "rotate(-28deg)",
-          }}
-        >
-          REFERENCE
-        </Text>
-
-        {/*
           The cancellation, first and unmissable.
 
           A cancelled invoice that looks like a valid one is worse than no document — somebody will
@@ -246,15 +222,7 @@ export function ServiceInvoiceDocument({
           a class leaves the reader unable to tell "none" from "not considered" — the same rule this
           platform applies to an empty cost category or an unanswered warranty date.
         */}
-        <View
-          style={{
-            marginTop: 16,
-            backgroundColor: PDF_COLORS.surface2,
-            padding: 10,
-            width: 280,
-            alignSelf: "flex-end",
-          }}
-        >
+        <View style={{ marginTop: 16, width: 280, alignSelf: "flex-end" }}>
           <Row label="VAT-able sales" value={peso(invoice.vatableSales)} />
           <Row label="VAT-exempt sales" value={peso(invoice.vatExemptSales)} />
           <Row label="Zero-rated sales" value={peso(invoice.zeroRatedSales)} />
@@ -312,6 +280,34 @@ export function ServiceInvoiceDocument({
           read "this serves as your official receipt", which was a claim the platform is not
           entitled to make and which a customer could reasonably have filed as one.
         */}
+        {/*
+          The watermark, painted last so it sits over the content rather than under it.
+
+          @react-pdf paints in document order, so "on top" means "written last" — it was drawn first
+          and therefore behind, which on a page this dense meant it barely read at all.
+
+          Over the top means it has to be much lighter than it would need to be underneath: this is a
+          working sheet somebody transcribes figures from, and a watermark that obscures a single
+          digit destroys the only purpose the document has. `surface2` is the palest token in the
+          set. `fixed` so it repeats if the statement list ever runs to a second page.
+        */}
+        <Text
+          fixed
+          style={{
+            position: "absolute",
+            top: 330,
+            left: 0,
+            right: 0,
+            textAlign: "center",
+            fontFamily: "Helvetica-Bold",
+            fontSize: 62,
+            color: PDF_COLORS.surface2,
+            transform: "rotate(-28deg)",
+          }}
+        >
+          REFERENCE
+        </Text>
+
         <Text
           fixed
           style={{
