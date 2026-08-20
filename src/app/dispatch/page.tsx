@@ -12,6 +12,7 @@ import {
   type CardState,
   type UnavailabilityKind,
 } from "@/server/core/operations/dispatch-rules";
+import { Unavailability } from "./Unavailability";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -221,6 +222,16 @@ export default function DispatchPage() {
       )}
 
       {/* §17: "the number sales needs before promising a date". */}
+      {/*
+        Who is away, on the board that schedules them — §17's question is "who can I send on
+        Thursday", and the answer belongs where it is asked rather than three clicks into an admin
+        screen. It had no screen at all until 2026-08-20.
+      */}
+      <Unavailability
+        from={weekDate}
+        to={new Date(weekDate.getTime() + 27 * 24 * 60 * 60 * 1000)}
+      />
+
       {capacity.data && (
         <Card className="mt-4 p-3">
           <h2 className="text-sm font-semibold">Capacity, next four weeks</h2>

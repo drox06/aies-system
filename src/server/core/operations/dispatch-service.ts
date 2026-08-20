@@ -574,11 +574,35 @@ export async function recordUnavailabilityService(
   });
 }
 
+/**
+ * Who is away over a window, with their names.
+ *
+ * `TechnicianAvailability` carries a `userId` and no relation, so the names are fetched rather than
+ * joined. Worth the second query for the same reason every other list here does it: a dispatcher
+ * reading "cmt1f… is on leave" cannot act on it, and a board that cannot be acted on is decoration.
+ */
 export async function listUnavailabilityService(input: { from: Date; to: Date }) {
-  return db.technicianAvailability.findMany({
+  const rows = await db.technicianAvailability.findMany({
     where: { deletedAt: null, toDate: { gte: input.from }, fromDate: { lte: input.to } },
     orderBy: { fromDate: "asc" },
   });
+  if (rows.length === 0) return [];
+
+  const users = await db.user.findMany({
+    where: { id: { in: [...new Set(rows.map((row) => row.userId))] } },
+    select: { id: true, name: true },
+  });
+  const nameById = new Map(users.map((user) => [user.id, user.name]));
+
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.userId,
+    userName: nameById.get(row.userId) ?? null,
+    fromDate: row.fromDate,
+    toDate: row.toDate,
+    kind: row.kind,
+    notes: row.notes,
+  }));
 }
 
 export async function removeUnavailabilityService(actor: ActorMeta, input: { id: string }) {

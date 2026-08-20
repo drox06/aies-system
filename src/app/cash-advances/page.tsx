@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { DateCell } from "@/components/ui/cells";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
+import { Button } from "@/components/ui/button";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -177,6 +179,20 @@ export default function CashAdvanceRegisterPage() {
                       <p className="mt-0.5 max-w-xs text-xs text-text-muted">
                         {row.standing.message}
                       </p>
+                      {/*
+                        A draft advance could be created and never sent for approval.
+
+                        `requestCashAdvance` was wired from the ticket and `submitCashAdvance` was
+                        not, so §5's loop ran request → dead end: the money was never asked for and
+                        the crew found out at the site. docs/DECISIONS.md #135's triage.
+                      */}
+                      {row.status === "draft" && (
+                        <SendForApproval
+                          id={row.id}
+                          number={row.number}
+                          onSent={() => void advances.refetch()}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -192,5 +208,44 @@ export default function CashAdvanceRegisterPage() {
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
     <th className={`px-3 py-2 text-xs font-medium text-text-muted ${className}`}>{children}</th>
+  );
+}
+
+/**
+ * Sending a draft advance for approval.
+ *
+ * The one press §5's loop was missing. `requestCashAdvance` creates the draft from the ticket;
+ * without this the draft sits where nobody is looking, because a draft is not in anybody's queue —
+ * that is what being a draft means.
+ *
+ * Only the person who raised it can send it, which the service enforces. Somebody else submitting
+ * your request would put your name on numbers you had not finished checking.
+ */
+function SendForApproval({
+  id,
+  number,
+  onSent,
+}: {
+  id: string;
+  number: string;
+  onSent: () => void;
+}) {
+  const submit = trpc.operations.submitCashAdvance.useMutation({
+    onSuccess: () => {
+      toastSuccess(`${number} sent for approval.`);
+      onSent();
+    },
+    onError: toastError,
+  });
+
+  return (
+    <Button
+      size="sm"
+      className="mt-1.5"
+      disabled={submit.isPending}
+      onClick={() => submit.mutate({ cashAdvanceId: id })}
+    >
+      {submit.isPending ? "Sending…" : "Send for approval"}
+    </Button>
   );
 }
