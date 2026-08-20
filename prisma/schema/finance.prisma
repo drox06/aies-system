@@ -192,3 +192,99 @@ model CostRate {
   @@unique([userId, effectiveFrom])
   @@index([userId, effectiveFrom])
 }
+
+
+/// §7's supplier invoice — the third leg of the three-way match.
+///
+/// §7 is deliberately "payables (light)": track supplier invoices against supplier POs, match them,
+/// age them, and stop. **No payment run, no bank integration** — the spec says so, and the reason is
+/// that a payment run is where an ERP starts needing bank mandates, approval limits and segregation
+/// of duties, none of which AIES has asked for and all of which are expensive to get half right.
+///
+/// What this does buy is the question that actually costs money: *are we about to pay for something
+/// we did not receive, at a price we did not agree?* That is the three-way match, and doing it by eye
+/// across a PO, a receiving report and an invoice is where an overcharge survives.
+model SupplierInvoice {
+  id     String @id @default(cuid())
+  /// AIESSI-{YY}{####}. AIES's own reference — the supplier's is `supplierRef`, and both are needed
+  /// because every follow-up call quotes theirs.
+  number String @unique
+
+  supplierId   String
+  supplierPOId String?
+
+  /// The supplier's own invoice number, as printed on their document.
+  supplierRef String
+  invoiceDate DateTime
+  dueDate     DateTime?
+
+  amount    Decimal  @db.Decimal(14, 2)
+  vatAmount Decimal? @db.Decimal(14, 2)
+  currency  String   @default("PHP")
+
+  /// draft | matched | disputed | approved | paid (§7).
+  ///
+  /// `matched` and `disputed` are the outcome of the three-way check rather than somebody's opinion:
+  /// an invoice that agrees with the PO and the receipt is matched, one that does not is disputed
+  /// **with the difference recorded**, and neither can be skipped on the way to `approved`.
+  status String @default("draft")
+
+  /// What the match found, kept because the answer is a fact about a moment. Re-running it later
+  /// against a PO somebody has since amended would quietly change what was disputed and why.
+  /// [{ kind, expected, actual, note }]
+  matchFindings Json @default("[]")
+
+  /// Why it was approved despite a dispute. Null unless somebody overrode the match.
+  disputeOverrideReason String?
+
+  receiptFileIds String[] @default([])
+  notes          String?
+
+  recordedById String
+  approvedById String?
+  approvedAt   DateTime?
+  paidAt       DateTime?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([supplierId, status])
+  @@index([supplierPOId])
+  @@index([status, dueDate])
+}
+
+/// §8's record that a period was exported, so it is not exported twice unnoticed.
+///
+/// §8 asks for export runs to be recorded, and the reason is in the phrasing: *"so the same period is
+/// not exported twice unnoticed."* Double-posting a month into an accounting package is not caught by
+/// the package — it balances perfectly and simply says the company earned twice what it did.
+///
+/// The row is written **after** a successful export and carries a count of what went into it, so the
+/// next person can see not only that August was exported but that it was exported with 214 rows,
+/// which is the number to argue with if their ledger disagrees.
+model AccountingExport {
+  id     String @id @default(cuid())
+  number String @unique
+
+  /// invoices | payments | expenses | supplier_bills
+  dataset String
+  /// The layout the columns were written in — see EXPORT_PRESETS.
+  preset  String
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  rowCount Int
+  /// A hash of the exported content, so re-running a period can say whether anything actually
+  /// changed since — a second export of an unchanged month is harmless, and one of a changed month
+  /// is the thing somebody needs to know about.
+  contentHash String
+
+  exportedById String
+  exportedAt   DateTime @default(now())
+
+  @@index([dataset, periodStart])
+}
