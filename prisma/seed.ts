@@ -364,6 +364,15 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   { documentType: "billing_statement", format: "AIESBS-{YY}{####}", label: "Billing Statement" },
   { documentType: "service_invoice", format: "AIESSI-{YY}{#####}", label: "Service Invoice" },
   { documentType: "payment", format: "AIESPMT-{YY}{#####}", label: "Payment" },
+  // §6's direct expenses and §7's supplier bills.
+  //
+  // `AIESSB` rather than `AIESSI` for the supplier bill: `AIESSI` is the *service invoice* above,
+  // the BIR-tracked document AIES issues to a customer. Two documents sharing a prefix — one owed to
+  // AIES and one owed by it — is the sort of collision that is obvious in a schema and invisible on a
+  // printed page somebody is filing.
+  { documentType: "expense", format: "AIESEXP-{YY}{####}", label: "Expense" },
+  { documentType: "supplier_invoice", format: "AIESSB-{YY}{####}", label: "Supplier Bill" },
+  { documentType: "accounting_export", format: "AIESAX-{YY}{####}", label: "Accounting Export" },
   // specs/04-operations-projects.md §6.1. Not in Spec.md §5's table either, and it needs one for the
   // same reason `project` did: an inspection report is a document the company hands to a customer
   // when the survey changes the scope, and "the one from last Tuesday" is not a reference.

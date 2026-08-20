@@ -206,7 +206,7 @@ model CostRate {
 /// across a PO, a receiving report and an invoice is where an overcharge survives.
 model SupplierInvoice {
   id     String @id @default(cuid())
-  /// AIESSI-{YY}{####}. AIES's own reference — the supplier's is `supplierRef`, and both are needed
+  /// AIESSB-{YY}{####} — "supplier bill", because AIESSI is the service invoice AIES issues. AIES's own reference — the supplier's is `supplierRef`, and both are needed
   /// because every follow-up call quotes theirs.
   number String @unique
 

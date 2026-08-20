@@ -2,6 +2,11 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { releaseQueueService } from "@/server/core/finance/cash-advance-queue";
 import { projectPnlService } from "@/server/core/finance/project-pnl-service";
+import {
+  approveSupplierInvoiceService,
+  payablesService,
+  recordSupplierInvoiceService,
+} from "@/server/core/finance/payables-service";
 import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
@@ -254,4 +259,37 @@ export const financeRouter = router({
   projectPnl: p("pnl.view")
     .input(z.object({ projectId: z.string() }))
     .query(({ input }) => projectPnlService(input.projectId)),
+
+  /** §7's payables list, aged, with the disputed ones counted. */
+  payables: p("payables.manage")
+    .input(z.object({ openOnly: z.boolean().optional() }).optional())
+    .query(({ input }) => payablesService(input ?? {})),
+
+  /**
+   * Record a supplier's bill, and match it against the order and what was received.
+   *
+   * The match runs here rather than on demand, and its findings are stored: a dispute is a fact
+   * about a moment, and re-deriving it later against an amended order would change what somebody is
+   * telephoning the supplier about.
+   */
+  recordSupplierInvoice: p("payables.manage")
+    .input(
+      z.object({
+        supplierId: z.string(),
+        supplierPOId: z.string().nullish(),
+        supplierRef: z.string().min(1).max(100),
+        invoiceDate: z.coerce.date(),
+        dueDate: z.coerce.date().nullish(),
+        amount: z.number().positive(),
+        vatAmount: z.number().nullish(),
+        currency: z.string().max(3).optional(),
+        notes: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordSupplierInvoiceService(actorMeta(ctx), input)),
+
+  /** Clear a bill for payment. A disputed one needs a written reason. */
+  approveSupplierInvoice: p("payables.manage")
+    .input(z.object({ id: z.string(), overrideReason: z.string().max(2000).nullish() }))
+    .mutation(({ ctx, input }) => approveSupplierInvoiceService(actorMeta(ctx), input)),
 });

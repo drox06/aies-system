@@ -124,6 +124,17 @@ export const financeManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "payables.manage",
+      label: "Record and approve supplier bills",
+      group: "Finance",
+      /*
+        §7 does not build a payment run, so this is "cleared to pay" rather than "paid" — but it is
+        still the act that lets money leave, and the override on a failed three-way match sits behind
+        it. Held where the other money permissions are held.
+      */
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
+    {
       key: "pnl.view",
       label: "See project profitability",
       group: "Finance",
@@ -266,6 +277,16 @@ export const financeManifest = defineManifest({
       icon: "phone",
       group: "Finance",
       order: 4,
+    },
+    {
+      // §7's payables. Last in the group: money out is checked less often than money in, and the
+      // ordering follows how a finance day actually runs.
+      label: "Payables",
+      href: "/finance/payables",
+      icon: "clipboard-list",
+      permission: "payables.manage",
+      group: "Finance",
+      order: 5,
     },
   ],
 });
