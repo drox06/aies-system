@@ -4502,3 +4502,40 @@ That guard is real but narrow. **The one that would have caught all three of the
 and is not obviously cheap: a mutation with no caller is a legitimate state during a build, and a test
 that forbade it would fire on every half-finished session. The honest answer for now is the question,
 asked deliberately at the end of a session rather than trusted to occur to me.
+
+---
+
+## #134 — The screen threw away the two numbers the finding was made of
+
+**2026-08-20.** `threeWayMatch` has computed `expected` and `actual` on every finding since §7's first
+commit. The payables screen rendered `finding.note` and dropped both.
+
+So a `quantity` finding — the expensive one, goods billed and never delivered — read:
+
+> *"The invoice is for more than has been received and accepted. Either goods are still to come, or
+> AIES is being billed for something that never arrived."*
+
+True, and not actionable. Somebody would know a bill was wrong and would have to go and reconstruct
+the comparison themselves before they could telephone anybody. §7's stated purpose is that a person
+can act on the finding; the missing half was already in the record.
+
+**The comment above that render claimed the opposite** — *"Each finding names what was expected, what
+arrived, and which conversation it is"* — describing behaviour the code did not have. That is worse
+than no comment: it is a false assurance sitting exactly where somebody checking would look.
+
+**How it was found is the part worth keeping.** I asked the company to judge, on their walkthrough,
+whether the wording read well enough to ring a supplier about. Then I read the render and answered it
+myself in thirty seconds. **A question I can answer by looking is not a question to ask a reviewer.**
+Their attention is the scarcest thing in this project and it should be spent on judgements only they
+can make — whether self-approval is too strict for a company their size, whether "urgent a day early"
+cries wolf — not on defects I could have found.
+
+**The labels differ by kind**, in `findingComparison`. A `price` finding compares the **order**; a
+`quantity` finding compares the **goods receipt**. A generic *expected / actual* pair would be the
+same mistake as summing the findings into one variance: technically true and useless on the phone,
+because those are two different documents and two different people to ring. `no_receipt` and
+`no_order` return null — printing "expected ₱0.00" would invent a comparison nobody performed, which
+is the absent-is-not-zero rule this platform applies everywhere else.
+
+The **difference** gets its own line, because it is the sentence a person actually says: not "your
+invoice disagrees with our receipt" but "you have billed us for ₱75,000 of goods that never arrived."

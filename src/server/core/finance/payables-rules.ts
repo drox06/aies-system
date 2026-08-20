@@ -147,3 +147,48 @@ export function payableAgeing(
   if (days <= 90) return "61-90";
   return "90+";
 }
+
+/**
+ * The two figures behind a finding, labelled for the kind of comparison it actually is.
+ *
+ * ## Why this exists
+ *
+ * `threeWayMatch` computed `expected` and `actual` on every finding from the first commit, and the
+ * payables screen rendered only `note` — throwing both away. So a `quantity` finding read *"the
+ * invoice is for more than has been received"* with no indication of how much more, and the comment
+ * above that render claimed the opposite. The company asked whether the wording was enough to ring a
+ * supplier about; it was not, and the missing part was already sitting in the record.
+ *
+ * ## Why the labels differ by kind
+ *
+ * "Expected" means a different document each time, and a generic *expected / actual* pair would be
+ * the same mistake as summing the findings into one variance — technically true and useless on the
+ * telephone. A price finding compares the **order**; a quantity finding compares the **goods
+ * receipt**. Those are two different people to ring.
+ *
+ * Returns null where there is nothing to compare: `no_receipt` and `no_order` have no expectation,
+ * and printing "expected ₱0.00" would invent a comparison that was never made.
+ */
+export function findingComparison(
+  finding: MatchFinding,
+): { expectedLabel: string; actualLabel: string; difference: number } | null {
+  if (finding.kind === "price") {
+    return {
+      expectedLabel: "Ordered",
+      actualLabel: "Invoiced",
+      difference: finding.actual - finding.expected,
+    };
+  }
+
+  if (finding.kind === "quantity") {
+    return {
+      expectedLabel: "Received and accepted",
+      actualLabel: "Invoiced",
+      // The number to quote down the phone: what AIES is being asked to pay for that has not
+      // arrived. Positive by construction — `quantity` only fires when the invoice is the larger.
+      difference: finding.actual - finding.expected,
+    };
+  }
+
+  return null;
+}

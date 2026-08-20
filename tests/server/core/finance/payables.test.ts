@@ -3,6 +3,7 @@ import {
   MATCH_TOLERANCE,
   payableAgeing,
   threeWayMatch,
+  findingComparison,
 } from "@/server/core/finance/payables-rules";
 
 /**
@@ -106,5 +107,66 @@ describe("how overdue a supplier invoice is", () => {
    */
   it("does not call an invoice with no due date overdue", () => {
     expect(payableAgeing(null, asOf)).toBe("not_due");
+  });
+});
+
+/**
+ * The two figures behind a finding, which the screen threw away for a fortnight.
+ *
+ * `threeWayMatch` has stored `expected` and `actual` on every finding since the first commit, and
+ * the payables screen rendered only `note` — so a `quantity` finding said "the invoice is for more
+ * than has been received" without saying how much more, and somebody could not act on it without
+ * going to work it out. docs/DECISIONS.md #134.
+ *
+ * These pin the labelling, because a generic *expected / actual* pair would be the same mistake as
+ * summing the findings: technically true and useless on the telephone. "Ordered" and "Received and
+ * accepted" are two different documents and two different people to ring.
+ */
+describe("the comparison behind a finding", () => {
+  it("labels a price finding against the order", () => {
+    const match = threeWayMatch({
+      invoiceAmount: 461_000,
+      orderTotal: 428_000,
+      receivedValue: 461_000,
+    });
+    const price = match.findings.find((finding) => finding.kind === "price")!;
+    const comparison = findingComparison(price)!;
+
+    expect(comparison.expectedLabel).toBe("Ordered");
+    expect(comparison.actualLabel).toBe("Invoiced");
+    expect(comparison.difference).toBe(33_000);
+  });
+
+  it("labels a quantity finding against the goods receipt, and gives the amount to quote", () => {
+    // PAY6's order B: two accumulators ordered at 75,000 each, one arrived, both billed.
+    const match = threeWayMatch({
+      invoiceAmount: 150_000,
+      orderTotal: 150_000,
+      receivedValue: 75_000,
+    });
+    const quantity = match.findings.find((finding) => finding.kind === "quantity")!;
+    const comparison = findingComparison(quantity)!;
+
+    expect(comparison.expectedLabel).toBe("Received and accepted");
+    // The sentence a person says down the phone: 75,000 of goods billed that never arrived.
+    expect(comparison.difference).toBe(75_000);
+  });
+
+  it("offers no comparison where none was made", () => {
+    /*
+      `no_receipt` and `no_order` have no expectation to compare against — printing "expected ₱0.00"
+      would invent a comparison nobody performed, which is the same fault as a zero standing in for
+      an absence everywhere else in this platform.
+    */
+    const noOrder = threeWayMatch({ invoiceAmount: 12_000, orderTotal: null, receivedValue: null });
+    expect(findingComparison(noOrder.findings[0]!)).toBeNull();
+
+    const noReceipt = threeWayMatch({
+      invoiceAmount: 96_000,
+      orderTotal: 96_000,
+      receivedValue: 0,
+    });
+    const finding = noReceipt.findings.find((f) => f.kind === "no_receipt")!;
+    expect(findingComparison(finding)).toBeNull();
   });
 });

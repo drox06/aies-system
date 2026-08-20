@@ -7,7 +7,12 @@ import { Input, Label } from "@/components/ui/input";
 import { Card, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { RecordBill } from "./RecordBill";
-import { AGEING_BUCKETS, type AgeingBucket } from "@/server/core/finance/payables-rules";
+import {
+  AGEING_BUCKETS,
+  findingComparison,
+  type AgeingBucket,
+  type MatchFinding,
+} from "@/server/core/finance/payables-rules";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
@@ -156,14 +161,20 @@ export default function PayablesPage() {
                     The findings in words, not a flag.
 
                     "Disputed" tells somebody to look; it does not tell them what to say when they
-                    ring the supplier. Each finding names what was expected, what arrived, and which
-                    conversation it is — a price rise and goods that never came look identical until
-                    somebody writes them down separately.
+                    ring the supplier. Each finding names what was expected, what arrived, the
+                    difference between them, and which conversation it is — a price rise and goods
+                    that never came look identical until somebody writes them down separately.
+
+                    That claim was false until 2026-08-20: this rendered `note` alone and dropped
+                    both figures, which the service had been computing and storing all along. A
+                    comment describing behaviour the code does not have is worse than no comment.
                   */}
                   {row.findings.length > 0 && (
-                    <ul className="mt-2 space-y-1 rounded border-2 border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">
+                    <ul className="mt-2 space-y-1.5 rounded border-2 border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">
                       {row.findings.map((finding, index) => (
-                        <li key={index}>{finding.note}</li>
+                        <li key={index}>
+                          <Finding finding={finding as MatchFinding} currency={row.currency} />
+                        </li>
                       ))}
                     </ul>
                   )}
@@ -268,5 +279,44 @@ function ApproveBill({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * One finding, with the two numbers it was derived from.
+ *
+ * The screen showed `note` alone until 2026-08-20 — so a quantity finding said "the invoice is for
+ * more than has been received" and left somebody to work out how much more before they could ring
+ * anybody. Both figures were already stored on the finding; only the render was throwing them away.
+ *
+ * The **difference** is given its own line because it is the sentence a person actually says on the
+ * telephone: not "your invoice disagrees with our receipt" but "you have billed us for ₱75,000 of
+ * goods that never arrived."
+ */
+function Finding({ finding, currency }: { finding: MatchFinding; currency: string }) {
+  const comparison = findingComparison(finding);
+
+  return (
+    <>
+      <span>{finding.note}</span>
+      {comparison && (
+        <span className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 font-medium">
+          <span>
+            {comparison.expectedLabel}{" "}
+            <span className="tabular">{formatMoney(finding.expected.toFixed(2), currency)}</span>
+          </span>
+          <span>
+            {comparison.actualLabel}{" "}
+            <span className="tabular">{formatMoney(finding.actual.toFixed(2), currency)}</span>
+          </span>
+          <span>
+            Difference{" "}
+            <span className="tabular">
+              {formatMoney(Math.abs(comparison.difference).toFixed(2), currency)}
+            </span>
+          </span>
+        </span>
+      )}
+    </>
   );
 }
