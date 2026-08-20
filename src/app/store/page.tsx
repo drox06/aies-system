@@ -7,6 +7,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Input, Label } from "@/components/ui/input";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -207,6 +208,27 @@ function Stock() {
                     <td className="tabular px-3 py-2 text-right">
                       {item.qtyOnHand.toString()} {item.unit}
                       {low && <p className="text-xs text-amber-800">at or below reorder level</p>}
+                      {/*
+                        A physical count, which could not be recorded before 2026-08-20.
+
+                        `upsertStockItem` could edit the item; nothing could correct the quantity, so
+                        a store whose figure had drifted stayed wrong and §7's material gate went on
+                        deciding against it. docs/DECISIONS.md #135's triage.
+                      */}
+                      {/*
+                        Gated the same way "Add an item" is. Offering a control that will 403 is
+                        worse than not offering it: the person learns the system is unreliable
+                        rather than that the job is not theirs.
+                      */}
+                      {canManage && (
+                        <AdjustStock
+                          id={item.id}
+                          name={item.name}
+                          unit={item.unit}
+                          onHand={item.qtyOnHand.toString()}
+                          onDone={() => void query.refetch()}
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs text-text-muted">{item.location ?? "—"}</td>
                     <td className="px-3 py-2">
@@ -337,5 +359,122 @@ function StockForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
     <th className={`px-3 py-2 text-xs font-medium text-text-muted ${className}`}>{children}</th>
+  );
+}
+
+/**
+ * Recording a physical count.
+ *
+ * ## Why a count and not a delta
+ *
+ * The service takes `countedQty` — what is actually on the shelf — rather than "add 3" or
+ * "remove 2". Somebody standing in the store with a clipboard knows how many there are; asking them
+ * to work out the difference from a figure they already believe is wrong is asking them to do
+ * arithmetic against a number they came to correct. The movement is derived from the gap.
+ *
+ * ## Why it needs a reason
+ *
+ * A stock figure that changes with no explanation is indistinguishable from a mistake, and §7's
+ * material gate decides whether a job can draw materials from exactly this number. "Annual count",
+ * "two found damaged, written off", "issue never recorded" are all different stories, and only the
+ * words separate them.
+ */
+function AdjustStock({
+  id,
+  name,
+  unit,
+  onHand,
+  onDone,
+}: {
+  id: string;
+  name: string;
+  unit: string;
+  onHand: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [counted, setCounted] = useState(onHand);
+  const [reference, setReference] = useState("");
+
+  const adjust = trpc.operations.adjustStock.useMutation({
+    onSuccess: () => {
+      toastSuccess(`${name} set to ${counted} ${unit}.`);
+      setOpen(false);
+      setReference("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="mt-0.5 text-xs text-text-muted underline"
+        onClick={() => {
+          setCounted(onHand);
+          setOpen(true);
+        }}
+      >
+        count
+      </button>
+    );
+  }
+
+  const difference = Number(counted) - Number(onHand);
+
+  return (
+    <div className="mt-1 rounded-md border border-border p-2 text-left">
+      <Label htmlFor={`ct-${id}`}>Counted on the shelf</Label>
+      <Input
+        id={`ct-${id}`}
+        type="number"
+        step="0.001"
+        min="0"
+        value={counted}
+        onChange={(event) => setCounted(event.target.value)}
+      />
+      {Number.isFinite(difference) && difference !== 0 && (
+        <p className="mt-1 text-xs text-amber-700">
+          {difference > 0 ? "+" : ""}
+          {difference} {unit} against the {onHand} recorded. A movement is written for the
+          difference.
+        </p>
+      )}
+
+      <Label htmlFor={`ctr-${id}`} className="mt-2 block">
+        Why it differs
+      </Label>
+      <Input
+        id={`ctr-${id}`}
+        value={reference}
+        placeholder="Annual count; two found damaged and written off."
+        onChange={(event) => setReference(event.target.value)}
+      />
+
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          disabled={
+            adjust.isPending ||
+            counted === "" ||
+            !Number.isFinite(Number(counted)) ||
+            reference.trim().length < 3
+          }
+          onClick={() =>
+            adjust.mutate({
+              stockItemId: id,
+              countedQty: Number(counted),
+              reference: reference.trim(),
+            })
+          }
+        >
+          {adjust.isPending ? "Recording…" : "Record the count"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Discard
+        </Button>
+      </div>
+    </div>
   );
 }
