@@ -293,3 +293,134 @@ describe("§6's service, against a real order", () => {
     expect(pnl.quotedMarginPct).toBeCloseTo(((NET - QUOTED_COST) / NET) * 100, 4);
   }, 60_000);
 });
+
+/**
+ * Cash released and not yet liquidated.
+ *
+ * Found by the company on 2026-08-20, walking the FIN5 job: ₱24,000 released that morning, the P&L
+ * reading 22.41% against a 21.01% quote, and nothing anywhere to say that liquidating the advance
+ * takes it to 18.6% — flipping the job from above its estimate to below it.
+ *
+ * The rule being pinned is a **pair**, and both halves matter: the released cash must not be counted
+ * as cost, and it must not be silent either. §5b is explicit that only approved liquidation lines
+ * post, so folding it into `actualCost` would be wrong — but a margin about to move four points is
+ * not one somebody should decide on unaware.
+ */
+describe("§5b's cash, out but not yet accounted for", () => {
+  const suffix = randomUUID().slice(0, 8);
+  const actor = `adv-${suffix}`;
+
+  const accountIds: string[] = [];
+  const projectIds: string[] = [];
+  const ticketIds: string[] = [];
+  const advanceIds: string[] = [];
+
+  afterAll(async () => {
+    await db.cashAdvance.deleteMany({ where: { id: { in: advanceIds } } });
+    await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
+    await db.project.deleteMany({ where: { id: { in: projectIds } } });
+    await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
+  });
+
+  it("reports it without counting it, and says what the margin would become", async () => {
+    const account = await db.customerAccount.create({
+      data: { code: `ADV-${randomUUID().slice(0, 12)}`, name: `Adv Co ${suffix}`, ownerId: actor },
+    });
+    accountIds.push(account.id);
+
+    const project = await db.project.create({
+      data: {
+        code: `ADV-${randomUUID().slice(0, 10)}`,
+        name: `Advance project ${suffix}`,
+        accountId: account.id,
+        scopeOfWork: "A job with cash out on it.",
+      },
+    });
+    projectIds.push(project.id);
+
+    const ticket = await db.ticket.create({
+      data: {
+        number: `ADV-TKT-${randomUUID().slice(0, 8)}`,
+        accountId: account.id,
+        projectId: project.id,
+        type: "installation",
+        title: "Advance fixture",
+        scopeOfWork: "A job with cash out on it.",
+        raisedById: actor,
+      },
+    });
+    ticketIds.push(ticket.id);
+
+    const advance = await db.cashAdvance.create({
+      data: {
+        number: `ADV-CA-${randomUUID().slice(0, 8)}`,
+        ticketId: ticket.id,
+        projectId: project.id,
+        requestedById: actor,
+        purpose: "Per diem and fuel",
+        amountRequested: "24000.00",
+        amountApproved: "24000.00",
+        neededBy: new Date(),
+        status: "released",
+        releasedById: actor,
+        releasedAt: new Date(),
+        liquidationDueAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      },
+    });
+    advanceIds.push(advance.id);
+
+    const pnl = await projectPnlService(project.id);
+
+    // Reported...
+    expect(pnl.caveats.advancesOutstanding).toBe(1);
+    expect(pnl.caveats.advancedNotLiquidated).toBe(24_000);
+    expect(pnl.caveats.earliestLiquidationDue).not.toBeNull();
+
+    // ...and not counted. §5b: only approved liquidation lines post as project cost.
+    expect(pnl.actualCost).toBe(0);
+  }, 60_000);
+
+  it("says nothing when the advance has been liquidated", async () => {
+    const account = await db.customerAccount.create({
+      data: {
+        code: `ADV2-${randomUUID().slice(0, 11)}`,
+        name: `Adv2 Co ${suffix}`,
+        ownerId: actor,
+      },
+    });
+    accountIds.push(account.id);
+
+    const project = await db.project.create({
+      data: {
+        code: `ADV2-${randomUUID().slice(0, 9)}`,
+        name: `Liquidated project ${suffix}`,
+        accountId: account.id,
+        scopeOfWork: "A job whose cash came back as receipts.",
+      },
+    });
+    projectIds.push(project.id);
+
+    const advance = await db.cashAdvance.create({
+      data: {
+        number: `ADV2-CA-${randomUUID().slice(0, 8)}`,
+        projectId: project.id,
+        requestedById: actor,
+        purpose: "Per diem",
+        amountRequested: "10000.00",
+        amountApproved: "10000.00",
+        neededBy: new Date(),
+        status: "released",
+        releasedById: actor,
+        releasedAt: new Date(),
+        // The receipts came back. Nothing is in the air any more, so the warning must go quiet —
+        // a caveat that never clears is one people stop reading.
+        liquidatedAt: new Date(),
+      },
+    });
+    advanceIds.push(advance.id);
+
+    const pnl = await projectPnlService(project.id);
+    expect(pnl.caveats.advancesOutstanding).toBe(0);
+    expect(pnl.caveats.advancedNotLiquidated).toBe(0);
+  }, 60_000);
+});

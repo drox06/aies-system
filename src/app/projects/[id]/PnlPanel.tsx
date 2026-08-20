@@ -147,6 +147,55 @@ export function PnlPanel({ projectId }: { projectId: string }) {
         </p>
       )}
 
+      {/*
+        Cash out and not yet accounted for.
+
+        Its own block, above the caveats and worded differently, because it is a different kind of
+        unknown. The caveats below say *this cost is missing and cannot be priced*. This says *this
+        cost is coming, and here is exactly what the margin becomes when it lands* — which is
+        actionable in a way "eleven days have no rate" is not.
+
+        The company found the need for it on 2026-08-20: ₱24,000 released that morning against a job
+        reading 22.41% against a 21.01% quote, with nothing to say that liquidating it takes the job
+        to 18.6% — from above its estimate to below it. Doing that arithmetic for the reader is the
+        difference between a warning somebody reads and one they skip.
+      */}
+      {data.caveats.advancesOutstanding > 0 && (
+        <div className="mt-3 rounded border-2 border-amber-500 bg-amber-50 p-2.5">
+          <p className="text-xs font-semibold text-amber-900">Money out, not yet accounted for</p>
+          <p className="mt-1 text-xs text-amber-900">
+            <span className="tabular font-semibold">
+              {formatMoney(data.caveats.advancedNotLiquidated.toFixed(2), currency)}
+            </span>{" "}
+            of cash advances {data.caveats.advancesOutstanding === 1 ? "has" : "have"} been released
+            and not liquidated. That is <strong>not a cost yet</strong> — only approved liquidation
+            lines post — so the figures above do not include it.
+            {data.caveats.marginPctIfLiquidated !== null && (
+              <>
+                {" "}
+                If {data.caveats.advancesOutstanding === 1 ? "it liquidates" : "they liquidate"} in
+                full, the margin becomes{" "}
+                <strong className="tabular">
+                  {data.caveats.marginPctIfLiquidated.toFixed(1)}%
+                </strong>
+                .
+              </>
+            )}
+          </p>
+          {data.caveats.earliestLiquidationDue && (
+            <p className="mt-1 text-xs text-amber-900">
+              Liquidation due from{" "}
+              {new Date(data.caveats.earliestLiquidationDue).toLocaleDateString("en-PH", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+              .
+            </p>
+          )}
+        </div>
+      )}
+
       {caveats.length > 0 && (
         <div className="mt-3 rounded border-2 border-amber-400 bg-amber-50 p-2.5">
           <p className="text-xs font-semibold text-amber-900">What this figure does not know</p>

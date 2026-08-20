@@ -304,6 +304,41 @@ export async function projectPnlService(projectId: string) {
     });
   }
 
+  /*
+    Money handed to a crew that has not come back as receipts yet.
+
+    This is **not** a cost — §5b is explicit that only *approved liquidation lines* post, and a cash
+    advance is the company's own money moved from one pocket to another until somebody says what it
+    bought. Counting it as spend would be wrong.
+
+    But leaving it unsaid is worse, and this is what the company found on 2026-08-20 walking the FIN5
+    job: ₱24,000 released that morning, the P&L reading 22.41% against a 21.01% quote, and no hint
+    anywhere that liquidating the advance would take it to 18.6% — flipping the job from above its
+    estimate to below it. A margin that is about to move by nearly four points is not a margin
+    somebody should be making a decision on without knowing.
+
+    So it is reported as a **pending** figure alongside the caveats rather than folded into the cost:
+    the number on screen stays true to what has actually been spent, and the reader is told what is
+    still in the air. Same principle as the uncosted days — absent is not zero, and a figure that
+    knows what it does not know is worth more than one that quietly guesses.
+  */
+  const outstandingAdvances = await db.cashAdvance.findMany({
+    where: {
+      deletedAt: null,
+      status: "released",
+      liquidatedAt: null,
+      OR: [{ projectId: project.id }, { ticketId: { in: ticketIds } }],
+    },
+    select: { number: true, amountApproved: true, amountRequested: true, liquidationDueAt: true },
+  });
+
+  const advancedNotLiquidated = outstandingAdvances.reduce(
+    // The approved figure, falling back to what was asked for — an advance released without an
+    // approved amount is a data fault elsewhere, and reading zero here would hide it.
+    (sum, advance) => sum + Number(advance.amountApproved ?? advance.amountRequested),
+    0,
+  );
+
   const pnl = projectPnl({ contractValue, quotedCost, costs });
 
   return {
@@ -316,6 +351,25 @@ export async function projectPnlService(projectId: string) {
       failedQaRounds: failedQa,
       /** True when no sales order was found — the margin is then meaningless, not zero. */
       noContractValue: orders.length === 0,
+      /**
+       * Cash released and not yet liquidated: money already gone that is not yet a cost.
+       *
+       * Carries the count and the projected margin so the screen can say what the figure becomes
+       * rather than making the reader do the arithmetic — which is the difference between a warning
+       * somebody reads and one they skip.
+       */
+      advancedNotLiquidated,
+      advancesOutstanding: outstandingAdvances.length,
+      /** What the margin would be if every outstanding advance liquidated in full. */
+      marginPctIfLiquidated:
+        contractValue === 0
+          ? null
+          : ((contractValue - (pnl.actualCost + advancedNotLiquidated)) / contractValue) * 100,
+      earliestLiquidationDue:
+        outstandingAdvances
+          .map((advance) => advance.liquidationDueAt)
+          .filter((due): due is Date => due !== null)
+          .sort((a, b) => a.getTime() - b.getTime())[0] ?? null,
     },
   };
 }

@@ -42,16 +42,36 @@ const PRESET_LABELS: Record<ExportPreset, string> = {
   xero: "Xero",
 };
 
-/** The month that just ended, which is what somebody opening this screen almost always wants. */
+const iso = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+
+/**
+ * The month that just ended, which is what somebody doing the monthly books wants.
+ *
+ * Kept as the default, and no longer the only thing offered. It is right for the routine use and
+ * wrong for every other one: the company opened this screen for the first time on 2026-08-20,
+ * saw July, and was told "nothing to export" about records they had made that morning. The presets
+ * below cover the other cases in one press rather than making somebody type two dates to find out
+ * whether anything is there.
+ */
 function lastMonth() {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const end = new Date(now.getFullYear(), now.getMonth(), 0);
-  const iso = (date: Date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-      date.getDate(),
-    ).padStart(2, "0")}`;
-  return { start: iso(start), end: iso(end) };
+  return {
+    start: iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+    end: iso(new Date(now.getFullYear(), now.getMonth(), 0)),
+  };
+}
+
+function thisMonthToDate() {
+  const now = new Date();
+  return { start: iso(new Date(now.getFullYear(), now.getMonth(), 1)), end: iso(now) };
+}
+
+function thisYearToDate() {
+  const now = new Date();
+  return { start: iso(new Date(now.getFullYear(), 0, 1)), end: iso(now) };
 }
 
 export default function AccountingExportPage() {
@@ -168,6 +188,30 @@ export default function AccountingExportPage() {
           </div>
         </div>
 
+        {/* One press for the three periods anybody actually asks for. */}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(
+            [
+              ["Last month", lastMonth],
+              ["This month so far", thisMonthToDate],
+              ["This year so far", thisYearToDate],
+            ] as const
+          ).map(([label, range]) => (
+            <Button
+              key={label}
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const { start, end } = range();
+                setPeriodStart(start);
+                setPeriodEnd(end);
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+
         {preview.error && <p className="mt-3 text-sm text-danger">{preview.error.message}</p>}
 
         {preview.data && (
@@ -205,11 +249,66 @@ export default function AccountingExportPage() {
               {record.isPending ? "Recording…" : "Download and record"}
             </Button>
 
-            {preview.data.rowCount === 0 && (
-              <p className="mt-1 text-xs text-text-muted">
-                Nothing to export for this period — the button is disabled rather than producing an
-                empty file somebody might post.
-              </p>
+            {/*
+              The empty state, saying which kind of empty it is.
+
+              "Nothing to export for this period" was the message for two opposite situations —
+              nothing exists in these dates, and things exist but nobody has approved them — and the
+              actions are completely different: change the dates, or go and approve some bills. The
+              company hit the first one and reasonably read it as the export being broken.
+            */}
+            {preview.data.rowCount === 0 && preview.data.empty && (
+              <div className="mt-2 rounded-md border border-border p-2.5 text-xs">
+                <p className="font-medium">Nothing to export for these dates.</p>
+
+                {preview.data.empty.excludedByStatus > 0 && (
+                  <p className="mt-1">
+                    <span className="tabular font-medium">
+                      {preview.data.empty.excludedByStatus}
+                    </span>{" "}
+                    {dataset === "payments"
+                      ? "payment(s) in this period bounced, so they are not money that arrived."
+                      : dataset === "invoices"
+                        ? "invoice(s) in this period are cancelled, so they are not revenue."
+                        : "record(s) in this period are not approved yet, so they are not something to post. Approve them first and they will appear here."}
+                  </p>
+                )}
+
+                {preview.data.empty.latestRecordAt ? (
+                  <p className="mt-1">
+                    The most recent {EXPORT_DATASET_LABELS[dataset].toLowerCase()} on record{" "}
+                    {dataset === "payments" ? "arrived" : "is dated"}{" "}
+                    <DateCell value={preview.data.empty.latestRecordAt} />.{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        const found = new Date(preview.data!.empty!.latestRecordAt!);
+                        setPeriodStart(
+                          `${found.getFullYear()}-${String(found.getMonth() + 1).padStart(2, "0")}-01`,
+                        );
+                        setPeriodEnd(
+                          `${found.getFullYear()}-${String(found.getMonth() + 1).padStart(2, "0")}-${String(
+                            new Date(found.getFullYear(), found.getMonth() + 1, 0).getDate(),
+                          ).padStart(2, "0")}`,
+                        );
+                      }}
+                    >
+                      Look at that month instead.
+                    </button>
+                  </p>
+                ) : (
+                  <p className="mt-1 text-text-muted">
+                    There are none of these on record at all yet — this is not a problem with the
+                    dates.
+                  </p>
+                )}
+
+                <p className="mt-1 text-text-muted">
+                  The download stays disabled rather than producing an empty file somebody might
+                  post.
+                </p>
+              </div>
             )}
           </>
         )}

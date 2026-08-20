@@ -190,7 +190,94 @@ export async function previewExportService(input: {
     hash,
     rowCount: rows.length,
     repeat: checkRepeat(previous, hash),
+    /*
+      Why it is empty, when it is empty.
+
+      The screen said "Nothing to export for this period" for two completely different situations:
+      there is nothing in this period at all, and there are records but none of them are approved
+      yet. Those need opposite actions — change the dates, or go and approve some bills — and the
+      company hit the first one on 2026-08-20 because the screen defaults to *last month* and every
+      record they had made was dated today.
+
+      Null when the export is not empty. A screen that can be empty must say why.
+    */
+    empty:
+      rows.length === 0
+        ? await explainEmpty(input.dataset, input.periodStart, input.periodEnd)
+        : null,
   };
+}
+
+export interface EmptyExplanation {
+  /** How many records fall in this period but were excluded because nobody has approved them. */
+  excludedByStatus: number;
+  /** The date of the most recent record of this kind, wherever it falls. Null if there are none. */
+  latestRecordAt: Date | null;
+}
+
+/**
+ * Why a period came back empty.
+ *
+ * Two questions, because they have two different answers: *is anything here at all*, and *is there
+ * anything more recent I should be looking at*. Both are cheap counts and neither is asked unless
+ * the export is already empty, so the common path pays nothing for them.
+ */
+async function explainEmpty(
+  dataset: ExportDataset,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<EmptyExplanation> {
+  const window = { gte: periodStart, lte: periodEnd };
+
+  if (dataset === "invoices") {
+    const [excluded, latest] = await Promise.all([
+      db.serviceInvoice.count({ where: { status: "cancelled", invoiceDate: window } }),
+      db.serviceInvoice.findFirst({
+        where: { status: { not: "cancelled" } },
+        orderBy: { invoiceDate: "desc" },
+        select: { invoiceDate: true },
+      }),
+    ]);
+    return { excludedByStatus: excluded, latestRecordAt: latest?.invoiceDate ?? null };
+  }
+
+  if (dataset === "payments") {
+    const [excluded, latest] = await Promise.all([
+      db.payment.count({ where: { bouncedAt: { not: null }, receivedAt: window } }),
+      db.payment.findFirst({
+        where: { bouncedAt: null },
+        orderBy: { receivedAt: "desc" },
+        select: { receivedAt: true },
+      }),
+    ]);
+    return { excludedByStatus: excluded, latestRecordAt: latest?.receivedAt ?? null };
+  }
+
+  if (dataset === "expenses") {
+    const [excluded, latest] = await Promise.all([
+      db.expense.count({
+        where: { deletedAt: null, status: { notIn: ["approved", "paid"] }, expenseDate: window },
+      }),
+      db.expense.findFirst({
+        where: { deletedAt: null, status: { in: ["approved", "paid"] } },
+        orderBy: { expenseDate: "desc" },
+        select: { expenseDate: true },
+      }),
+    ]);
+    return { excludedByStatus: excluded, latestRecordAt: latest?.expenseDate ?? null };
+  }
+
+  const [excluded, latest] = await Promise.all([
+    db.supplierInvoice.count({
+      where: { deletedAt: null, status: { notIn: ["approved", "paid"] }, invoiceDate: window },
+    }),
+    db.supplierInvoice.findFirst({
+      where: { deletedAt: null, status: { in: ["approved", "paid"] } },
+      orderBy: { invoiceDate: "desc" },
+      select: { invoiceDate: true },
+    }),
+  ]);
+  return { excludedByStatus: excluded, latestRecordAt: latest?.invoiceDate ?? null };
 }
 
 /**
