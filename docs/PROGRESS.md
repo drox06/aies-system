@@ -3321,10 +3321,41 @@ and where would they go?* — with three legitimate answers, not one: build it, 
 as deliberate with the reason. Treating everything unreached as work owed is how a backlog becomes
 noise. `scripts/unreached-mutations.ts` produces the list; the triage is what makes it useful.
 
-**Next concrete step:** timesheet and field-expense approval — primary the operations manager,
-escalating to the admin manager after 16 working hours, with the President and VP keeping the
-standing authority they hold everywhere. Then the cash advance submit/liquidate pair, then
-unavailability. The module 05 tag is EA's to give (BUILD-PROTOCOL §7.3).
+### Session 17 — module 04's nine gaps, built (2026-08-20)
+
+All nine. **Unreached operations procedures: 22 → 7**, and the seven that remain are the six recorded
+as deliberate plus one whose service is called server-side.
+
+| Built | What could not be done before |
+|---|---|
+| Hours and expenses queue (`/timesheets`) | Approve a timesheet. §6 counts only approved hours, so labour read **zero** on every real job |
+| Send for approval | A draft cash advance could be created and never asked for |
+| Who is away (dispatch) | Record leave. The board went on scheduling people who were not coming in |
+| Raise a callout (`/tickets`) | Raise work not descended from a sales order — a whole category of after-sales |
+| Record a count (store) | Correct a stock quantity. §7's material gate decides against that number |
+| Write a contract | Create one. §16's renewal loop had no way to start |
+| Liquidation reconciliation | See whether an advance's money balanced |
+| Liquidations awaiting check | Find what is waiting, without already knowing which advance to open |
+| Emergency bump | Reschedule an emergency and what it displaces in one act |
+| New checklist | Create a twelfth template |
+
+**Two triage corrections**, both worth more than the fixes. I recorded the cash advance *liquidation*
+loop as broken; it was not — `liquidateCashAdvance` and `reviewLiquidation` both had callers, and the
+real gaps were the submit step and two views. And I listed `createChecklistTemplate` as probable dead
+code because `saveChecklistDraft` was wired and looked to supersede it — until reading
+`saveDraftService` showed it requires an existing template and only edits. **A similar wired procedure
+is not evidence that the unwired one is redundant.**
+
+**A build lesson, third time today.** The emergency panel's import landed and its render did not: a
+text replacement missed after prettier reformatted the anchor, and an unused import is not a type
+error, so `tsc` passed. Lint caught it. Assert on the outcome, not on the edit having run.
+
+Two controls were also gated after the fact — the stock count and the new-checklist button — to match
+the permission gating already on their screens. A button that 403s teaches somebody the system is
+unreliable rather than that the job is not theirs.
+
+**Next concrete step:** the module 05 review gate, and module 04's tag revisited now that it means
+what it says. Both EA's to give (BUILD-PROTOCOL §7.3). Then module 06.
 
 ## Not started
 - [ ] Modules 05–10
