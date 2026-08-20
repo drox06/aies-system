@@ -56,3 +56,45 @@ describe("the database knows what the manifests declare", () => {
     expect(ungranted.sort(), "Run `npx prisma db seed`").toEqual([]);
   });
 });
+
+/**
+ * Every role a manifest names must be a role that exists.
+ *
+ * ## The failure this catches
+ *
+ * `defaultRoles` is `string[]`. Nothing in TypeScript, in the manifest schema, or in any test stopped
+ * a manifest naming `project_engineer` — a plausible-sounding role AIES does not have — and the only
+ * symptom was `prisma db seed` dying half-way through with `P2025: No record was found for a query`
+ * and a stack trace pointing at `seed.ts:188`, naming neither the manifest nor the role.
+ *
+ * That happened on 2026-08-20 while adding `expense.submit`. It was found immediately because the
+ * seed was run immediately — but a manifest edit whose seed is deferred would leave a permission
+ * **partly granted**: every role before the bad one gets its row, the seed aborts, and the roles
+ * after it silently get nothing. A half-seeded permission is worse than an unseeded one, because the
+ * screen works for whoever tries it first.
+ *
+ * Reading `Role` rather than a constant, because the roles are seeded data and a list here would be
+ * a second copy to drift.
+ */
+describe("the roles a manifest names", () => {
+  it("all exist", async () => {
+    const roles = await db.role.findMany({ select: { key: true } });
+    const known = new Set(roles.map((role) => role.key));
+
+    const unknown = registry.permissions
+      .flatMap((permission) =>
+        // Optional in the manifest type: a permission granted to nobody by default is legitimate.
+        (permission.defaultRoles ?? []).map((role) => ({ role, permission: permission.key })),
+      )
+      .filter((named) => !known.has(named.role));
+
+    expect(
+      unknown,
+      unknown.length === 0
+        ? ""
+        : `These manifests name roles that do not exist: ` +
+            unknown.map((u) => `${u.permission} → "${u.role}"`).join(", ") +
+            `. Known roles: ${[...known].sort().join(", ")}.`,
+    ).toEqual([]);
+  });
+});

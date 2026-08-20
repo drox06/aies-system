@@ -73,10 +73,25 @@ export async function projectPnlService(projectId: string) {
   */
   const orders = await db.salesOrder.findMany({
     where: { deletedAt: null, tickets: { some: { projectId: project.id } } },
-    select: { id: true, total: true, totalCost: true },
+    select: { id: true, total: true, vatAmount: true, totalCost: true },
   });
 
-  const contractValue = orders.reduce((sum, order) => sum + Number(order.total), 0);
+  /*
+    Revenue **net of VAT**, which is what a margin is measured against.
+
+    This read `order.total` for its first day and was wrong by the VAT rate on every job. `total` is
+    VAT-inclusive; `totalCost` is not. Comparing them made a 708,960 order against 500,000 of quoted
+    cost report a 29.5% quoted margin, while the quotation itself — which divides by `netAmount` in
+    costing.ts — said 21.0%. Two screens, one deal, eight and a half points apart.
+
+    VAT is not income. It is collected for the BIR and remitted, and a P&L that counts it as revenue
+    flatters every job by roughly twelve per cent. Derived by subtraction rather than read from
+    `subtotal`, because `subtotal` is before any discount and the money actually earned is not.
+  */
+  const contractValue = orders.reduce(
+    (sum, order) => sum + (Number(order.total) - Number(order.vatAmount)),
+    0,
+  );
   const quotedCost = orders.reduce((sum, order) => sum + Number(order.totalCost), 0);
   const orderIds = orders.map((order) => order.id);
 

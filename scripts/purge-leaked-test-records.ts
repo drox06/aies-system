@@ -60,6 +60,68 @@ async function main() {
     })
   ).filter((s) => FIXTURE_CODE.test(s.code) || FIXTURE_NAME.test(s.name));
 
+  /*
+    Payment terms the fixtures invented.
+
+    Found on 2026-08-20 while seeding module 05's walkthrough: 92 of them, against 5 real ones.
+    Every one was a selectable option on a live quotation's payment-terms list. `SO-TERM-` never
+    cleaned up at all; `Test term ` cleans up on a clean exit and leaks whenever a run is
+    interrupted — which the concurrent-vitest false failures did more than once.
+
+    Matched on the fixture names and then filtered again on **nothing referencing them**, because a
+    payment term is what tells finance when to bill: deleting one a real quotation points at would
+    leave that quotation unable to say what it promised.
+  */
+  const candidateTerms = await db.paymentTerm.findMany({
+    where: { OR: [{ name: { startsWith: "SO-TERM-" } }, { name: { startsWith: "Test term " } }] },
+    select: { id: true, name: true },
+  });
+  const candidateTermIds = candidateTerms.map((term) => term.id);
+  const [termQuotations, termOrders, termAccounts] = await Promise.all([
+    db.quotation.findMany({
+      where: { paymentTermsId: { in: candidateTermIds } },
+      select: { paymentTermsId: true },
+    }),
+    db.salesOrder.findMany({
+      where: { paymentTermsId: { in: candidateTermIds } },
+      select: { paymentTermsId: true },
+    }),
+    db.customerAccount.findMany({
+      where: { paymentTermsId: { in: candidateTermIds } },
+      select: { paymentTermsId: true },
+    }),
+  ]);
+  const referenced = new Set(
+    [...termQuotations, ...termOrders, ...termAccounts]
+      .map((row) => row.paymentTermsId)
+      .filter((id): id is string => !!id),
+  );
+  const terms = candidateTerms.filter((term) => !referenced.has(term.id));
+
+  /*
+    Sales orders left behind by `sales-order.test.ts`.
+
+    Found 2026-08-20 by the first full suite run since §4's downpayment gate was written. That whole
+    describe block created orders through the real service and never tracked their ids, so `afterAll`
+    deleted the customer POs out from under them and died on `SalesOrder_customerPOId_fkey` — which
+    then aborted the rest of the cleanup, leaking the quotations and accounts too. Three runs, seven
+    orders each.
+
+    Matched on the fixture's actor id, which is `so-` followed by eight hex characters and is
+    generated per run. **A real order always has a real user's cuid as its owner**, so this cannot
+    reach one. The alternative — matching the `AIESSO-` number prefix — would match every real order
+    in the company, which is why it is not used.
+
+    The numbers those orders consumed are gone. §3 of module 00 does not reuse a number, and a gap in
+    a document series is the correct outcome here: it is a true record that a number was issued.
+  */
+  const FIXTURE_ACTOR = /^so-[0-9a-f]{8}$/;
+  const leakedOrders = (
+    await db.salesOrder.findMany({
+      select: { id: true, number: true, ownerId: true, quotationId: true, customerPOId: true },
+    })
+  ).filter((order) => FIXTURE_ACTOR.test(order.ownerId ?? ""));
+
   const accounts = await db.customerAccount.findMany({
     where: {
       OR: [
@@ -71,6 +133,14 @@ async function main() {
       ],
       quotations: { none: {} },
       inquiries: { none: {} },
+      // Added 2026-08-20, after `--apply` died on `CustomerPO_accountId_fkey`. A fixture that
+      // recorded a PO without a quotation left an account this filter called empty and the database
+      // did not — and because the delete ran before the payment-term sweep, one unrelated leftover
+      // aborted the whole run.
+      customerPOs: { none: {} },
+      salesOrders: { none: {} },
+      tickets: { none: {} },
+      projects: { none: {} },
     },
     select: { id: true, code: true, name: true },
   });
@@ -82,11 +152,63 @@ async function main() {
   for (const s of suppliers) console.log(`  ${s.code.padEnd(18)} ${s.name}`);
   console.log(`\nACCOUNTS (${accounts.length})`);
   for (const a of accounts) console.log(`  ${a.code.padEnd(18)} ${a.name}`);
+  console.log(`\nLEAKED SALES ORDERS (${leakedOrders.length})`);
+  for (const o of leakedOrders) console.log(`  ${o.number.padEnd(16)} owner ${o.ownerId}`);
+  console.log(`\nPAYMENT TERMS (${terms.length} of ${candidateTerms.length} fixture-named)`);
+  for (const t of terms) console.log(`  ${t.name}`);
+  if (referenced.size > 0) {
+    console.log(`  ${referenced.size} left alone — a live record points at them.`);
+  }
 
   if (!apply) {
     console.log("\nReport only. Re-run with --apply to delete.");
     return;
   }
+
+  /*
+    The leaked orders and the chain that authorised them, deepest first.
+
+    Their accounts are resolved from the orders rather than from the generic account filter above,
+    because that filter asks for accounts with no sales orders — which these have, right up until the
+    line below runs. Resolving from the orders makes it one pass instead of two.
+  */
+  const leakedOrderIds = leakedOrders.map((order) => order.id);
+  const leakedQuotationIds = leakedOrders
+    .map((order) => order.quotationId)
+    .filter((id): id is string => !!id);
+  const leakedPoIds = leakedOrders
+    .map((order) => order.customerPOId)
+    .filter((id): id is string => !!id);
+  const leakedAccountIds = [
+    ...new Set(
+      (
+        await db.customerAccount.findMany({
+          where: { salesOrders: { some: { id: { in: leakedOrderIds } } } },
+          select: { id: true },
+        })
+      ).map((account) => account.id),
+    ),
+  ];
+  const leakedFileIds = (
+    await db.customerPO.findMany({
+      where: { id: { in: leakedPoIds } },
+      select: { fileId: true },
+    })
+  )
+    .map((po) => po.fileId)
+    .filter((id): id is string => !!id);
+
+  await db.salesOrderLine.deleteMany({ where: { salesOrderId: { in: leakedOrderIds } } });
+  await db.salesOrder.deleteMany({ where: { id: { in: leakedOrderIds } } });
+  await db.customerPO.deleteMany({ where: { id: { in: leakedPoIds } } });
+  await db.fileObject.deleteMany({ where: { id: { in: leakedFileIds } } });
+  await db.quotationLine.deleteMany({ where: { quotationId: { in: leakedQuotationIds } } });
+  await db.searchIndex.deleteMany({ where: { entityId: { in: leakedQuotationIds } } });
+  await db.auditLog.deleteMany({
+    where: { entityId: { in: [...leakedOrderIds, ...leakedQuotationIds, ...leakedAccountIds] } },
+  });
+  await db.quotation.deleteMany({ where: { id: { in: leakedQuotationIds } } });
+  await db.customerAccount.deleteMany({ where: { id: { in: leakedAccountIds } } });
 
   const quotationIds = quotations.map((q) => q.id);
   await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
@@ -96,10 +218,12 @@ async function main() {
 
   await db.supplier.deleteMany({ where: { id: { in: suppliers.map((s) => s.id) } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accounts.map((a) => a.id) } } });
+  await db.paymentTerm.deleteMany({ where: { id: { in: terms.map((t) => t.id) } } });
 
   console.log(
     `\nDeleted ${quotations.length} quotation(s), ${suppliers.length} supplier(s), ` +
-      `${accounts.length} account(s). Reset the counters next.`,
+      `${accounts.length} account(s), ${leakedOrders.length} leaked sales order(s), ` +
+      `${terms.length} payment term(s). Reset the counters next.`,
   );
 }
 

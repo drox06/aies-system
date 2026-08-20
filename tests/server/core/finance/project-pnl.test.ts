@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { afterAll, describe, expect, it } from "vitest";
+import { db } from "@/lib/db";
 import {
   projectPnl,
   rateOn,
   timesheetCost,
   type CostLine,
 } from "@/server/core/finance/project-pnl-rules";
+import { projectPnlService } from "@/server/core/finance/project-pnl-service";
 
 /**
  * §6's project profitability.
@@ -146,4 +149,147 @@ describe("which rate applied on the day", () => {
   it("returns nothing for work done before any rate existed", () => {
     expect(rateOn(rates, "2024-11-01")).toBeNull();
   });
+});
+
+/**
+ * The service half, which had no test at all until 2026-08-20.
+ *
+ * Everything above pins `projectPnl`, a pure function fed hand-written numbers. It was correct. The
+ * **service** feeding it was not: it passed `SalesOrder.total`, which is VAT-inclusive, against
+ * `totalCost`, which is not — so a 708,960 order with 500,000 of quoted cost reported a 29.5% quoted
+ * margin while the quotation itself said 21.0%. Two screens, one deal, eight and a half points apart.
+ *
+ * The same shape as docs/DECISIONS.md #129: a pure function proved right by a fixture it controls,
+ * and nothing checking what the real caller hands it. So this test builds an order with VAT on it
+ * and asserts on the boundary rather than on the arithmetic.
+ */
+describe("§6's service, against a real order", () => {
+  const suffix = randomUUID().slice(0, 8);
+  const actor = `pnl-${suffix}`;
+
+  const accountIds: string[] = [];
+  const quotationIds: string[] = [];
+  const poIds: string[] = [];
+  const fileIds: string[] = [];
+  const orderIds: string[] = [];
+  const projectIds: string[] = [];
+  const ticketIds: string[] = [];
+
+  afterAll(async () => {
+    await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
+    await db.project.deleteMany({ where: { id: { in: projectIds } } });
+    await db.salesOrder.deleteMany({ where: { id: { in: orderIds } } });
+    await db.customerPO.deleteMany({ where: { id: { in: poIds } } });
+    await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
+    await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
+    await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
+  });
+
+  it("measures margin against revenue net of VAT, not the VAT-inclusive total", async () => {
+    // The FIN5 walkthrough deal's own figures: 633,000 net, 12% VAT, 500,000 of quoted cost.
+    const NET = 633_000;
+    const VAT = 75_960;
+    const TOTAL = NET + VAT;
+    const QUOTED_COST = 500_000;
+
+    const account = await db.customerAccount.create({
+      data: { code: `PNL-${randomUUID().slice(0, 12)}`, name: `PnL Co ${suffix}`, ownerId: actor },
+    });
+    accountIds.push(account.id);
+
+    const quotation = await db.quotation.create({
+      data: {
+        number: `TEST-PNL-LQ-${randomUUID().slice(0, 8)}`,
+        accountId: account.id,
+        title: "P&L fixture",
+        scopeOfWork: "Something with VAT on it.",
+        validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        preparedById: actor,
+        subtotal: String(NET),
+        vatAmount: String(VAT),
+        total: String(TOTAL),
+        totalCost: String(QUOTED_COST),
+      },
+    });
+    quotationIds.push(quotation.id);
+
+    const file = await db.fileObject.create({
+      data: {
+        entityType: "CustomerPO",
+        entityId: account.id,
+        filename: "po.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+        sha256: randomUUID().replace(/-/g, ""),
+        storageKey: `test/${randomUUID()}.pdf`,
+        uploaderId: actor,
+      },
+    });
+    fileIds.push(file.id);
+
+    const po = await db.customerPO.create({
+      data: {
+        accountId: account.id,
+        quotationId: quotation.id,
+        poNumber: `PO-${randomUUID().slice(0, 8)}`,
+        poDate: new Date(),
+        amount: String(TOTAL),
+        fileId: file.id,
+        receivedById: actor,
+      },
+    });
+    poIds.push(po.id);
+
+    const order = await db.salesOrder.create({
+      data: {
+        number: `TEST-PNL-SO-${randomUUID().slice(0, 8)}`,
+        accountId: account.id,
+        quotationId: quotation.id,
+        customerPOId: po.id,
+        ownerId: actor,
+        status: "open",
+        currency: "PHP",
+        subtotal: String(NET),
+        vatAmount: String(VAT),
+        total: String(TOTAL),
+        totalCost: String(QUOTED_COST),
+      },
+    });
+    orderIds.push(order.id);
+
+    const project = await db.project.create({
+      data: {
+        code: `PNL-${randomUUID().slice(0, 10)}`,
+        name: `P&L project ${suffix}`,
+        accountId: account.id,
+        scopeOfWork: "Something with VAT on it.",
+      },
+    });
+    projectIds.push(project.id);
+
+    // The service finds orders through their tickets, so the link has to be real.
+    const ticket = await db.ticket.create({
+      data: {
+        number: `TEST-PNL-TKT-${randomUUID().slice(0, 8)}`,
+        accountId: account.id,
+        projectId: project.id,
+        salesOrderId: order.id,
+        type: "installation",
+        title: "P&L fixture ticket",
+        scopeOfWork: "Something with VAT on it.",
+        raisedById: actor,
+      },
+    });
+    ticketIds.push(ticket.id);
+
+    const pnl = await projectPnlService(project.id);
+
+    // The whole point: 633,000, not 708,960.
+    expect(pnl.contractValue).toBe(NET);
+    expect(pnl.contractValue).not.toBe(TOTAL);
+
+    // And therefore the quoted margin agrees with what the quotation itself prints — costing.ts
+    // divides by `netAmount`, and these two must not be able to drift apart.
+    expect(pnl.quotedMarginPct).toBeCloseTo(((NET - QUOTED_COST) / NET) * 100, 4);
+  }, 60_000);
 });

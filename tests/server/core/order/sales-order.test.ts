@@ -32,6 +32,7 @@ const quotationIds: string[] = [];
 const poIds: string[] = [];
 const salesOrderIds: string[] = [];
 const fileIds: string[] = [];
+const paymentTermIds: string[] = [];
 
 const officer = {
   id: OWNER,
@@ -128,6 +129,10 @@ afterAll(async () => {
   await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
   await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
+  // Added 2026-08-20. These were never cleaned up, and 92 of them had accumulated in the live
+  // database — every one a selectable option on a real quotation's payment-terms list. Last,
+  // after everything that could still be pointing at one. docs/DECISIONS.md #130.
+  await db.paymentTerm.deleteMany({ where: { id: { in: paymentTermIds } } });
 });
 
 describe("§3's check, run against real records", () => {
@@ -408,18 +413,57 @@ describe("what counts as field work", () => {
  * reaching.
  */
 describe("§4 — the downpayment gate, end to end", () => {
+  /**
+   * A term at a **whole percent**, which is the scale `PaymentTerm` actually stores.
+   *
+   * This helper took "0.30" until 2026-08-20 and was the reason the suite missed a hundredfold
+   * error: it invented a value no seeded term has ever held, so the assertions agreed with the
+   * caller's mistaken reading rather than with the data. The test below that uses the real seeded
+   * `30/70` row exists because an invented fixture can never catch that class of bug.
+   */
   async function termWithDownpayment(pct: string) {
-    return db.paymentTerm.create({
+    const term = await db.paymentTerm.create({
       data: {
         name: `SO-TERM-${randomUUID().slice(0, 8)}`,
         downpaymentPct: pct,
         balanceTrigger: "on delivery",
       },
     });
+    paymentTermIds.push(term.id);
+    return term;
   }
 
+  it("reads the seeded 30/70 term at the scale the seed writes it", async () => {
+    /*
+      The regression test for a hundredfold error, and the only shape of it that works.
+
+      `createSalesOrderFromPoService` read `downpaymentPct` as a fraction while
+      prisma/seed-payment-terms.ts writes a whole percent, derived from `milestones[].pct` summing to
+      100. A 708,960 order asked the customer for 21,268,800. Every existing test passed, because
+      each built its own term at the scale the code expected.
+
+      So this one refuses to build anything. It uses the row the production seed wrote, which is the
+      only fixture that can disagree with the code.
+    */
+    const term = await db.paymentTerm.findFirst({ where: { name: "30/70" } });
+    expect(term, "the 30/70 term should be seeded — run `npx prisma db seed`").toBeTruthy();
+    expect(Number(term!.downpaymentPct)).toBe(30);
+
+    const { po, quotation } = await makeQuotationWithPo();
+    await db.quotation.update({ where: { id: quotation.id }, data: { paymentTermsId: term!.id } });
+
+    await verifyCustomerPoService(actor, { customerPOId: po.id });
+    const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    salesOrderIds.push(order.id);
+    const saved = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
+
+    // Thirty per cent of the order, not thirty times it.
+    expect(Number(saved.downpaymentAmount)).toBeCloseTo(Number(saved.total) * 0.3, 2);
+    expect(Number(saved.downpaymentAmount)).toBeLessThan(Number(saved.total));
+  }, 60_000);
+
   it("puts an order on the gate when the quotation's terms ask for a downpayment", async () => {
-    const term = await termWithDownpayment("0.30");
+    const term = await termWithDownpayment("30");
     const { po, quotation } = await makeQuotationWithPo();
     await db.quotation.update({
       where: { id: quotation.id },
@@ -429,10 +473,11 @@ describe("§4 — the downpayment gate, end to end", () => {
     // §3's verification comes first — the gate under test is the one after it.
     await verifyCustomerPoService(actor, { customerPOId: po.id });
     const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    salesOrderIds.push(order.id);
     const saved = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
 
     expect(saved.financeStatus).toBe("awaiting_downpayment");
-    expect(Number(saved.downpaymentPct)).toBeCloseTo(0.3);
+    expect(Number(saved.downpaymentPct)).toBeCloseTo(30);
     // Computed from the order's own total, so finance is never chasing a figure the order does not
     // show — see the comment at the creation site.
     expect(Number(saved.downpaymentAmount)).toBeCloseTo(Number(saved.total) * 0.3, 2);
@@ -444,6 +489,7 @@ describe("§4 — the downpayment gate, end to end", () => {
     const { po } = await makeQuotationWithPo();
     await verifyCustomerPoService(actor, { customerPOId: po.id });
     const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    salesOrderIds.push(order.id);
     const saved = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
 
     expect(saved.financeStatus).toBe("not_required");
@@ -451,12 +497,13 @@ describe("§4 — the downpayment gate, end to end", () => {
   });
 
   it("opens the gate when finance records the money, and keeps the reference", async () => {
-    const term = await termWithDownpayment("0.50");
+    const term = await termWithDownpayment("50");
     const { po, quotation } = await makeQuotationWithPo();
     await db.quotation.update({ where: { id: quotation.id }, data: { paymentTermsId: term.id } });
 
     await verifyCustomerPoService(actor, { customerPOId: po.id });
     const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    salesOrderIds.push(order.id);
     await recordDownpaymentService(actor, {
       salesOrderId: order.id,
       reference: "BDO deposit slip 4471902",
@@ -477,12 +524,13 @@ describe("§4 — the downpayment gate, end to end", () => {
     const { po } = await makeQuotationWithPo();
     await verifyCustomerPoService(actor, { customerPOId: po.id });
     const noTerms = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    salesOrderIds.push(noTerms.id);
 
     await expect(
       recordDownpaymentService(actor, { salesOrderId: noTerms.id, reference: "anything" }),
     ).rejects.toThrow(/no downpayment agreed/);
 
-    const term = await termWithDownpayment("0.25");
+    const term = await termWithDownpayment("25");
     const second = await makeQuotationWithPo();
     await db.quotation.update({
       where: { id: second.quotation.id },
@@ -490,6 +538,7 @@ describe("§4 — the downpayment gate, end to end", () => {
     });
     await verifyCustomerPoService(actor, { customerPOId: second.po.id });
     const order = await createSalesOrderFromPoService(actor, { customerPOId: second.po.id });
+    salesOrderIds.push(order.id);
 
     await recordDownpaymentService(actor, { salesOrderId: order.id, reference: "first" });
     // A duplicate would suggest two payments where there was one.
@@ -499,11 +548,12 @@ describe("§4 — the downpayment gate, end to end", () => {
   });
 
   it("refuses a downpayment with no reference, and one dated in the future", async () => {
-    const term = await termWithDownpayment("0.30");
+    const term = await termWithDownpayment("30");
     const { po, quotation } = await makeQuotationWithPo();
     await db.quotation.update({ where: { id: quotation.id }, data: { paymentTermsId: term.id } });
     await verifyCustomerPoService(actor, { customerPOId: po.id });
     const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    salesOrderIds.push(order.id);
 
     await expect(
       recordDownpaymentService(actor, { salesOrderId: order.id, reference: "   " }),

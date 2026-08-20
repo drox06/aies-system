@@ -376,7 +376,8 @@ describe("§4's downpayment gate", () => {
       where: { id: salesOrderId },
       data: {
         financeStatus: "awaiting_downpayment",
-        downpaymentPct: "0.5000",
+        // A whole percent, as `PaymentTerm` and `SalesOrder` both store it.
+        downpaymentPct: "50.0000",
         downpaymentAmount: "21000.00",
       },
     });

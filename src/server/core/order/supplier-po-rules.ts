@@ -94,6 +94,8 @@ export interface DownpaymentGate {
  */
 export function downpaymentGate(order: {
   financeStatus: string;
+  /** A **whole percent** — 30 for thirty per cent. See the note at the creation site in
+   * sales-order-service.ts: this read as a fraction for a day and demanded 30× the order value. */
   downpaymentPct: number;
   currency: string;
   downpaymentAmount: number;
@@ -119,7 +121,7 @@ export function downpaymentGate(order: {
       state: "blocked",
       blocks: true,
       message:
-        `Waiting on a ${(order.downpaymentPct * 100).toFixed(0)}% downpayment of ` +
+        `Waiting on a ${order.downpaymentPct.toFixed(0)}% downpayment of ` +
         `${order.currency} ${order.downpaymentAmount.toFixed(2)}. Supplier POs stay in draft until ` +
         `finance records it — or until the President or Vice President overrides, with a reason.`,
     };

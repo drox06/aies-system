@@ -251,9 +251,16 @@ export async function createSalesOrderFromPoService(
   /*
     What the customer agreed to pay up front, from the term on their quotation.
 
-    `downpaymentPct` is stored as a fraction on `PaymentTerm` — 0.30 for thirty per cent — and the
-    gate's message multiplies by 100 to say so. Both sides of that have to agree, and this is the one
-    place the conversion happens.
+    `PaymentTerm.downpaymentPct` is a **whole percent** — 30 for thirty per cent, not 0.30. That is
+    what prisma/seed-payment-terms.ts writes, because it derives the figure by summing the term's own
+    `milestones[].pct`, which are whole percents validated to add to 100. Two scales in one row would
+    be the trap; there is one, and it is this one.
+
+    This code read it as a fraction for its first day alive and multiplied a 708,960 order by 30,
+    demanding a 21-million-peso downpayment. The suite did not catch it because the test invented its
+    own `PaymentTerm` at 0.30 — a value no seeded term has ever held — so the test agreed with the
+    bug instead of with the data. `SalesOrder.downpaymentPct` therefore stores whole percent too:
+    same name, same scale, nothing to convert when reading it back.
 
     A quotation with no payment term produces zero, which produces `not_required`. That is right: a
     deal nobody set terms on has no agreed downpayment, and inventing one here would gate procurement
@@ -273,7 +280,7 @@ export async function createSalesOrderFromPoService(
     : null;
 
   const downpaymentPct = Number(term?.downpaymentPct ?? 0);
-  const downpaymentAmount = Number(po.quotation!.total) * downpaymentPct;
+  const downpaymentAmount = (Number(po.quotation!.total) * downpaymentPct) / 100;
 
   const salesOrder = await db.$transaction(async (tx) => {
     const created = await tx.salesOrder.create({
@@ -572,7 +579,7 @@ export async function recordDownpaymentService(
       entityType: SALES_ORDER_ENTITY_TYPE,
       entityId: order.id,
       summary:
-        `Recorded the ${(Number(order.downpaymentPct) * 100).toFixed(0)}% downpayment on ` +
+        `Recorded the ${Number(order.downpaymentPct).toFixed(0)}% downpayment on ` +
         `${order.number} — ${order.currency} ${Number(order.downpaymentAmount).toFixed(2)}, ` +
         `reference ${reference}`,
       diff: { financeStatus: { from: order.financeStatus, to: "downpayment_received" } },

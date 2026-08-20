@@ -144,7 +144,9 @@ describe("§4's downpayment gate", () => {
     const gate = downpaymentGate({
       ...order,
       financeStatus: "awaiting_downpayment",
-      downpaymentPct: 0.5,
+      // A whole percent, as `PaymentTerm` stores it. This read 0.5 until 2026-08-20, which agreed
+      // with a bug in the caller rather than with any row the seed has ever written.
+      downpaymentPct: 50,
     });
     expect(gate.state).toBe("blocked");
     expect(gate.blocks).toBe(true);
@@ -160,7 +162,7 @@ describe("§4's downpayment gate", () => {
       "fully_billed",
       "paid",
     ]) {
-      const gate = downpaymentGate({ ...order, financeStatus, downpaymentPct: 0.5 });
+      const gate = downpaymentGate({ ...order, financeStatus, downpaymentPct: 50 });
       expect(gate.blocks, financeStatus).toBe(false);
       expect(gate.state, financeStatus).toBe("satisfied");
     }
