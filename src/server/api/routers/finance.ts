@@ -7,6 +7,12 @@ import {
   payablesService,
   recordSupplierInvoiceService,
 } from "@/server/core/finance/payables-service";
+import {
+  exportHistoryService,
+  previewExportService,
+  recordExportService,
+} from "@/server/core/finance/export-service";
+import { EXPORT_DATASETS, EXPORT_PRESETS } from "@/server/core/finance/export-rules";
 import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
@@ -292,4 +298,37 @@ export const financeRouter = router({
   approveSupplierInvoice: p("payables.manage")
     .input(z.object({ id: z.string(), overrideReason: z.string().max(2000).nullish() }))
     .mutation(({ ctx, input }) => approveSupplierInvoiceService(actorMeta(ctx), input)),
+
+  /**
+   * Build the file and say whether this period has been exported before.
+   *
+   * A query, not a mutation: looking must not count as exporting, or the answer to "was this period
+   * already done" becomes yes because you just asked.
+   */
+  previewExport: p("accounting.export")
+    .input(
+      z.object({
+        dataset: z.enum(EXPORT_DATASETS),
+        preset: z.enum(EXPORT_PRESETS),
+        periodStart: z.coerce.date(),
+        periodEnd: z.coerce.date(),
+      }),
+    )
+    .query(({ input }) => previewExportService(input)),
+
+  /** Record that the period was exported. §8: so it is not exported twice unnoticed. */
+  recordExport: p("accounting.export")
+    .input(
+      z.object({
+        dataset: z.enum(EXPORT_DATASETS),
+        preset: z.enum(EXPORT_PRESETS),
+        periodStart: z.coerce.date(),
+        periodEnd: z.coerce.date(),
+        rowCount: z.number().int().nonnegative(),
+        contentHash: z.string(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordExportService(actorMeta(ctx), input)),
+
+  exportHistory: p("accounting.export").query(() => exportHistoryService()),
 });

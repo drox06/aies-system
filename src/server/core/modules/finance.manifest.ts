@@ -124,6 +124,17 @@ export const financeManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "accounting.export",
+      label: "Export figures to the accountant",
+      group: "Finance",
+      /*
+        The export is every invoice, payment and bill for a period in one file, so it is the widest
+        read of company figures the platform offers. Held where the other whole-company money
+        permissions are held.
+      */
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
+    {
       key: "payables.manage",
       label: "Record and approve supplier bills",
       group: "Finance",
@@ -287,6 +298,15 @@ export const financeManifest = defineManifest({
       permission: "payables.manage",
       group: "Finance",
       order: 5,
+    },
+    {
+      // §8's export. Last: a monthly act rather than a daily one.
+      label: "Accounting export",
+      href: "/finance/export",
+      icon: "file-text",
+      permission: "accounting.export",
+      group: "Finance",
+      order: 6,
     },
   ],
 });
