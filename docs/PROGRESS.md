@@ -3125,6 +3125,80 @@ around by exporting under another filename, which loses the record entirely.
 match run against its PO and receipts, the ageing list), then the export service and screen. Those two
 finish module 05.
 
+### Session 9 — §7 and §8's services and screens (2026-08-20)
+
+Payables and the accounting export, finished. Module 05 is feature-complete and awaiting its review
+gate.
+
+The match runs **at recording time and is stored**, rather than being recomputed when the payables
+list is read. A finding is a fact about a moment, and re-running the comparison against a purchase
+order somebody has since amended would quietly change what was disputed and why — which is the thing
+a supplier is being telephoned about. Same reasoning as storing a warranty determination.
+
+Looking at an export and recording one are separate calls, so opening the screen never counts as an
+export. Combining them would have made the answer to *"has August been done"* yes the moment somebody
+asked the question.
+
+### Session 10 — the walkthrough seed, and two bugs it found (2026-08-20)
+
+`scripts/sample-finance.ts` builds one job standing before each of module 05's five screens, with the
+downpayment, the advance release, the supplier bill and the export all deliberately left undone — the
+acts the walkthrough exists to test. docs/WALKTHROUGH-MODULE-05.md is the pass itself.
+
+Building it found two things a green suite had not:
+
+- **§4's gate demanded 30× the order value.** `PaymentTerm.downpaymentPct` is a whole percent and the
+  caller read it as a fraction, so the first order ever to reach the gate asked a customer for
+  PHP 21,268,800 against a PHP 708,960 order. All 1,601 tests passed because the test built its own
+  term at `0.30`, a value no seeded row has ever held — so it asserted the code agreed with itself.
+  Fixed at the read, the scale is now documented at all three definitions, and a regression test
+  reads the **seeded** 30/70 row rather than inventing one. docs/DECISIONS.md #129.
+- **92 test-created payment terms were sitting in the live database**, every one selectable on a real
+  quotation. Two leaks: one fixture never cleaned up at all, another cleans up only on a clean exit.
+  Both fixed at source; 88 purged, 4 left because live records point at them. docs/DECISIONS.md #130.
+- **§6's P&L measured margin against VAT-inclusive revenue.** Found by working out what the panel
+  *should* say before looking at what it did. It reported a 29.5% quoted margin where the quotation's
+  own document said 21.0% — VAT counted as income, flattering every job by roughly twelve per cent.
+  Nothing caught it because all eleven P&L tests called the pure function with hand-written numbers
+  and **the service had no test at all**. It has one now, and it asserts on the boundary rather than
+  the arithmetic. docs/DECISIONS.md #131.
+
+- **A failing `afterAll` had been leaking sales orders for three runs.** §4's gate tests created
+  orders through the real service and never tracked their ids, so cleanup died on a foreign key and
+  abandoned every delete after it — 20 orders, their quotations, POs and accounts left live, and 20
+  `AIESSO-` numbers permanently consumed. The suite read *1,643 passed, exit 0*; the only signal was
+  the **files** row saying 1 failed. All seven sites now track; verified clean on re-run.
+  docs/DECISIONS.md #132.
+
+**Suite on the fixes:** 1,643 tests passing across 140 files, and the two changed files re-run clean
+with cleanup verified to leave nothing behind. The FIN5 walkthrough figures were checked against the
+live service rather than asserted: contract value 633,000, actual cost 491,135, margin 22.41% against
+a quoted 21.01%, one day with no rate.
+
+**The pattern in all four:** each bug lived at a boundary between two halves that each looked
+finished from its own side — a value written by a seed and read by a service, a fixture that stood in
+for real data, a pure function fed by an untested caller, a create with its undo written somewhere
+else. Worth a standing question at review time:
+*which component writes this value, and does any test read theirs?*
+
+### Session 11 — the entry halves that were never built (2026-08-20)
+
+EA walked the module and stopped four steps in — not because anything was broken, but because there
+was nothing to press. `recordSupplierInvoiceService` had **zero UI callers**, and `CostRate` and
+`Expense` were tables with no service, no procedure and no screen at all. §7's three-way match was
+unreachable by a person; §6's P&L said *"1 day has no cost rate"* with nowhere to enter one.
+
+Built: a bill form on the payables screen that shows the match result as it records; `/finance/cost-rates`,
+leading with the unanswered question and the earliest unpriced day; `/finance/expenses`, submit and
+approve, self-approval refused and a project required. Three permissions added and seeded.
+
+`permissions-are-seeded.test.ts` gained a guard after `expense.submit` named a role that does not
+exist and only `prisma db seed` noticed — a half-seeded permission works for whoever tries it first.
+docs/DECISIONS.md #133, which is #128 for the third time and says so.
+
+**Next concrete step:** EA re-walks docs/WALKTHROUGH-MODULE-05.md against the deployed build, then the
+module 05 review gate.
+
 ## Not started
 - [ ] Modules 05–10
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per

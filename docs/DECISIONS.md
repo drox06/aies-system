@@ -4325,3 +4325,180 @@ zero.
 and it is easy to finish the half that is visible. A metric that cannot move is worse than a missing
 metric: it looks like an answer. Anywhere a figure is defined before its input exists, the figure
 should say so — and the check is to ask, of any number on a screen, *who types this, and where*.
+
+---
+
+## #129 — A fixture that invents its own data cannot catch a scale error
+
+**2026-08-20.** `createSalesOrderFromPoService` read `PaymentTerm.downpaymentPct` as a fraction. It is
+a whole percent. The first sales order ever to reach §4's gate carried a PHP 708,960 order and
+demanded a **PHP 21,268,800** downpayment before procurement could buy anything.
+
+The suite was green. All 1,601 tests. The reason is the finding:
+
+```ts
+// tests/.../sales-order.test.ts, before
+const term = await termWithDownpayment("0.30");
+expect(Number(saved.downpaymentAmount)).toBeCloseTo(Number(saved.total) * 0.3, 2);
+```
+
+The test built a `PaymentTerm` at `0.30` — a value **no seeded term has ever held** — and then
+asserted the code agreed with it. Two wrongs matching is not a passing test, it is a tautology. The
+production seed writes `30`, derived by summing the term's own `milestones[].pct`, which are whole
+percents validated to add to 100.
+
+Nothing found this until a *seed* built a deal from the real 30/70 row and printed the figure.
+
+**Where the scale now lives.** `PaymentTerm.downpaymentPct`, `SalesOrder.downpaymentPct` and
+`downpaymentGate()` all take a whole percent, and each says so at its definition. The alternative —
+storing a fraction on the order and converting on read — puts two scales behind one field name, which
+is how this happens twice.
+
+**The general rule.** A test that constructs its own fixture can prove a *function* correct and can
+never prove an *integration* correct, because it controls both sides of the interface. Wherever code
+reads a value some other component writes — a seed, another module, an external system — at least one
+test has to read the value that component actually wrote. `sales-order.test.ts` now has that test, and
+it refuses to build anything: it looks up the seeded `30/70` row and asserts the scale on it first.
+
+The same question applies anywhere else: **who writes this value, and does any test read theirs?**
+
+---
+
+## #130 — Test fixtures had left 92 payment terms in the live database
+
+**2026-08-20.** Found while investigating #129. `PaymentTerm` held 97 rows: 5 real ones and 92 named
+`SO-TERM-…` or `Test term …`. Every one was a selectable option on the payment-terms list of a real
+quotation.
+
+Two different leaks. `sales-order.test.ts` never cleaned its terms up at all. `billing-schedule.test.ts`
+cleans up correctly on a clean exit and leaks on an interrupted one — and this suite has been
+interrupted more than once, by the concurrent-vitest runs that produced false failures.
+
+Both are fixed at source. `scripts/purge-leaked-test-records.ts` cleared the 88 that nothing
+references; 4 are left because a live record points at them, and deleting a payment term a quotation
+depends on would leave that quotation unable to say what it promised.
+
+**Two things this says beyond the tidy-up.** First, the suite runs against the company's real database,
+so *every* fixture is a row somebody could pick from a dropdown — cleanup is not hygiene, it is
+correctness. Second, cleanup that only runs on the happy path is not cleanup: `afterAll` does not
+fire when a run is killed, so a leak of this shape is guaranteed eventually and a periodic sweep has
+to exist. It does, and it now covers terms.
+
+---
+
+## #131 — VAT is not revenue, and a margin measured against it is not a margin
+
+**2026-08-20.** Found while working out by hand what §6's P&L *should* print for the walkthrough deal,
+before looking at what it did print. The two disagreed.
+
+`projectPnlService` passed `SalesOrder.total` as the contract value. `total` is VAT-inclusive;
+`totalCost` is not. On the FIN5 deal — 633,000 net, 75,960 VAT, 500,000 of quoted cost — the P&L
+reported a **29.5%** quoted margin while the quotation's own document said **21.0%**. Same deal, two
+screens, eight and a half points apart, and the P&L was the flattering one.
+
+VAT is collected for the BIR and remitted. Counting it as income overstates every job by roughly the
+VAT rate, on the one number §6 says management cannot get anywhere else: *"the gap between quoted
+margin and actual margin is the single most useful number the platform can give management."* A gap
+computed against the wrong denominator is worse than no gap — it is confidently wrong in a consistent
+direction, which is how it survives being looked at.
+
+Contract value is now `total - vatAmount`, derived by subtraction rather than read from `subtotal`,
+because `subtotal` is before any discount and the money actually earned is not. `costing.ts` has
+always divided by `netAmount`; the two can no longer drift.
+
+**Why nothing caught it.** `project-pnl.test.ts` had eleven tests and **every one of them called the
+pure `projectPnl` function with hand-written numbers.** The service — the half that decides what
+those numbers are — had no test at all. The pure function was correct throughout.
+
+This is #129 a second time in one day, from the opposite direction: there, a test controlled both
+sides of an interface; here, no test crossed the interface at all. Both are the same omission — the
+boundary between *computing* a figure and *sourcing* it is where these live, and it is the boundary
+least likely to have a test on it, because both halves look finished from their own side.
+
+`project-pnl.test.ts` now builds a real order carrying VAT and asserts on the boundary: contract value
+is the net figure, and the quoted margin it derives agrees with what the quotation prints.
+
+---
+
+## #132 — Cleanup that stops half-way leaks more than the thing it failed on
+
+**2026-08-20.** The first full suite run since §4's downpayment gate was written. **1,643 tests
+passed, zero test failures — and one test *file* failed**, in `afterAll`.
+
+That whole describe block created sales orders through the real service and never pushed their ids
+into `salesOrderIds`. So the cleanup deleted the customer POs those orders still pointed at, died on
+`SalesOrder_customerPOId_fkey`, and **stopped** — abandoning every delete after that line. Three runs
+before anybody noticed: 20 sales orders, their quotations, their POs, their accounts and their files,
+all sitting in the live database. Twenty `AIESSO-` numbers consumed and gone.
+
+Three things worth keeping:
+
+**A failing `afterAll` is not a cosmetic failure.** The test count read 1,643 passed and the exit code
+was 0. It is easy to read that as green and move on — I nearly did. The signal was one line: *1 failed
+| 139 passed (140)* on the **files** row, not the tests row.
+
+**Cleanup is sequential, so the first failure hides the rest.** One untracked id did not leak one
+record; it leaked everything below it in the list. Anything that must be undone should either be
+tracked at the point it is created — never in a list maintained by hand at the bottom of a file — or
+be resilient to a failure part-way through.
+
+**The numbers are not recoverable.** §3 of module 00 does not reuse a number, correctly: a gap is a
+true record that a number was issued. So a leaked fixture does not merely add a row to be deleted, it
+permanently perforates a live document series. That is the argument for a separate test database, and
+the reason this is worth more than a tidy-up commit.
+
+Fixed: all seven creation sites now track their orders, `scripts/purge-leaked-test-records.ts` matches
+the fixture's `so-xxxxxxxx` actor id — a shape a real order, owned by a real user's cuid, cannot have
+— and the 20 orders are gone. Re-running the file now leaves nothing behind, verified.
+
+---
+
+## #133 — Three services in one module with no way in
+
+**2026-08-20.** The company walked module 05 and stopped four steps in. Not because anything was
+broken — because there was nothing to press.
+
+| What | State before |
+|---|---|
+| `recordSupplierInvoiceService` | Written, tested, wired to a tRPC procedure. **Zero UI callers.** |
+| `CostRate` | A table. No service, no procedure, no screen. |
+| `Expense` | A table with a numbering series. No service, no procedure, no screen. |
+
+So §7's three-way match — the reason §7 exists — could not be reached by a person. §6's P&L reported
+*"1 day has no cost rate"* and there was nowhere to enter one; the company read that caveat and asked
+the only sensible question, **"where do I look for these?"**, and the honest answer was *nowhere*. And
+the only direct expenses any project could ever show were ones a seed script had written, which means
+the 46,000 of subcontractors on the walkthrough's P&L was fiction I had authored myself.
+
+**This is docs/DECISIONS.md #128 for the third time**, and #131 was a fourth variation of it. #128
+named the shape after §11's warranty gate: *a report and the data it reads are built at different
+moments, and it is easy to finish the half that is visible.* It proposed the check — *of any number on
+a screen, ask who types this and where* — and I then wrote three more sessions without applying it.
+Naming a failure mode is not the same as having a habit, and the habit is what was missing.
+
+**Why the tests could not see it.** Worse than I first wrote: §7's tests did not call the service at
+all. `payables.test.ts` covers `threeWayMatch` and `payableAgeing` — both pure, both correct — and
+nothing between them and a screen. A service with no caller is, from inside a suite that never calls
+it either, indistinguishable from one with a hundred. Service-level tests now exist for all three,
+which still cannot prove a screen exists but at least describes both halves in one place. The
+existing `every-screen-has-a-door` guard checks the reverse direction — that no route is orphaned from
+the nav — and passed throughout, because the door it was looking for was the one from the sidebar, not
+the one from a person's hands to the database.
+
+**Fixed:** a bill form on the payables screen showing the match result at the moment of recording;
+`/finance/cost-rates`, which leads with the unanswered question and the earliest unpriced day, because
+a rate starting today leaves last month still uncosted; and `/finance/expenses`, submit and approve,
+with self-approval refused and a project required — an expense charged to nothing is a cost that shows
+up on no job's margin.
+
+**A guard, and an admission about its limits.** Adding `expense.submit` named `project_engineer` in
+its `defaultRoles`, a plausible role AIES does not have. `defaultRoles` is `string[]`, so nothing
+objected until `prisma db seed` died with `P2025` and a stack trace naming neither the manifest nor the
+role. Worse, the seed is a loop: a bad role part-way through leaves the permission **half granted**,
+working for whoever tries it first. `permissions-are-seeded.test.ts` now checks every named role
+against the `Role` table.
+
+That guard is real but narrow. **The one that would have caught all three of these does not exist yet**
+and is not obviously cheap: a mutation with no caller is a legitimate state during a build, and a test
+that forbade it would fire on every half-finished session. The honest answer for now is the question,
+asked deliberately at the end of a session rather than trusted to occur to me.
