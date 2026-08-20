@@ -803,6 +803,17 @@ model StockItem {
 
   lastCountedAt DateTime?
 
+  /// What the last purchase of this item cost, per unit.
+  ///
+  /// §6 costs stock issued to a job "at last purchase cost", and nothing recorded one — so materials
+  /// leaving the store were invisible in a project's cost and every job that drew on stock looked
+  /// more profitable than it was.
+  ///
+  /// Null means nobody has recorded a cost, which is **not** zero. The P&L counts such issues as
+  /// uncosted and says how many there were, rather than quietly valuing them at nothing: a margin
+  /// flattered by unpriced stock is the failure §6 exists to prevent.
+  lastPurchaseCost Decimal? @db.Decimal(14, 2)
+
   /// When this instrument's calibration next falls due.
   ///
   /// §7: "**Drawing an overdue-calibration instrument is blocked.**" Module 08 owns calibration

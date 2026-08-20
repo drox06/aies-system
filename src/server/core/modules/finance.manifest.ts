@@ -124,6 +124,21 @@ export const financeManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "pnl.view",
+      label: "See project profitability",
+      group: "Finance",
+      /*
+        Narrow, and narrower than most finance permissions.
+
+        A project P&L shows labour cost, and labour cost divided by hours is close enough to what
+        somebody is paid that treating it as an ordinary report would leak pay across the company.
+        §6 gates this explicitly. Operations managers are deliberately out: they own the job, not
+        its margin, and the number they would act on — budget against actual hours — is on the
+        ticket already.
+      */
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
+    {
       key: "ar.view",
       label: "See what customers owe",
       group: "Finance",

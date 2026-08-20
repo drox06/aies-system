@@ -90,3 +90,105 @@ model BillingMilestone {
   @@index([status, trigger])
   @@index([status, dueDate])
 }
+
+
+/// §6's direct expenses — the costs that arrive as an invoice rather than through a crew.
+///
+/// Subcontractors, permits, equipment rental, third-party calibration. §6 lists seven sources of
+/// project cost and six of them already exist elsewhere: landed cost on a supplier PO, liquidated
+/// cash advance lines, field expenses, labour from timesheets, materials issued from stock, and
+/// rework from failed QA. This is the seventh, and the only one with nowhere else to live.
+///
+/// **It is deliberately not a second FieldExpense.** That model is a technician's out-of-pocket
+/// spend on a job — small, cash, receipt-in-a-pocket, and gated on §5's ₱499 rule. This is an
+/// invoice from a company, approved by somebody with authority to commit money, and it is the shape
+/// module 05 §7's payables will grow into. Collapsing the two would force one approval path onto two
+/// different acts.
+model Expense {
+  id     String @id @default(cuid())
+  /// AIESEXP-{YY}{####}.
+  number String @unique
+
+  category    String
+  vendorName  String?
+  expenseDate DateTime
+
+  amount    Decimal  @db.Decimal(14, 2)
+  currency  String   @default("PHP")
+  /// Input VAT, where the invoice separates it. Null means nobody has recorded it, which is not the
+  /// same as an invoice with no VAT on it — the second is a zero.
+  vatAmount Decimal? @db.Decimal(14, 2)
+
+  description String
+
+  /// Where the cost lands. §6's P&L reads by project; the sales order is carried because a job
+  /// whose project was never created still has costs, and losing them would flatter the margin.
+  salesOrderId String?
+  projectId    String?
+  ticketId     String?
+
+  paymentMethod  String?
+  receiptFileIds String[] @default([])
+
+  /// draft | submitted | approved | rejected | paid (§6).
+  ///
+  /// Only `approved` and `paid` count towards project cost. A submitted expense is a claim, and
+  /// counting claims as cost would make every project look worse the moment somebody typed
+  /// something, then better when it was rejected.
+  status String @default("draft")
+
+  submittedById String
+  approvedById  String?
+  approvedAt    DateTime?
+  paidAt        DateTime?
+  rejectedReason String?
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([projectId, status])
+  @@index([salesOrderId])
+  @@index([status, expenseDate])
+}
+
+/// What an hour of somebody's time costs the company, from a date.
+///
+/// §6 computes labour cost as approved timesheet hours × the user's cost rate. That rate changes —
+/// people are promoted, minimum wage moves, a contractor's rate is renegotiated — and a project
+/// costed last year must keep the rate that applied then. Hence `effectiveFrom` and a row per
+/// change rather than a column on `User`.
+///
+/// **This is cost, not salary.** It is the fully-loaded hourly figure the company uses to price and
+/// to measure a job: pay plus statutory contributions plus the share of overhead the business
+/// chooses to attribute. Nobody's take-home pay is derivable from it, which is deliberate — see the
+/// permission on the P&L screen.
+model CostRate {
+  id     String @id @default(cuid())
+  userId String
+
+  effectiveFrom DateTime @db.Date
+
+  hourlyCost Decimal @db.Decimal(12, 2)
+  /// Overtime multiplier — 1.25 under Philippine rules for ordinary overtime, higher on rest days
+  /// and holidays. Stored per rate because it is negotiated alongside it.
+  overtimeMultiplier Decimal @default(1.25) @db.Decimal(5, 2)
+  /// Travel and standby are usually paid at plain time even when the day runs long. Separate
+  /// multipliers so a company that treats them differently does not have to fake it with a blended
+  /// hourly figure that then misprices ordinary work.
+  travelMultiplier   Decimal @default(1) @db.Decimal(5, 2)
+  standbyMultiplier  Decimal @default(1) @db.Decimal(5, 2)
+
+  notes String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  /// One rate per person per start date. A second row for the same day is a correction, and
+  /// corrections replace rather than accumulate.
+  @@unique([userId, effectiveFrom])
+  @@index([userId, effectiveFrom])
+}

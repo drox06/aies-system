@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { releaseQueueService } from "@/server/core/finance/cash-advance-queue";
+import { projectPnlService } from "@/server/core/finance/project-pnl-service";
 import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
@@ -243,4 +244,14 @@ export const financeRouter = router({
    * finance's; seeing the queue is not the same authority as emptying it.
    */
   releaseQueue: p("cash_advance.view_register").query(() => releaseQueueService()),
+
+  /**
+   * §6's project P&L — quoted margin against actual, and the gap between them.
+   *
+   * On `pnl.view`, which is narrower than the rest of finance: this shows labour cost, and labour
+   * cost over hours is close enough to somebody's pay that it cannot be an ordinary report.
+   */
+  projectPnl: p("pnl.view")
+    .input(z.object({ projectId: z.string() }))
+    .query(({ input }) => projectPnlService(input.projectId)),
 });

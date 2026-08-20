@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PnlPanel } from "./PnlPanel";
 import { DateCell } from "@/components/ui/cells";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { Card, PageHeader } from "@/components/ui/layout";
@@ -68,6 +69,15 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           )}
         </p>
       </Card>
+
+      {/*
+        §6's P&L, high on the page rather than at the bottom.
+
+        It is the question a manager opens a project to answer, and burying it under the close-out
+        checklist would make the platform's most useful number the one you have to scroll for. The
+        panel renders nothing for anybody without `pnl.view`.
+      */}
+      <PnlPanel projectId={id} />
 
       <Card className="p-4">
         <h2 className="text-sm font-semibold">Tickets</h2>
