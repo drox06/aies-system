@@ -19,6 +19,7 @@ import {
 } from "@/server/core/operations/cash-advance-rules";
 import { formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc/client";
+import { LiquidationPanel } from "./LiquidationPanel";
 
 /**
  * One cash advance (specs/04-operations-projects.md §5).
@@ -104,6 +105,8 @@ export default function CashAdvancePage({ params }: { params: Promise<{ id: stri
           </div>
         }
       />
+
+      <LiquidationPanel cashAdvanceId={id} />
 
       <RecordLayout
         aside={

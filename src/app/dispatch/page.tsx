@@ -12,6 +12,7 @@ import {
   type CardState,
   type UnavailabilityKind,
 } from "@/server/core/operations/dispatch-rules";
+import { EmergencyBump } from "./EmergencyBump";
 import { Unavailability } from "./Unavailability";
 import { trpc } from "@/lib/trpc/client";
 
@@ -220,6 +221,15 @@ export default function DispatchPage() {
           </ul>
         </Card>
       )}
+
+      {/*
+        §17's emergency, which had no caller.
+
+        Doing it by hand — reschedule the emergency, then edit each colliding ticket — is the same
+        outcome with three chances to forget one, and the one forgotten is a customer expecting a
+        technician who is now somewhere else.
+      */}
+      <EmergencyBump cards={data.cards} onDone={() => void board.refetch()} />
 
       {/* §17: "the number sales needs before promising a date". */}
       {/*

@@ -74,6 +74,8 @@ export default function CashAdvanceRegisterPage() {
         description="Who is holding company money, and what is owed back."
       />
 
+      <LiquidationsAwaiting />
+
       <div className="mb-4 flex flex-wrap gap-2">
         {SCOPES.map((entry) => (
           <button
@@ -202,6 +204,53 @@ export default function CashAdvanceRegisterPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * §5's liquidations waiting on a check.
+ *
+ * `reviewLiquidation` was reachable from an advance's own page and there was no list of what was
+ * waiting — so a reviewer had to already know which advance to open, which is the definition of a
+ * queue nobody works. docs/DECISIONS.md #135's triage.
+ *
+ * Oldest first, because a liquidation nobody checks is money the company has not accounted for and
+ * the oldest is the one furthest from anybody's memory of the job.
+ */
+function LiquidationsAwaiting() {
+  const queue = trpc.operations.liquidationsAwaitingCheck.useQuery(undefined, { retry: false });
+
+  // Absent for anybody without the review permission, rather than an error telling them a queue
+  // exists that they cannot see.
+  if (queue.error || queue.isPending) return null;
+  const rows = queue.data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <Card className="mb-4 border-2 border-amber-400 bg-amber-50 p-3">
+      <h2 className="text-sm font-semibold text-amber-900">
+        {rows.length} liquidation{rows.length === 1 ? "" : "s"} waiting to be checked
+      </h2>
+      <p className="mt-0.5 text-xs text-amber-900">
+        Money already spent and not yet accounted for. Until each is checked it is not a project
+        cost, so the job it belongs to reads cheaper than it was.
+      </p>
+      <ul className="mt-2 space-y-1 text-sm text-amber-900">
+        {rows.map((row) => (
+          <li key={row.id} className="flex flex-wrap items-baseline justify-between gap-2">
+            <Link
+              href={`/cash-advances/${row.cashAdvance.id}`}
+              className="tabular underline underline-offset-2"
+            >
+              {row.cashAdvance.number}
+            </Link>
+            <span className="text-xs">
+              {row.cashAdvance.purpose} · submitted <DateCell value={row.submittedAt} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
