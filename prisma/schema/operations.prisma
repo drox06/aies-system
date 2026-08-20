@@ -1644,6 +1644,14 @@ model Timesheet {
 
   /// draft | submitted | approved | rejected
   status         String    @default("draft")
+
+  /// When it was submitted for approval — the start of the escalation clock.
+  ///
+  /// Added 2026-08-20 with the approval queue. `updatedAt` cannot serve: it moves on any edit, so
+  /// somebody correcting a note would silently restart the window, and a sheet could sit unapproved
+  /// indefinitely without ever reading as late. A clock that resets by accident is not a clock.
+  submittedAt    DateTime?
+
   approvedById   String?
   approvedAt     DateTime?
   rejectedReason String?
@@ -1695,6 +1703,10 @@ model FieldExpense {
 
   /// draft | submitted | approved | rejected | reimbursed
   status         String    @default("draft")
+
+  /// When it was submitted for approval. Same clock, same reason as `Timesheet.submittedAt`.
+  submittedAt    DateTime?
+
   approvedById   String?
   approvedAt     DateTime?
   rejectedReason String?

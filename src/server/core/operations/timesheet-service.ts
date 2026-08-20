@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import { emit } from "@/server/core/events/emit";
 import { registerFileAccessChecker } from "@/server/core/storage/access";
+import { workingHoursBetween } from "@/server/core/rbac/approval-fallback";
 import {
   FIELD_EXPENSE_ENTITY_TYPE,
   TIMESHEET_ENTITY_TYPE,
@@ -137,7 +138,9 @@ export async function submitTimesheetsService(actor: ActorMeta, input: { ids: st
 
   const result = await db.timesheet.updateMany({
     where: { id: { in: rows.map((row) => row.id) } },
-    data: { status: "submitted", version: { increment: 1 } },
+    // `submittedAt` starts the escalation clock. Stamped here rather than derived from `updatedAt`,
+    // which moves on any later edit and would restart a window nobody meant to restart.
+    data: { status: "submitted", submittedAt: new Date(), version: { increment: 1 } },
   });
 
   return { submitted: result.count };
@@ -254,15 +257,84 @@ export async function myTimesheetsService(userId: string, from: Date, to: Date) 
 }
 
 /** Everything waiting on somebody who can approve — never their own. */
+/**
+ * Hours waiting on a decision — everything the reviewer needs to decide without opening each one.
+ *
+ * `userId: { not: reviewerId }` is the self-approval rule showing up in the *query* as well as in
+ * the service that enforces it. Listing a row somebody is forbidden to act on would make the queue
+ * a to-do list with items on it that can never be done.
+ *
+ * The rows carry names, tickets and how long each has waited because the alternative is a reviewer
+ * opening six screens to decide six sheets. The waiting time is measured in **working hours**: a
+ * sheet submitted at five on Friday has not been sitting for two days by Sunday.
+ */
 export async function timesheetsAwaitingService(reviewerId: string) {
-  return db.timesheet.findMany({
+  const rows = await db.timesheet.findMany({
     where: { status: "submitted", deletedAt: null, userId: { not: reviewerId } },
     orderBy: { date: "asc" },
     take: 200,
   });
+  if (rows.length === 0) return [];
+
+  const [users, tickets] = await Promise.all([
+    db.user.findMany({
+      where: { id: { in: [...new Set(rows.map((row) => row.userId))] } },
+      select: { id: true, name: true },
+    }),
+    db.ticket.findMany({
+      where: {
+        id: {
+          in: [...new Set(rows.map((row) => row.ticketId).filter((id): id is string => !!id))],
+        },
+      },
+      select: { id: true, number: true, title: true },
+    }),
+  ]);
+  const nameById = new Map(users.map((user) => [user.id, user.name]));
+  const ticketById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+
+  const now = new Date();
+  return rows.map((row) => {
+    const waited = row.submittedAt ? workingHoursBetween(row.submittedAt, now) : null;
+    return {
+      id: row.id,
+      workerId: row.userId,
+      workerName: nameById.get(row.userId) ?? "somebody",
+      date: row.date,
+      regularHours: row.regularHours.toString(),
+      overtimeHours: row.overtimeHours.toString(),
+      travelHours: row.travelHours.toString(),
+      standbyHours: row.standbyHours.toString(),
+      activity: row.activity,
+      notes: row.notes,
+      ticket: row.ticketId ? (ticketById.get(row.ticketId) ?? null) : null,
+      submittedAt: row.submittedAt,
+      /*
+        Null when the sheet was submitted before `submittedAt` existed, and shown as unknown rather
+        than as zero. A row that has genuinely been waiting a week must not read as fresh because
+        the column was added after it was submitted.
+      */
+      waitedWorkingHours: waited,
+      escalated: waited !== null && waited >= ESCALATE_AFTER_WORKING_HOURS,
+    };
+  });
 }
 
 // ---- field expenses --------------------------------------------------------------------------------
+
+/**
+ * How long hours may sit with the operations manager before the admin manager is chased too.
+ *
+ * Two working days, on the company's decision of 2026-08-20. **Working** hours, reusing module 00's
+ * calendar for the reason docs/DECISIONS.md #29 records: a wall-clock window put a Friday-afternoon
+ * quotation on the President's desk on Saturday night, before anybody had a working hour to look at
+ * it. Hours submitted at five on Friday should not chase the admin manager on Sunday.
+ *
+ * Escalation widens who is *chased*, never who is *allowed*. The admin manager, VP and President
+ * hold `timesheet.approve` from the start and can act at any moment — that is standing authority,
+ * not a delegation the window grants. Same distinction module 00's fallback already draws.
+ */
+export const ESCALATE_AFTER_WORKING_HOURS = 16;
 
 export interface ExpenseInput {
   ticketId?: string | null;
@@ -378,7 +450,7 @@ export async function submitExpensesService(actor: ActorMeta, input: { ids: stri
   const result = allowed.length
     ? await db.fieldExpense.updateMany({
         where: { id: { in: allowed } },
-        data: { status: "submitted", version: { increment: 1 } },
+        data: { status: "submitted", submittedAt: new Date(), version: { increment: 1 } },
       })
     : { count: 0 };
 
@@ -541,11 +613,52 @@ export async function listExpensesService(filter: {
   });
 }
 
+/** Field spend waiting on a decision. Same shape and same reasoning as the hours queue above. */
 export async function expensesAwaitingService(reviewerId: string) {
-  return db.fieldExpense.findMany({
+  const rows = await db.fieldExpense.findMany({
     where: { status: "submitted", deletedAt: null, userId: { not: reviewerId } },
     orderBy: { date: "asc" },
     take: 200,
+  });
+  if (rows.length === 0) return [];
+
+  const [users, tickets] = await Promise.all([
+    db.user.findMany({
+      where: { id: { in: [...new Set(rows.map((row) => row.userId))] } },
+      select: { id: true, name: true },
+    }),
+    db.ticket.findMany({
+      where: {
+        id: {
+          in: [...new Set(rows.map((row) => row.ticketId).filter((id): id is string => !!id))],
+        },
+      },
+      select: { id: true, number: true, title: true },
+    }),
+  ]);
+  const nameById = new Map(users.map((user) => [user.id, user.name]));
+  const ticketById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+
+  const now = new Date();
+  return rows.map((row) => {
+    const waited = row.submittedAt ? workingHoursBetween(row.submittedAt, now) : null;
+    return {
+      id: row.id,
+      workerId: row.userId,
+      workerName: nameById.get(row.userId) ?? "somebody",
+      date: row.date,
+      category: row.category,
+      amount: row.amount,
+      currency: row.currency,
+      description: row.description,
+      receiptCount: row.receiptFileIds.length,
+      /** An expense paid from an advance is already accounted there — worth seeing before deciding. */
+      fromCashAdvance: row.cashAdvanceId !== null,
+      ticket: row.ticketId ? (ticketById.get(row.ticketId) ?? null) : null,
+      submittedAt: row.submittedAt,
+      waitedWorkingHours: waited,
+      escalated: waited !== null && waited >= ESCALATE_AFTER_WORKING_HOURS,
+    };
   });
 }
 

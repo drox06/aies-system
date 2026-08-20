@@ -270,9 +270,20 @@ export const operationsManifest = defineManifest({
       key: "timesheet.approve",
       label: "Approve hours and field expenses",
       group: "Operations",
-      // Never your own — the service refuses it regardless of this permission. §16's claims on the
-      // company follow §5's rule about cash advances rather than inventing a second answer.
-      defaultRoles: ["president", "vice_president", "operations_manager"],
+      /*
+        Never your own — the service refuses it regardless of this permission. §16's claims on the
+        company follow §5's rule about cash advances rather than inventing a second answer.
+
+        The **operations manager is the primary approver**: they know whether the hours match the
+        work. The admin manager was added on 2026-08-20 as the fallback, so a crew's pay is not
+        held up by one person being on leave — hours escalate to them after two working days.
+
+        Escalation widens who is *chased*, not who is *allowed*. All four can act from the moment a
+        sheet is submitted; the window only decides whose queue it appears in unprompted. That is
+        the distinction module 00's approval fallback already draws, and reusing it means there is
+        one answer to "who can approve what" rather than two.
+      */
+      defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
     },
     {
       key: "contract.manage",
@@ -476,6 +487,22 @@ export const operationsManifest = defineManifest({
       permission: "delivery.execute",
       group: "Operations",
       order: 42,
+    },
+    {
+      /*
+        §16's approval queue.
+
+        Sits next to the dispatch board because it is the same person's morning: what the crew did
+        yesterday, and what they are doing today. It exists at all because hours could be submitted
+        and never approved — and §6 of module 05 counts only approved hours as labour cost, so every
+        project margin was flattering by the whole of its largest line.
+      */
+      label: "Hours and expenses",
+      href: "/timesheets",
+      icon: "clipboard-check",
+      permission: "timesheet.approve",
+      group: "Operations",
+      order: 41,
     },
     {
       label: "Dispatch board",

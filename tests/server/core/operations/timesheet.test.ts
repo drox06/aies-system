@@ -3,9 +3,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
 import {
+  ESCALATE_AFTER_WORKING_HOURS,
   listExpensesService,
   saveExpenseService,
   submitExpensesService,
+  submitTimesheetsService,
+  timesheetsAwaitingService,
 } from "@/server/core/operations/timesheet-service";
 import {
   FIELD_EXPENSE_ENTITY_TYPE,
@@ -43,6 +46,7 @@ const ticketIds: string[] = [];
 const accountIds: string[] = [];
 const expenseIds: string[] = [];
 const fileIds: string[] = [];
+const timesheetIds: string[] = [];
 
 async function makeTicket() {
   const account = await db.customerAccount.create({
@@ -84,6 +88,9 @@ async function attachReceipt(expenseId: string) {
 }
 
 afterAll(async () => {
+  // Tracked at creation, per docs/DECISIONS.md #132: an untracked id does not leak one record, it
+  // aborts the cleanup and leaks everything below it.
+  await db.timesheet.deleteMany({ where: { id: { in: timesheetIds } } });
   await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
   await db.fieldExpense.deleteMany({ where: { id: { in: expenseIds } } });
   await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
@@ -213,4 +220,114 @@ describe("claiming it", () => {
       "draft",
     );
   });
+});
+
+/**
+ * §16's approval queue — the half nothing called until 2026-08-20.
+ *
+ * Hours could be recorded and submitted and **never approved**, because `decideTimesheet` had no
+ * caller. §6 of module 05 counts only approved timesheets as labour cost, so on every real job the
+ * largest cost line read zero and the margin was flattering by the whole of it. The FIN5 walkthrough
+ * showed labour only because a seed wrote `status: "approved"` directly — a line written without
+ * asking why it was necessary. docs/DECISIONS.md #135.
+ *
+ * What is pinned here is the queue's *shape*, because that is what a reviewer acts on:
+ *
+ *  1. **The clock starts at submission**, from its own column rather than `updatedAt`.
+ *  2. **Your own hours are never in your queue** — the self-approval rule visible in the query, not
+ *     only in the service that enforces it.
+ *  3. **Escalation is about being chased, not being allowed.** A row past the window is marked; the
+ *     permission was never the thing the window controlled.
+ */
+describe("§16's approval queue", () => {
+  it("stamps the submission clock, and keeps it out of the submitter's own queue", async () => {
+    const ticket = await makeTicket();
+    const own = await db.timesheet.create({
+      data: {
+        ticketId: ticket.id,
+        userId: actor.actorId,
+        date: new Date("2026-05-04"),
+        regularHours: "8",
+        status: "draft",
+      },
+    });
+    timesheetIds.push(own.id);
+
+    await submitTimesheetsService(actor, { ids: [own.id] });
+
+    const saved = await db.timesheet.findUniqueOrThrow({ where: { id: own.id } });
+    expect(saved.status).toBe("submitted");
+    // The clock exists and started. Without it nothing can ever read as late.
+    expect(saved.submittedAt).not.toBeNull();
+
+    /*
+      Absent from the submitter's own queue.
+
+      `decideTimesheetService` refuses self-approval regardless, so listing it would put a row in
+      front of somebody that can never be actioned — a queue with permanent residents is a queue
+      people stop working.
+    */
+    const mine = await timesheetsAwaitingService(actor.actorId);
+    expect(mine.map((row) => row.id)).not.toContain(own.id);
+
+    // And present in somebody else's, carrying what they need to decide without opening it.
+    const theirs = await timesheetsAwaitingService(`someone-else-${suffix}`);
+    const row = theirs.find((candidate) => candidate.id === own.id);
+    expect(row).toBeTruthy();
+    expect(row?.ticket?.number).toBe(ticket.number);
+    expect(row?.waitedWorkingHours).not.toBeNull();
+    // Just submitted, so inside the window.
+    expect(row?.escalated).toBe(false);
+  }, 60_000);
+
+  it("marks a row escalated once it has waited two working days", async () => {
+    const ticket = await makeTicket();
+    const stale = await db.timesheet.create({
+      data: {
+        ticketId: ticket.id,
+        userId: `stale-worker-${suffix}`,
+        date: new Date("2026-05-05"),
+        regularHours: "8",
+        status: "submitted",
+        // Three weeks back, so the window has elapsed however the working calendar falls.
+        submittedAt: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000),
+      },
+    });
+    timesheetIds.push(stale.id);
+
+    const queue = await timesheetsAwaitingService(actor.actorId);
+    const row = queue.find((candidate) => candidate.id === stale.id);
+
+    expect(row?.escalated).toBe(true);
+    expect(row?.waitedWorkingHours).toBeGreaterThanOrEqual(ESCALATE_AFTER_WORKING_HOURS);
+  }, 60_000);
+
+  it("reports an unknown wait rather than a zero one", async () => {
+    const ticket = await makeTicket();
+    /*
+      A row submitted before the column existed.
+
+      Its wait is genuinely unknown, and it must not read as fresh — a sheet that has been sitting a
+      week would otherwise present as having just arrived, which is the absent-is-not-zero rule this
+      platform applies to warranty windows and cost categories alike.
+    */
+    const legacy = await db.timesheet.create({
+      data: {
+        ticketId: ticket.id,
+        userId: `legacy-worker-${suffix}`,
+        date: new Date("2026-05-06"),
+        regularHours: "8",
+        status: "submitted",
+        submittedAt: null,
+      },
+    });
+    timesheetIds.push(legacy.id);
+
+    const queue = await timesheetsAwaitingService(actor.actorId);
+    const row = queue.find((candidate) => candidate.id === legacy.id);
+
+    expect(row?.waitedWorkingHours).toBeNull();
+    // Not escalated either: the platform does not assert lateness it cannot evidence.
+    expect(row?.escalated).toBe(false);
+  }, 60_000);
 });
