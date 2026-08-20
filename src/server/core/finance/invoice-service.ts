@@ -985,3 +985,108 @@ export async function receivablesService() {
 
   return { rows, buckets, total: rows.reduce((sum, row) => sum + row.balance, 0) };
 }
+
+/**
+ * Statements, including drafts — the list the billing clerk works from.
+ *
+ * `receivablesService` deliberately shows only what is **owed**: issued, part-paid or overdue with a
+ * balance. That is the right shape for a receivables report and the wrong one for the person doing
+ * the billing, because it hides the two states they act on most — a draft they have just raised and
+ * have not sent, and a statement paid this morning that they want to confirm.
+ *
+ * Two lists rather than one filter on the first, for the same reason §5b's release queue is separate
+ * from the cash advance register: the questions are different. *What do we need to chase* and *what
+ * am I working on* have different orders and different audiences.
+ */
+export async function statementsService(filter: { status?: string; accountId?: string } = {}) {
+  const statements = await db.billingStatement.findMany({
+    where: {
+      deletedAt: null,
+      ...(filter.status ? { status: filter.status } : {}),
+      ...(filter.accountId ? { accountId: filter.accountId } : {}),
+    },
+    // Drafts first: they are the ones with an action outstanding, and a draft nobody issues is a
+    // customer who never got asked for money.
+    orderBy: [{ statementDate: "desc" }],
+    take: 200,
+  });
+
+  const [accounts, invoices] = await Promise.all([
+    db.customerAccount.findMany({
+      where: { id: { in: [...new Set(statements.map((s) => s.accountId))] } },
+      select: { id: true, name: true, withholdsEWT: true, ewtRate: true },
+    }),
+    db.serviceInvoice.findMany({
+      where: { accountId: { in: [...new Set(statements.map((s) => s.accountId))] } },
+      select: { id: true, number: true, billingStatementIds: true, status: true },
+    }),
+  ]);
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+
+  return statements.map((statement) => ({
+    id: statement.id,
+    number: statement.number,
+    type: statement.type,
+    status: statement.status,
+    accountId: statement.accountId,
+    accountName: accountById.get(statement.accountId)?.name ?? "unknown",
+    withholds: accountById.get(statement.accountId)?.withholdsEWT ?? false,
+    statementDate: statement.statementDate,
+    dueDate: statement.dueDate,
+    total: statement.total,
+    amountPaid: statement.amountPaid,
+    balance: statement.balance,
+    expectedWithholdingAmount: statement.expectedWithholdingAmount,
+    expectedNetCollectible: statement.expectedNetCollectible,
+    poReference: statement.poReference,
+    /*
+      The invoices this statement has produced.
+
+      §3: one statement can produce several invoices if the customer pays in instalments. Showing
+      them on the statement is what makes the two-document model legible — otherwise somebody sees
+      "paid" and has to go somewhere else to find the BIR document that says so.
+    */
+    invoices: invoices
+      .filter((invoice) => invoice.billingStatementIds.includes(statement.id))
+      .map((invoice) => ({ id: invoice.id, number: invoice.number, status: invoice.status })),
+  }));
+}
+
+/**
+ * §3.3's PDC register — cheques received and not yet cleared.
+ *
+ * The spec is blunt about why this is its own list: *"A received PDC is not collected cash. Getting
+ * this wrong overstates collections and issues an invoice against money that may bounce."* A cheque
+ * sitting here is a promise; only clearing it makes it money.
+ *
+ * Ordered by the cheque's own date, because that is the day somebody has to go to the bank.
+ */
+export async function pendingChequesService() {
+  const cheques = await db.payment.findMany({
+    where: { deletedAt: null, method: "check", clearedAt: null, bouncedAt: null },
+    orderBy: [{ checkDate: "asc" }, { receivedAt: "asc" }],
+    take: 200,
+  });
+
+  const accounts = await db.customerAccount.findMany({
+    where: { id: { in: [...new Set(cheques.map((cheque) => cheque.accountId))] } },
+    select: { id: true, name: true },
+  });
+  const nameById = new Map(accounts.map((account) => [account.id, account.name]));
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return cheques.map((cheque) => ({
+    id: cheque.id,
+    number: cheque.number,
+    accountName: nameById.get(cheque.accountId) ?? "unknown",
+    amount: cheque.amount,
+    checkNumber: cheque.checkNumber,
+    checkDate: cheque.checkDate,
+    receivedAt: cheque.receivedAt,
+    reference: cheque.reference,
+    /** Whether the cheque's date has arrived — the day it can be presented, not the day it clears. */
+    presentable: cheque.checkDate ? cheque.checkDate <= today : true,
+  }));
+}

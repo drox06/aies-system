@@ -40,6 +40,8 @@ import {
   cancelStatementService,
   clearChequeService,
   issueStatementService,
+  pendingChequesService,
+  statementsService,
   outstanding2307sService,
   raiseStatementService,
   receivablesService,
@@ -346,6 +348,14 @@ export const financeRouter = router({
       z.object({ id: z.string(), approve: z.boolean(), reason: z.string().max(1000).nullish() }),
     )
     .mutation(({ ctx, input }) => decideExpenseService(actorMeta(ctx), input)),
+
+  /** §3's statements, drafts included — the list the billing clerk works from. */
+  statements: p("billing_statement.create")
+    .input(z.object({ status: z.string().optional(), accountId: z.string().optional() }).optional())
+    .query(({ input }) => statementsService(input ?? {})),
+
+  /** §3.3's PDC register: cheques received and not yet cleared. */
+  pendingCheques: p("payment.record").query(() => pendingChequesService()),
 
   /** §7's payables list, aged, with the disputed ones counted. */
   payables: p("payables.manage")

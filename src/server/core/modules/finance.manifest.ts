@@ -333,8 +333,24 @@ export const financeManifest = defineManifest({
       order: 4,
     },
     {
-      // §7's payables. Last in the group: money out is checked less often than money in, and the
-      // ordering follows how a finance day actually runs.
+      /*
+        §3's two documents, and the money between them.
+
+        Directly after "Ready to bill" because that is the order the work happens in: a milestone
+        becomes billable, a statement is raised from it, and a payment against that statement issues
+        the service invoice. The screen existed as three unreachable services until 2026-08-20 —
+        docs/DECISIONS.md #135.
+      */
+      label: "Statements",
+      href: "/finance/statements",
+      icon: "receipt",
+      permission: "billing_statement.create",
+      group: "Finance",
+      order: 3,
+    },
+    {
+      // §7's payables. Money out is checked less often than money in, and the ordering follows how
+      // a finance day actually runs.
       label: "Payables",
       href: "/finance/payables",
       icon: "clipboard-list",

@@ -7,6 +7,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { trpc } from "@/lib/trpc/client";
+import { RaiseStatement } from "./RaiseStatement";
 
 /**
  * specs/05-finance-billing.md §2's work list.
@@ -141,6 +142,30 @@ export default function BillingWorklistPage() {
                   )}
                   . {row.triggerLabel}.
                 </p>
+
+                {/*
+                  No account, no statement — and said rather than shown as a disabled button.
+
+                  A milestone can only reach this state if its sales order lost its account, which is
+                  a data fault somebody has to fix elsewhere. Passing an empty string to keep the
+                  button would raise a statement addressed to nobody.
+                */}
+                {row.accountId === null ? (
+                  <p className="mt-2 text-xs text-amber-700">
+                    This milestone&rsquo;s order has no customer on it, so there is nobody to bill.
+                    Fix the sales order first.
+                  </p>
+                ) : (
+                  <RaiseStatement
+                    milestoneId={row.id}
+                    accountId={row.accountId}
+                    salesOrderId={row.salesOrderId}
+                    label={row.label}
+                    amountCentavos={row.amount}
+                    dueDate={row.dueDate}
+                    onRaised={() => void billable.refetch()}
+                  />
+                )}
               </Card>
             ))}
           </div>
