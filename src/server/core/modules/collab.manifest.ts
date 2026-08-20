@@ -35,6 +35,27 @@ const EVERYONE = [
 /** Everyone who does the company's work. `viewer` is read-only by definition, so it is not here. */
 const EVERYONE_WHO_ACTS = EVERYONE.filter((role) => role !== "viewer");
 
+/**
+ * The events §2's templates listen for, in the same order the spec's table gives them.
+ *
+ * A literal list, kept in step with `task-trigger-resolvers.ts` by a test rather than by an import.
+ */
+const TRIGGER_EVENTS = [
+  "sales_order.created",
+  "ticket.generated",
+  "cash_advance.requested",
+  "cash_advance.released",
+  "material_request.raised",
+  "material.purchase_required",
+  "methodology.approved",
+  "scope_change.identified",
+  "qa.failed",
+  "tc.completed",
+  "delivery.attempt_failed",
+  "project.closed",
+  "ticket.demobilized",
+];
+
 export const collabManifest = defineManifest({
   key: "collab",
   name: "Collaboration",
@@ -81,13 +102,39 @@ export const collabManifest = defineManifest({
         "technician",
       ],
     },
+    {
+      key: "task.manage_templates",
+      label: "Turn task templates on and off, and change how they assign",
+      group: "Collaboration",
+      /*
+        §2 asks for the assignment mode to be "configurable", and this is what makes it so.
+
+        Narrow on purpose. A template is a standing instruction about who does what — switching one
+        off stops work being raised across the whole company, and nobody would notice for a week.
+        That is an owner's decision, not an everyday one.
+      */
+      defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
+    },
   ],
 
   emits: ["task.created", "task.assigned", "task.completed"],
 
-  // §8's `task.overdue` belongs to the sweep that has not been written yet, and templates listen for
-  // other modules' events from session 2. Both arrive with the code that raises them.
-  consumes: [],
+  /**
+   * §2's thirteen trigger events.
+   *
+   * Listed literally rather than mapped from `TRIGGER_EVENTS`, because importing the resolvers here
+   * would pull Prisma into every module that reads the registry — the nav does, on every request.
+   * `tests/server/core/collab/template-triggers.test.ts` asserts the two lists are identical, so
+   * they cannot drift in silence: a resolver with no subscription would never fire, and a
+   * subscription with no resolver would run on every event and do nothing.
+   */
+  consumes: TRIGGER_EVENTS.map((event) => ({
+    event,
+    handler: async (payload: unknown) => {
+      const { runTemplatesForEvent } = await import("@/server/core/collab/task-template-service");
+      await runTemplatesForEvent(event, (payload ?? {}) as Record<string, unknown>);
+    },
+  })),
 
   nav: [
     {
@@ -103,6 +150,21 @@ export const collabManifest = defineManifest({
         Operations or Collaboration is an answer somebody has to go looking for.
       */
       order: 0,
+    },
+    {
+      label: "All tasks",
+      href: "/tasks",
+      icon: "list-checks",
+      /*
+        Behind `task.assign` rather than `task.view`.
+
+        My Work answers "what do I owe". This one answers "what does everybody owe, and is anything
+        sitting unassigned" — which is a question for whoever routes work, and the same grant that
+        lets them do something about the answer.
+      */
+      permission: "task.assign",
+      group: "Collaboration",
+      order: 50,
     },
   ],
 });

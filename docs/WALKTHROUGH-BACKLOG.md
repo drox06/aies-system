@@ -29,7 +29,7 @@ became — not merely what they wrote.
 | 03 Order & Procurement | ✅ accepted 20 Aug | — | `sample-payables.ts` |
 | 04 Operations & Projects | ⚠️ accepted 20 Aug, **but nine gaps were built after the tag** | below | `sample-records-dispatch.ts`, `sample-warranty.ts` |
 | 05 Finance & Billing | ✅ both halves walked 20 Aug, all good | `WALKTHROUGH-MODULE-05.md`, `WALKTHROUGH-MODULE-05-BILLING.md` | `sample-finance.ts` (FIN5), `sample-billing.ts` (BILL7) |
-| 06 Collaboration | ⬜ **parked** | below | none yet — session 1 needs no seed |
+| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–2 need no seed |
 | 07–10 | ⬜ not built | | |
 
 ---
@@ -99,3 +99,29 @@ to test.
 
 **What is deliberately not here yet:** boards, the thirteen event-fired templates, channels, the
 calendar, quiet hours. Sessions 2–6. A task today arrives because a person raised it.
+
+---
+
+## Module 06 — session 2: templates fired by events
+
+Still no seed. The point of this session is that tasks arrive **without anybody raising them**, so the
+walk is to make a real thing happen and watch the work appear.
+
+**Where:** `/tasks/templates`, then `/tasks`.
+
+| Step | Where | Expect |
+|---|---|---|
+| Read the templates | `/tasks/templates` | Fourteen, each naming its trigger, who it goes to, and when it is due. The three assignment modes are explained at the top |
+| Raise a real sales order | Quotations → a won quotation → record the PO | Within a drain cycle, four tasks exist: acknowledge the PO, generate the tickets, raise the supplier PO, raise the downpayment invoice |
+| Look at who got them | `/tasks` | Acknowledge-the-PO is **unassigned** — nobody holds `sales`. The other three name a real person |
+| Assign the unassigned one | `/tasks` → the dropdown on that row | It leaves "Nobody owns these" and appears on that person's My Work |
+| Check the dates | `/tasks` | Due dates are working days out, never a Saturday |
+| Fire the same event twice | Re-run the drain, or re-record | **No duplicates.** The count stays at four |
+| Turn a template off | `/tasks/templates` → Turn off | It stops raising work. The audit trail on the template records who turned it off and when |
+| Change an assignment mode | `/tasks/templates` → the dropdown on a line | Saved, audited, and the next firing uses it |
+| Request a cash advance | `/cash-advances` | The approval task is due **when the money is needed**, not a fixed number of days out |
+| Release it | Finance → Releases | A liquidation task lands on **the person who requested it**, dated from the liquidation due date |
+
+**Known and deliberate:** six templates assign to `sales` or `technician`, which nobody currently
+holds, so their work arrives unassigned. That is the correct behaviour and the reason `/tasks` leads
+with unassigned work — but it is also a prompt to decide who holds those roles before go-live.

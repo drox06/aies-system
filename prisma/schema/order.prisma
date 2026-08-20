@@ -198,7 +198,7 @@ model SupplierPO {
   ///
   /// Asked for by the company on 2026-08-19: the PO had no delivery address on it at all, which
   /// meant every supplier either guessed or rang to ask.
-  deliverTo    String?
+  deliverTo String?
 
   incoterm     String?
   /// air | sea | land | courier

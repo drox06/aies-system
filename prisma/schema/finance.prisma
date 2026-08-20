@@ -91,7 +91,6 @@ model BillingMilestone {
   @@index([status, dueDate])
 }
 
-
 /// §6's direct expenses — the costs that arrive as an invoice rather than through a crew.
 ///
 /// Subcontractors, permits, equipment rental, third-party calibration. §6 lists seven sources of
@@ -137,10 +136,10 @@ model Expense {
   /// something, then better when it was rejected.
   status String @default("draft")
 
-  submittedById String
-  approvedById  String?
-  approvedAt    DateTime?
-  paidAt        DateTime?
+  submittedById  String
+  approvedById   String?
+  approvedAt     DateTime?
+  paidAt         DateTime?
   rejectedReason String?
 
   version Int @default(0)
@@ -171,7 +170,7 @@ model CostRate {
 
   effectiveFrom DateTime @db.Date
 
-  hourlyCost Decimal @db.Decimal(12, 2)
+  hourlyCost         Decimal @db.Decimal(12, 2)
   /// Overtime multiplier — 1.25 under Philippine rules for ordinary overtime, higher on rest days
   /// and holidays. Stored per rate because it is negotiated alongside it.
   overtimeMultiplier Decimal @default(1.25) @db.Decimal(5, 2)
@@ -192,7 +191,6 @@ model CostRate {
   @@unique([userId, effectiveFrom])
   @@index([userId, effectiveFrom])
 }
-
 
 /// §7's supplier invoice — the third leg of the three-way match.
 ///
@@ -277,7 +275,7 @@ model AccountingExport {
   periodStart DateTime
   periodEnd   DateTime
 
-  rowCount Int
+  rowCount    Int
   /// A hash of the exported content, so re-running a period can say whether anything actually
   /// changed since — a second export of an unchanged month is harmless, and one of a changed month
   /// is the thing somebody needs to know about.

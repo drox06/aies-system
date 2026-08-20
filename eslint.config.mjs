@@ -77,6 +77,10 @@ const UI_SAFE_SERVER_MODULES = [
   // entry here exists: a screen that recomputed "overdue" would eventually disagree with the server
   // about which tasks are late.
   "@/server/core/collab/task-rules",
+  // The template shapes and the three assignment modes, with their explanations. The templates
+  // screen exists to say what the platform will do without being asked; if it described the modes
+  // in its own words they would eventually stop being what the service does.
+  "@/server/core/collab/task-template-rules",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
   // weight — but it is listed rather than assumed, because a value import from here would.

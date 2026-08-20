@@ -67,7 +67,7 @@ model BillingStatement {
   amountWithheldCredited Int @default(0)
 
   /// total − amountPaid − amountWithheldCredited. What is still genuinely outstanding.
-  balance    Int
+  balance Int
 
   /// draft | issued | partially_paid | paid | overdue | cancelled | written_off
   status String @default("draft")

@@ -4655,3 +4655,88 @@ describes, moved into software.
 they are taking on themselves. Putting work in *another person's* queue is the act that used to
 happen in the meeting, and it is the one that needs to be attributable. Moving a task along needs
 only `task.create`, so a technician does not need a manager to tick off their own work.
+
+---
+
+## #138 — A report you truncate is a report you did not read
+
+**2026-08-21.** Module 06 session 1 closed with the claim *"all five collab procedures have UI
+callers"*, in the session report, the commit message and PROGRESS.md. It was false. Two of seven —
+`collab.list` and `collab.assign` — had none.
+
+The cause is embarrassing and worth writing down precisely because of it. `unreached-mutations.ts`
+exists because the platform shipped four unreachable services in one module and each was found by a
+person discovering there was no button (#128, #131, #133, #135). I ran it, piped it through
+`tail -30` to keep the output short, and the collab block — first alphabetically among the routers
+that had findings — scrolled off the top. I then read the surviving tail and reported the opposite of
+what the tool said.
+
+**The instrument was right and the reading was wrong.** That is a different failure from the four it
+was built to catch, and it defeats the instrument just as completely. The rule: a check whose whole
+value is that somebody believes it at a review gate must be read **whole**. Not `tail`, not `head`,
+not "the last few lines looked clean."
+
+Both procedures are built in session 2 rather than merely re-reported, because the finding was
+correct: §2's templates assign work to other people, so a screen that shows every task and lets one
+be re-routed is not optional once templates exist.
+
+---
+
+## #139 — A test that fires a real trigger sets the whole company going
+
+**2026-08-21.** The first run of `task-templates.test.ts` left **25 real tasks** in the company's
+database, assigned to real people, each with a notification. The fixtures were clean. The leak came
+from somewhere else entirely.
+
+The test fired `sales_order.created` to exercise its own template. That event does not belong to the
+test — it belongs to the platform, and by then the fourteen seeded templates were live. Every run of
+every case also set `so-created` going: acknowledge the PO, generate the tickets, raise the supplier
+PO, raise the downpayment invoice, assigned by role to whoever actually holds those roles. The
+cleanup matched on the fixture's own template keys and could not see any of it.
+
+**This is a new shape of the leak, not another instance of #132.** The cleanup did not fail
+half-way — it ran perfectly and removed exactly what it created. The tests were not careless. What
+was missing is that **the unit under test is a fan-out**: firing an event is asking the whole
+platform to react, and in a shared live database the platform reacts for real.
+
+Two fixes, because either alone is thin:
+
+- **The cause.** `runTemplatesForEvent` takes `templateKeys`, and every test names its own fixture.
+  The option exists solely because this platform has no separate test database (#1), and nothing in
+  production passes it — the manifest's subscriber does not, so a live event still runs every active
+  template.
+- **The blast radius.** The cleanup now also matches on the fake entity ids the tests hang tasks
+  off, so it removes what the *platform* created in response, not only what the fixture created
+  directly. A cleanup that can only remove what it expected to create is one that has already been
+  wrong once.
+
+The standing rule this leaves: **before a test emits a real domain event, ask what else in the
+platform is listening.** As modules 07–10 add subscribers, that answer changes underneath tests that
+already pass.
+
+---
+
+## #140 — Two calls of mine on §2's assignment modes
+
+**2026-08-21.** Recorded as mine rather than the company's, per EA's instruction on 2026-08-21 that
+decisions I take in their absence be findable in one place.
+
+**1. `all` is for decisions; work one person does gets `least_loaded`.** The company's rule was "all
+for approvals, least-loaded for crew work, all elsewhere". Applied literally, "acknowledge the PO to
+the customer" would land on both sales people, one of whom does it — leaving the other holding an
+open task for work that no longer exists. Stale rows are how a list stops being believed, which is
+the failure this module exists to fix. So `all` is used where §2's task is a *decision* somebody
+makes (approve the advance, approve the material request) and `least_loaded` where it is a *job*
+somebody does, office or site. Every mode is changeable per task line on `/tasks/templates`, so this
+is a starting position rather than a ruling.
+
+**2. `qa.failed` raises one rectification task, not one per defect.** §2 asks for "Rectify defect
+(assignee per defect, per due date)". The platform records a defect's description and severity and
+**not an owner or a date**, so one task per defect would mean inventing both. One task carries the
+list and points at the QA record. When module 08's NCR gives defects owners, this becomes the
+fan-out §2 describes.
+
+**A finding that came out of building it, and that EA should see:** `sales`, `technician` and
+`viewer` currently have **no active holders**. Six of the fourteen templates assign to `sales` or
+`technician`, so until somebody holds those roles that work will be raised **unassigned** — recorded,
+correct, and on nobody's My Work. `/tasks` leads with exactly those, under "Nobody owns these".

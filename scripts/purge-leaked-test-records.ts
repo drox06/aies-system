@@ -143,6 +143,42 @@ async function main() {
     select: { id: true, name: true, email: true },
   });
 
+  /*
+    Module 06's fixtures: task templates and the tasks they raise.
+
+    `zz-test-` templates are created by `task-templates.test.ts` and deleted by it. What that file
+    cannot delete on a crash is the work the **seeded** templates raised in response to the same
+    event - 25 real tasks on the first run, docs/DECISIONS.md #139. Those are matched on their
+    target: a task whose `entityId` matches no record of its own `entityType` is pointing at a
+    fixture, because every real task is raised from a real record.
+  */
+  const fixtureTemplates = await db.taskTemplate.findMany({
+    where: { key: { startsWith: "zz-test-" } },
+    select: { id: true, key: true },
+  });
+
+  const templateTasks = await db.task.findMany({
+    where: { createdByTemplate: { not: null } },
+    select: { id: true, number: true, entityType: true, entityId: true, createdByTemplate: true },
+  });
+  const realSalesOrderIds = new Set(
+    (await db.salesOrder.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const realTicketIds = new Set(
+    (await db.ticket.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const realAdvanceIds = new Set(
+    (await db.cashAdvance.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const orphanTasks = templateTasks.filter((task) => {
+    if (task.createdByTemplate?.startsWith("zz-test-")) return true;
+    if (!task.entityId) return false;
+    if (task.entityType === "SalesOrder") return !realSalesOrderIds.has(task.entityId);
+    if (task.entityType === "Ticket") return !realTicketIds.has(task.entityId);
+    if (task.entityType === "CashAdvance") return !realAdvanceIds.has(task.entityId);
+    return false;
+  });
+
   const accounts = await db.customerAccount.findMany({
     where: {
       OR: [
@@ -175,6 +211,12 @@ async function main() {
   for (const a of accounts) console.log(`  ${a.code.padEnd(18)} ${a.name}`);
   console.log(`\nLEAKED SALES ORDERS (${leakedOrders.length})`);
   for (const o of leakedOrders) console.log(`  ${o.number.padEnd(16)} owner ${o.ownerId}`);
+  console.log(`\nFIXTURE TASK TEMPLATES (${fixtureTemplates.length})`);
+  for (const t of fixtureTemplates) console.log(`  ${t.key}`);
+  console.log(`\nTASKS POINTING AT NO REAL RECORD (${orphanTasks.length})`);
+  for (const t of orphanTasks) {
+    console.log(`  ${t.number.padEnd(16)} ${t.createdByTemplate} to ${t.entityType} ${t.entityId}`);
+  }
   console.log(`\nPAYMENT TERMS (${terms.length} of ${candidateTerms.length} fixture-named)`);
   for (const t of terms) console.log(`  ${t.name}`);
   if (referenced.size > 0) {
@@ -231,6 +273,12 @@ async function main() {
   await db.quotation.deleteMany({ where: { id: { in: leakedQuotationIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: leakedAccountIds } } });
 
+  const orphanTaskIds = orphanTasks.map((task) => task.id);
+  await db.notification.deleteMany({ where: { entityId: { in: orphanTaskIds } } });
+  await db.auditLog.deleteMany({ where: { entityId: { in: orphanTaskIds } } });
+  await db.task.deleteMany({ where: { id: { in: orphanTaskIds } } });
+  await db.taskTemplate.deleteMany({ where: { id: { in: fixtureTemplates.map((t) => t.id) } } });
+
   const quotationIds = quotations.map((q) => q.id);
   await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
   await db.searchIndex.deleteMany({ where: { entityId: { in: quotationIds } } });
@@ -254,7 +302,9 @@ async function main() {
   console.log(
     `\nDeleted ${quotations.length} quotation(s), ${suppliers.length} supplier(s), ` +
       `${accounts.length} account(s), ${leakedOrders.length} leaked sales order(s), ` +
-      `${terms.length} payment term(s), ${testUsers.length} test user(s). Reset the counters next.`,
+      `${terms.length} payment term(s), ${testUsers.length} test user(s), ` +
+      `${orphanTasks.length} orphan task(s), ${fixtureTemplates.length} fixture template(s). ` +
+      `Reset the counters next.`,
   );
 }
 

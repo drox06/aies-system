@@ -43,7 +43,7 @@ model Task {
   watcherIds String[] @default([])
 
   /// todo | in_progress | blocked | for_review | done | cancelled (§2).
-  status String @default("todo")
+  status   String @default("todo")
   /// low | normal | high | urgent (§2). `urgent` is also what §7's quiet hours let through.
   priority String @default("normal")
 
@@ -64,7 +64,7 @@ model Task {
   estimateHours Decimal? @db.Decimal(6, 2)
   actualHours   Decimal? @db.Decimal(6, 2)
 
-  labels String[] @default([])
+  labels    String[] @default([])
   /// `[{ text, done }]` — §2's checklist. Json because it is read whole and never queried across.
   checklist Json     @default("[]")
 
@@ -95,4 +95,43 @@ model Task {
   @@index([entityType, entityId])
   @@index([boardId, columnId, position])
   @@index([status, dueAt])
+}
+
+/// §2's task template — the direct replacement for the meeting where work used to be assigned.
+///
+/// §1: *"All work assignments are done thru meetings without proper documentation."* A template is
+/// the standing answer to "who does what when this happens", written down once instead of said aloud
+/// every time. The thirteen seeded ones mirror the operations flowchart, because every box in it is
+/// somebody's assignment.
+model TaskTemplate {
+  id   String @id @default(cuid())
+  /// Stable handle. Seeds upsert on it and every task the template creates records
+  /// `{key}:{taskKey}` in `Task.createdByTemplate`, which is also what makes a retried event
+  /// idempotent.
+  key  String @unique
+  name String
+
+  /// The domain event that fires it — `sales_order.created`, `qa.failed`.
+  trigger String
+
+  /// Narrows the trigger when the same event means different things.
+  ///
+  /// `{ "ticketType": "delivery" }` separates §2's two `ticket.generated` rows; `{ "result":
+  /// "accepted" }` keeps a failed commissioning from raising close-out work. Null means the trigger
+  /// alone is enough.
+  condition Json?
+
+  /// `TaskSpec[]` — see task-template-rules.ts. Json because it is read whole with the template and
+  /// never queried across, the same reasoning as `Task.checklist`.
+  tasks Json
+
+  /// A template turned off stops creating work without losing what it said. §2 asks for the
+  /// assignment mode to be configurable; switching a template off is the blunt end of that.
+  isActive Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([trigger, isActive])
 }

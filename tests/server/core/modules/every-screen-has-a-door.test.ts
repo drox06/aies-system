@@ -35,6 +35,10 @@ const REACHED_ANOTHER_WAY: Record<string, string> = {
   "/enroll-totp": "Reached by the first-login gate.",
   "/change-password": "Reached by the forced-change gate.",
   "/notifications": "Reached from the bell in the top bar.",
+  "/tasks/templates":
+    "Reached from 'Templates' beside the heading on /tasks. Deliberately not in the nav: the " +
+    "templates are configuration read a few times a year, and a permanent entry beside 'All tasks' " +
+    "would suggest they are somewhere work gets done.",
   "/crm/inquiries/archive":
     "Reached from 'See archives' beside 'Log inquiry' on the live inquiries list. Deliberately not " +
     "in the nav: a second Inquiries entry would compete with the one people actually work from.",

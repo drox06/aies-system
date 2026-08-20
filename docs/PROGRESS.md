@@ -3385,13 +3385,62 @@ catch it; priority breaks ties inside an urgency band and never jumps one.
 declared in the manifest and mapped to no picture — the fault that shipped four times before the test
 existed. The permission seed guard passed because all three new permissions name roles that exist.
 
-**`unreached-mutations` was run before calling the session done**, not at the end of the module: all
-five collab procedures have UI callers. Platform total is 23 of 321, down from 47 of 311.
+**`unreached-mutations` was run before calling the session done** — and then misread. I piped it
+through `tail`, which cut the collab block off the top, and reported "all five procedures have
+callers". The real answer is **2 of 7 unreached**: `collab.list` and `collab.assign`. Both are built
+in session 2, where they belong anyway — a template assigns work to other people, so somebody needs a
+screen that shows every task and lets one be re-routed. Corrected 2026-08-21; docs/DECISIONS.md #138.
+Platform total is 25 of 323.
 
 **Next concrete step — session 2:** §2's `TaskTemplate` and the thirteen event triggers, with the
 three assignment modes (round-robin, all, least-loaded) tested. Confirmed with EA: **all** for
 approvals, **least-loaded** for crew work, **all** elsewhere, mode visible on screen, and
 "least-loaded" documented as counting open tasks rather than effort.
+
+### Session 2 — the meeting, written down (2026-08-21)
+
+§2's `TaskTemplate` and the fourteen templates that mirror the operations flowchart. Thirteen trigger
+events, three assignment modes, and the two screens that make the machinery visible.
+
+**Built:** the model and migration; `task-template-rules.ts` (pure — the modes, the condition
+language, the well-formedness check); `task-template-seeds.ts` (the fourteen, as reviewable data);
+`task-trigger-resolvers.ts` (what each event is *about*, and the dates read off the record);
+`task-template-service.ts`; **`/tasks`** with reassignment; **`/tasks/templates`**, where a template
+can be switched off and any line's assignment mode changed; `task.manage_templates`, seeded.
+
+**Idempotency is the whole of the difficulty.** §6 of module 00 requires event handlers to be
+idempotent and this one creates numbered records that ring people's bells. Every task carries
+`{templateKey}:{taskKey}`, and the check is **per assignee** — on the stamp alone, `all` mode would
+give the first approver a task and silently drop the rest.
+
+**Dates are read off the record, or the task is left undated.** A cash advance is due when the money
+is needed, not three days after the request. When the record has no such date the task is raised with
+none, rather than quietly substituting the event date — the same rule that makes `daysLate` null.
+Offsets count **business days**, so "+1d" on a Friday evening is Monday.
+
+**Two calls of mine, recorded as mine** (docs/DECISIONS.md #140): `all` is used for decisions and
+`least_loaded` for work one person does, because "all" on "acknowledge the PO" leaves a second sales
+person holding a task for work that no longer exists; and `qa.failed` raises one rectification task
+carrying the defect list rather than one per defect, because the platform records no owner or date
+per defect and inventing them would be fiction.
+
+**A leak of a new shape, and the fix.** The first run of the template test left **25 real tasks in the
+company's database, assigned to real people, with notifications**. The fixtures were clean — the leak
+was that firing `sales_order.created` is not a local act. It set the company's own fourteen templates
+going, and the cleanup could only see its own. `runTemplatesForEvent` now takes `templateKeys` so a
+test names its own fixture; the cleanup also matches on the fake record ids; and the standing sweep
+gained a check for tasks pointing at no real record. All 25 purged, verified zero.
+**docs/DECISIONS.md #139 — before a test emits a real domain event, ask what else is listening.**
+
+**A finding for EA:** `sales`, `technician` and `viewer` have **no active holders**. Six of the
+fourteen templates assign to `sales` or `technician`, so that work will be raised **unassigned** until
+somebody holds those roles. It is recorded and correct, and it is on nobody's My Work — `/tasks`
+leads with it under "Nobody owns these".
+
+**Suite:** 55 collab tests, all passing, database verified clean afterwards.
+
+**Next concrete step — session 3:** §2's boards. Kanban and list views, drag-and-drop, WIP limits,
+swimlanes, and the smart boards defined by a filter rather than by manual placement.
 
 ## Not started
 - [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is

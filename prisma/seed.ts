@@ -7,6 +7,7 @@ import { SEED_CHECKLISTS } from "./seed-checklists";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { registry } from "../src/server/core/manifests";
 import { SEED_REQUIREMENT_TEMPLATES } from "../src/server/core/crm/requirements";
+import { TASK_TEMPLATE_SEEDS } from "../src/server/core/collab/task-template-seeds";
 
 const db = new PrismaClient();
 
@@ -514,6 +515,39 @@ async function seedChecklists() {
   );
 }
 
+/**
+ * specs/06-collaboration.md §2's fourteen templates.
+ *
+ * Creates what is missing and never touches what is there. §2 asks for the assignment mode to be
+ * configurable, and a seed that overwrote on every deploy would silently undo whoever configured it
+ * — the same reason the checklist templates are left alone once present.
+ */
+async function seedTaskTemplates() {
+  const present = await db.taskTemplate.findMany({ select: { key: true } });
+  const have = new Set(present.map((row) => row.key));
+
+  let created = 0;
+  for (const template of TASK_TEMPLATE_SEEDS) {
+    if (have.has(template.key)) continue;
+    await db.taskTemplate.create({
+      data: {
+        key: template.key,
+        name: template.name,
+        trigger: template.trigger,
+        condition: template.condition ?? undefined,
+        tasks: template.tasks as unknown as Prisma.InputJsonValue,
+      },
+    });
+    created += 1;
+  }
+
+  console.log(
+    created === 0
+      ? `Task templates already present — left untouched (${have.size} keys).`
+      : `Seeded ${created} task template(s); ${have.size} already present and left alone.`,
+  );
+}
+
 async function main() {
   await seedRolesAndPermissions();
   await seedUsers();
@@ -522,6 +556,7 @@ async function main() {
   await seedNumberingFormats();
   await seedRequirementTemplates();
   await seedChecklists();
+  await seedTaskTemplates();
 }
 
 main()

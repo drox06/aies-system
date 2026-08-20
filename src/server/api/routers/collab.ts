@@ -12,6 +12,12 @@ import {
   tasksForRecordService,
 } from "@/server/core/collab/task-service";
 import { TASK_ENTITY_TYPES, TASK_PRIORITIES, TASK_STATUSES } from "@/server/core/collab/task-rules";
+import { ASSIGN_MODES } from "@/server/core/collab/task-template-rules";
+import {
+  setTemplateActiveService,
+  setTemplateAssignModeService,
+  taskTemplatesService,
+} from "@/server/core/collab/task-template-service";
 
 /**
  * Module 06's procedures. Session 1 covers §2's task and My Work.
@@ -122,6 +128,31 @@ export const collabRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setTaskStatusService(actorMeta(ctx), input)),
+
+  // ---- §2's templates ---------------------------------------------------------------------------
+
+  /**
+   * What the platform will raise without being asked, and how much it has raised so far.
+   *
+   * Readable by anybody who can see a task, deliberately. A task that appears on somebody's list
+   * because a sales order was created is confusing until they can see the standing rule that put it
+   * there — and "why have I got this?" is the question that makes people stop trusting a queue.
+   */
+  templates: p("task.view").query(() => taskTemplatesService()),
+
+  setTemplateActive: p("task.manage_templates")
+    .input(z.object({ templateId: z.string(), isActive: z.boolean() }))
+    .mutation(({ ctx, input }) => setTemplateActiveService(actorMeta(ctx), input)),
+
+  setTemplateAssignMode: p("task.manage_templates")
+    .input(
+      z.object({
+        templateId: z.string(),
+        taskKey: z.string(),
+        assignMode: z.enum(ASSIGN_MODES),
+      }),
+    )
+    .mutation(({ ctx, input }) => setTemplateAssignModeService(actorMeta(ctx), input)),
 });
 
 function requireAssign(permissions: ReadonlySet<string>) {
