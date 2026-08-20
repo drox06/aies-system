@@ -46,6 +46,7 @@ export const NAV_ICON_NAMES = [
   // Module 05 — finance, billing and collections.
   "receipt",
   "phone",
+  "banknote",
 ] as const;
 
 export type NavIconName = (typeof NAV_ICON_NAMES)[number];

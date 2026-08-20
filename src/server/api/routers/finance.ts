@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { releaseQueueService } from "@/server/core/finance/cash-advance-queue";
 import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
@@ -233,4 +234,13 @@ export const financeRouter = router({
   cancelInvoice: p("invoice.cancel")
     .input(z.object({ serviceInvoiceId: z.string(), reason: z.string().min(5).max(1000) }))
     .mutation(({ ctx, input }) => cancelInvoiceService(actorMeta(ctx), input)),
+
+  /**
+   * §5b's release queue: approved advances waiting for the money, soonest needed first.
+   *
+   * On `cash_advance.view_register`, which operations already holds — §5b wants this visible to
+   * them so nobody chases finance in a chat app. Releasing is `cash_advance.release` and stays
+   * finance's; seeing the queue is not the same authority as emptying it.
+   */
+  releaseQueue: p("cash_advance.view_register").query(() => releaseQueueService()),
 });

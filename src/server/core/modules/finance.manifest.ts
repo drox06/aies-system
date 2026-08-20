@@ -222,25 +222,35 @@ export const financeManifest = defineManifest({
   */
   nav: [
     {
+      // §5b's release queue. First in the group because it is the only one of these where somebody
+      // is standing still waiting for an answer — a crew cannot leave until finance acts.
+      label: "Cash to release",
+      href: "/finance/releases",
+      icon: "banknote",
+      permission: "cash_advance.view_register",
+      group: "Finance",
+      order: 1,
+    },
+    {
       label: "Ready to bill",
       href: "/finance/billing",
       icon: "receipt",
       group: "Finance",
-      order: 1,
+      order: 2,
     },
     {
       label: "Receivables",
       href: "/finance/receivables",
       icon: "wallet",
       group: "Finance",
-      order: 2,
+      order: 3,
     },
     {
       label: "Collections",
       href: "/finance/collections",
       icon: "phone",
       group: "Finance",
-      order: 3,
+      order: 4,
     },
   ],
 });

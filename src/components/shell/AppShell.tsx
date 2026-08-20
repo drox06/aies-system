@@ -24,6 +24,7 @@ import {
   Wrench,
   Receipt,
   Phone,
+  Banknote,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BackButton } from "@/components/shell/BackButton";
@@ -370,6 +371,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   // is why the names now live in nav-icons.ts and the type here is no longer `string`.
   receipt: Receipt,
   phone: Phone,
+  banknote: Banknote,
 };
 
 const ICON_SIZE = 20;
