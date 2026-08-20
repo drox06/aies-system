@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { RecordBill } from "./RecordBill";
 import { AGEING_BUCKETS, type AgeingBucket } from "@/server/core/finance/payables-rules";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -64,6 +65,8 @@ export default function PayablesPage() {
           <p className="text-sm">{payables.error.message}</p>
         </Card>
       )}
+
+      <RecordBill onRecorded={() => void payables.refetch()} />
 
       {data && (
         <>

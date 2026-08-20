@@ -161,6 +161,49 @@ export const financeManifest = defineManifest({
       defaultRoles: ["president", "vice_president", "finance_officer"],
     },
     {
+      key: "expense.submit",
+      label: "Record a cost bought in for a job",
+      group: "Finance",
+      /*
+        Wide, deliberately. The person who arranged the crane knows what it was for and when, and
+        making them route it through finance to be keyed is how costs arrive late or not at all —
+        which is the failure §6 exists to prevent. Submitting commits nothing: §6 counts only
+        approved and paid towards project cost.
+      */
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "finance_officer",
+        "operations_manager",
+        "admin_manager",
+      ],
+    },
+    {
+      key: "expense.approve",
+      label: "Approve a cost against a job",
+      group: "Finance",
+      /*
+        Narrow, because this is the act that puts the figure on a project's margin. The service
+        additionally refuses to let anybody approve their own, so holding both permissions is not a
+        way round the second pair of eyes.
+      */
+      defaultRoles: ["president", "vice_president", "finance_officer"],
+    },
+    {
+      key: "cost_rate.manage",
+      label: "Set what an hour of somebody's time costs",
+      group: "Finance",
+      /*
+        Payroll-adjacent, and narrower than reading a P&L.
+
+        An hourly cost is close enough to what somebody is paid that setting it is a management
+        decision, not an administrative one. Read is on `pnl.view` instead, because a project manager
+        looking at the *"days with no rate"* caveat has to be able to see whether a rate exists in
+        order to make sense of the figure in front of them.
+      */
+      defaultRoles: ["president", "vice_president"],
+    },
+    {
       key: "ar.view",
       label: "See what customers owe",
       group: "Finance",
@@ -300,13 +343,44 @@ export const financeManifest = defineManifest({
       order: 5,
     },
     {
-      // §8's export. Last: a monthly act rather than a daily one.
+      // §8's export. A monthly act rather than a daily one.
       label: "Accounting export",
       href: "/finance/export",
       icon: "file-text",
       permission: "accounting.export",
       group: "Finance",
       order: 6,
+    },
+    {
+      /*
+        §6's expenses. Above cost rates because it is a daily act rather than an occasional one, and
+        below payables because a supplier bill is the larger money.
+
+        Like the two screens either side of it, this exists because `Expense` was a table the P&L
+        read and nothing could write. docs/DECISIONS.md #133.
+      */
+      label: "Expenses",
+      href: "/finance/expenses",
+      icon: "receipt",
+      permission: "expense.submit",
+      group: "Finance",
+      order: 7,
+    },
+    {
+      /*
+        §6's cost rates. Last, and reachable rather than prominent — it is a screen somebody visits
+        when a P&L tells them to, not one they open daily.
+
+        It exists at all because the P&L's *"days with no rate"* caveat pointed at nothing for the
+        whole of module 05: the table had no service, no procedure and no screen, and the company
+        asked the only sensible question — "where do I look for these?" docs/DECISIONS.md #133.
+      */
+      label: "Cost rates",
+      href: "/finance/cost-rates",
+      icon: "banknote",
+      permission: "pnl.view",
+      group: "Finance",
+      order: 8,
     },
   ],
 });

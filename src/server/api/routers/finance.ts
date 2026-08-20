@@ -1,10 +1,23 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import {
+  chargeableProjectsService,
+  decideExpenseService,
+  expensesService,
+  submitExpenseService,
+} from "@/server/core/finance/expense-service";
+import { EXPENSE_CATEGORIES } from "@/server/core/finance/expense-rules";
+import {
+  costRatesService,
+  setCostRateService,
+  uncostedDaysService,
+} from "@/server/core/finance/cost-rate-service";
 import { releaseQueueService } from "@/server/core/finance/cash-advance-queue";
 import { projectPnlService } from "@/server/core/finance/project-pnl-service";
 import {
   approveSupplierInvoiceService,
   payablesService,
+  billableSuppliersService,
   recordSupplierInvoiceService,
 } from "@/server/core/finance/payables-service";
 import {
@@ -266,6 +279,74 @@ export const financeRouter = router({
     .input(z.object({ projectId: z.string() }))
     .query(({ input }) => projectPnlService(input.projectId)),
 
+  /**
+   * §6's cost rates — read on `pnl.view`, written on `cost_rate.manage`.
+   *
+   * Reading is deliberately the wider permission: a project manager looking at a P&L caveat needs to
+   * see whether a rate exists in order to understand the figure, and the number itself is already
+   * behind `pnl.view`. Setting one is a payroll decision and is not theirs.
+   */
+  costRates: p("pnl.view").query(() => costRatesService()),
+
+  /** How many approved days across the company currently cannot be priced. */
+  uncostedDays: p("pnl.view").query(() => uncostedDaysService()),
+
+  setCostRate: p("cost_rate.manage")
+    .input(
+      z.object({
+        userId: z.string(),
+        effectiveFrom: z.coerce.date(),
+        hourlyCost: z.number().min(0),
+        overtimeMultiplier: z.number().min(1).optional(),
+        travelMultiplier: z.number().min(1).optional(),
+        standbyMultiplier: z.number().min(1).optional(),
+        notes: z.string().max(500).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setCostRateService(actorMeta(ctx), input)),
+
+  /**
+   * §6's direct expenses.
+   *
+   * Submitting is on `expense.submit`, which operations holds — the person who arranged the crane
+   * knows what it was for. Deciding is on `expense.approve`, and the service additionally refuses to
+   * let anybody approve their own.
+   */
+  expenses: p("expense.submit")
+    .input(z.object({ status: z.string().optional() }).optional())
+    .query(({ input }) => expensesService(input ?? {})),
+
+  chargeableProjects: p("expense.submit").query(() => chargeableProjectsService()),
+
+  submitExpense: p("expense.submit")
+    .input(
+      z.object({
+        category: z.enum(EXPENSE_CATEGORIES as unknown as [string, ...string[]]),
+        vendorName: z.string().max(200).nullish(),
+        expenseDate: z.coerce.date(),
+        amount: z.number().positive(),
+        vatAmount: z.number().nullish(),
+        description: z.string().min(3).max(2000),
+        projectId: z.string().nullish(),
+        salesOrderId: z.string().nullish(),
+        ticketId: z.string().nullish(),
+        paymentMethod: z.string().max(60).nullish(),
+        receiptFileIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      submitExpenseService(actorMeta(ctx), {
+        ...input,
+        category: input.category as Parameters<typeof submitExpenseService>[1]["category"],
+      }),
+    ),
+
+  decideExpense: p("expense.approve")
+    .input(
+      z.object({ id: z.string(), approve: z.boolean(), reason: z.string().max(1000).nullish() }),
+    )
+    .mutation(({ ctx, input }) => decideExpenseService(actorMeta(ctx), input)),
+
   /** §7's payables list, aged, with the disputed ones counted. */
   payables: p("payables.manage")
     .input(z.object({ openOnly: z.boolean().optional() }).optional())
@@ -278,6 +359,9 @@ export const financeRouter = router({
    * about a moment, and re-deriving it later against an amended order would change what somebody is
    * telephoning the supplier about.
    */
+  /** Who could bill us, and for which orders — the form's own list, not module 03's register. */
+  billableSuppliers: p("payables.manage").query(() => billableSuppliersService()),
+
   recordSupplierInvoice: p("payables.manage")
     .input(
       z.object({

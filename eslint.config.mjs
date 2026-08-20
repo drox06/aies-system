@@ -43,15 +43,18 @@ const UI_SAFE_SERVER_MODULES = [
   "@/server/core/order/supplier-rules",
   "@/server/core/order/supplier-po-rules",
   "@/server/core/order/goods-receipt-rules",
-  // Module 05's two rules files. Both are pure — no Prisma, no node builtins — and the screens need
+  // Module 05's rules files. All pure — no Prisma, no node builtins — and the screens need
   // them for the same reason every other entry here exists: the labels and buckets a person reads
-  // must be the ones the service computed, not a second copy that drifts.
+  // must be the ones the service computed, not a second copy that drifts. `expense-rules` was split
+  // out of `expense-service` on 2026-08-20 because this guard refused the screen's import — which is
+  // the guard working: that file pulls Prisma and would have failed `next build`.
   "@/server/core/finance/billing-rules",
   "@/server/core/finance/invoice-rules",
   "@/server/core/finance/collection-rules",
   "@/server/core/finance/project-pnl-rules",
   "@/server/core/finance/payables-rules",
   "@/server/core/finance/export-rules",
+  "@/server/core/finance/expense-rules",
   "@/server/core/operations/ticket-rules",
   "@/server/core/operations/cash-advance-rules",
   "@/server/core/operations/site-inspection-rules",

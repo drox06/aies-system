@@ -314,3 +314,80 @@ export async function payablesService(filter: { openOnly?: boolean } = {}) {
     total: decorated.reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2),
   };
 }
+
+/**
+ * The suppliers a bill could arrive from, each with the orders it might answer.
+ *
+ * ## Why this is not `listSuppliers`
+ *
+ * Module 03 has a supplier list already, gated on `supplier.manage`. A finance clerk keying an
+ * invoice is not managing the supplier register and should not need rights over it — and the useful
+ * question here is narrower anyway: *which orders am I plausibly about to be billed for*. So this
+ * returns only suppliers with at least one order that has been sent, and each order carries what it
+ * was for and what has already been billed against it.
+ *
+ * `alreadyBilled` matters on screen. §7 refuses a duplicate **supplier reference**, which catches the
+ * commonest double-payment, but it cannot catch the same goods billed twice under two references.
+ * Showing what a PO already carries lets a person notice that before it becomes a payment.
+ */
+export async function billableSuppliersService() {
+  const orders = await db.supplierPO.findMany({
+    where: {
+      deletedAt: null,
+      // Nothing before `sent` — an order still in draft has not been placed, so no invoice can
+      // honestly answer it, and offering one invites a bill against something nobody ordered.
+      status: { in: ["sent", "acknowledged", "partially_received", "received"] },
+    },
+    select: {
+      id: true,
+      number: true,
+      supplierId: true,
+      total: true,
+      currency: true,
+      status: true,
+      poDate: true,
+    },
+    orderBy: { poDate: "desc" },
+    take: 300,
+  });
+
+  const supplierIds = [...new Set(orders.map((order) => order.supplierId))];
+  const [suppliers, billed] = await Promise.all([
+    db.supplier.findMany({
+      where: { id: { in: supplierIds }, deletedAt: null },
+      select: { id: true, name: true, currency: true, paymentTerms: true },
+      orderBy: { name: "asc" },
+    }),
+    db.supplierInvoice.findMany({
+      where: { deletedAt: null, supplierPOId: { in: orders.map((order) => order.id) } },
+      select: { supplierPOId: true, amount: true },
+    }),
+  ]);
+
+  const billedByPo = new Map<string, number>();
+  for (const invoice of billed) {
+    if (!invoice.supplierPOId) continue;
+    billedByPo.set(
+      invoice.supplierPOId,
+      (billedByPo.get(invoice.supplierPOId) ?? 0) + Number(invoice.amount),
+    );
+  }
+
+  return suppliers.map((supplier) => ({
+    id: supplier.id,
+    name: supplier.name,
+    currency: supplier.currency,
+    paymentTerms: supplier.paymentTerms,
+    orders: orders
+      .filter((order) => order.supplierId === supplier.id)
+      .map((order) => ({
+        id: order.id,
+        number: order.number,
+        total: order.total.toString(),
+        currency: order.currency,
+        status: order.status,
+        poDate: order.poDate,
+        alreadyBilled: (billedByPo.get(order.id) ?? 0).toFixed(2),
+      })),
+  }));
+}
