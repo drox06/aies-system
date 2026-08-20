@@ -9,6 +9,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
+import { BillingPanel } from "./BillingPanel";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
@@ -98,6 +99,8 @@ export default function SalesOrderPage({ params }: { params: Promise<{ id: strin
           </StatusBadge>
         }
       />
+
+      <BillingPanel salesOrderId={data.id} />
 
       <RecordLayout
         aside={

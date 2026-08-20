@@ -272,16 +272,20 @@ function StatementRow({ row, onChanged }: { row: Statement; onChanged: () => voi
             Service invoice{row.invoices.length === 1 ? "" : "s"}:
           </span>
           {row.invoices.map((invoice) => (
-            <a
-              key={invoice.id}
-              href={`/api/service-invoices/${invoice.id}/pdf`}
-              target="_blank"
-              rel="noreferrer"
-              className={`underline ${invoice.status === "cancelled" ? "text-danger" : ""}`}
-            >
-              {invoice.number}
-              {invoice.status === "cancelled" ? " (cancelled)" : ""}
-            </a>
+            <span key={invoice.id} className="flex items-baseline gap-2">
+              <a
+                href={`/api/service-invoices/${invoice.id}/pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className={`underline ${invoice.status === "cancelled" ? "text-danger" : ""}`}
+              >
+                {invoice.number}
+                {invoice.status === "cancelled" ? " (cancelled)" : ""}
+              </a>
+              {invoice.status !== "cancelled" && (
+                <CancelInvoice invoiceId={invoice.id} number={invoice.number} onDone={onChanged} />
+              )}
+            </span>
           ))}
         </p>
       )}
@@ -650,5 +654,81 @@ function ChequeActions({ id, number, onDone }: { id: string; number: string; onD
         It bounced…
       </Button>
     </div>
+  );
+}
+
+/**
+ * Voiding a BIR document.
+ *
+ * ## Why the wording is heavier than everywhere else on this screen
+ *
+ * A cancelled service invoice is not an undo. §3: *"Cancelled or voided invoices are retained and
+ * marked, never deleted or renumbered."* The number stays in the series, the document still prints
+ * with the cancellation across it, and the reason becomes AIES's answer if the BIR asks what that
+ * number was used for. Everything else here can be corrected; this can only be annotated.
+ *
+ * Held on `invoice.cancel` — the President and Vice President only — because it is the one act in
+ * §3 whose consequences reach outside the company.
+ */
+function CancelInvoice({
+  invoiceId,
+  number,
+  onDone,
+}: {
+  invoiceId: string;
+  number: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+
+  const cancel = trpc.finance.cancelInvoice.useMutation({
+    onSuccess: () => {
+      toastSuccess(`${number} cancelled. It is retained and marked, and still prints.`);
+      setOpen(false);
+      setReason("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="text-xs text-text-muted underline"
+        onClick={() => setOpen(true)}
+      >
+        void…
+      </button>
+    );
+  }
+
+  return (
+    <span className="mt-1 block w-full rounded-md border border-border p-2.5">
+      <Label htmlFor={`ci-${invoiceId}`}>Why {number} is being voided</Label>
+      <Input
+        id={`ci-${invoiceId}`}
+        value={reason}
+        placeholder="Issued against the wrong customer; replaced by AIESSI-260201."
+        onChange={(event) => setReason(event.target.value)}
+      />
+      <span className="mt-1 block text-xs text-text-muted">
+        The number is not reused and the document still prints, marked. This reason is what AIES
+        shows the BIR if they ask what the number was used for.
+      </span>
+      <span className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          disabled={cancel.isPending || reason.trim().length < 5}
+          onClick={() => cancel.mutate({ serviceInvoiceId: invoiceId, reason: reason.trim() })}
+        >
+          Void it
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Keep it
+        </Button>
+      </span>
+    </span>
   );
 }
