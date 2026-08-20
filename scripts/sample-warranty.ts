@@ -57,9 +57,21 @@ async function remove() {
     return;
   }
 
-  // Claims first: they point at equipment, and a walked sample will have some. See DECISIONS #126 —
-  // a removal must delete what the seed *becomes*.
+  /*
+    Claims, and the tickets they raise. See DECISIONS #126 — a removal must delete what the seed
+    *becomes*, not what it wrote.
+
+    This script cited #126 in a comment and then made the same mistake anyway: an in-warranty claim
+    raises an after_sales ticket, so walking the gate leaves tickets behind that the account cannot
+    be deleted around. Citing a lesson is not applying it.
+  */
+  const ticketIds = (
+    await db.ticket.findMany({ where: { accountId: { in: accountIds } }, select: { id: true } })
+  ).map((ticket) => ticket.id);
+
   await db.warrantyClaim.deleteMany({ where: { accountId: { in: accountIds } } });
+  await db.ticketSalesOrderLine.deleteMany({ where: { ticketId: { in: ticketIds } } });
+  await db.ticket.deleteMany({ where: { id: { in: ticketIds } } });
   await db.equipment.deleteMany({ where: { accountId: { in: accountIds } } });
   await db.site.deleteMany({ where: { accountId: { in: accountIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });

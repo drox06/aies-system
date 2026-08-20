@@ -2895,53 +2895,45 @@ a person using the app; none by the suite** — which by this pass stands at 26 
 sharpened it: three of the six findings were *there is no control for this*, which no test that calls
 services directly can see, because no test has ever pressed a button and wanted to leave.
 
-### What tagging modules 03 and 04 now needs
+### Modules 03 and 04 — accepted, 2026-08-20
 
-Per BUILD-PROTOCOL §7, and in order:
+**EA, for AIES:** the pass is complete and both modules are accepted. Tags applied on that
+instruction.
 
-1. **The company's verdict on the pass**, in writing here — what was walked, what was found, what is
-   accepted. Their signature, not mine.
-2. **A clean full-suite run** recorded with its numbers.
-3. **The sample data removed** — `PART7` and `WALKTHROUGH` both, each with its own `--remove`.
-4. **Then, and only then, the tags.** §7.3: Claude may not sign its own gate, so I do not apply them.
+What was walked: module 03 end to end — customer PO, verification, the sales order, supplier RFQ and
+PO with clause 8.4, goods receipt, delivery, and landed cost. Module 04 end to end — ticket
+generation, the cash advance gate, site inspection and method statement, materials, mobilisation and
+execution, QA, commissioning, warranty, service report and close-out, the delivery lane and Delivery
+mode on a phone.
 
-`docs/DECISIONS.md` is current to #128.
+Two gates had never been exercised before this pass and both were walked: **§4's downpayment gate is
+recorded as not walked** — see the open item below, it cannot be reached — and **§11's warranty gate**
+was walked and produced a rule change.
 
-### The warranty gate — walked 2026-08-20
+Accepted with these known and recorded:
 
-§11 was the last unwalked gate in module 04, and walking it produced one rule change and three gaps.
+- **§4's downpayment gate is dead code.** Every sales order is created `financeStatus:
+  "not_required"` with `downpaymentPct: 0`, so no order ever reaches the gate and there is no screen
+  for finance to record a downpayment. It needs `PaymentTerm.downpaymentPct`, which is module 05's,
+  and is the first thing module 05 will do. Accepted knowing procurement is currently ungated on the
+  customer's money.
+- **§14's offline reads are not built.** Only the write queue survives with no signal; a technician
+  opening the app cold in a plant gets nothing. Under Known issues.
 
-- **Misuse inside the warranty window is now chargeable.** §11 said "in warranty means non-billable"
-  flat, which made a customer who ran a pump dry AIES's cost. The exception — the manufacturer's
-  terms covering it anyway — is recorded with a reason and offered only where it can apply. The spec
-  is updated to match, because the spec was the source of the error. #127.
-- **Warranty dates are visible and correctable**, and **claim cost can be recorded** — §11's
-  reporting half had been built on data nobody could enter, so its cost figure could never move off
-  "not yet totalled". #128.
+Twenty defects were found across this pass and every one is fixed, deployed and verified live. The
+suite stood at **136 files, 1,601 tests, 0 failures** on `0a6f78d` at the time of acceptance.
 
-`scripts/sample-warranty.ts` seeds three instruments positioned for the three answers the gate has to
-tell apart: comfortably covered, out by three weeks, and eleven days from expiry.
+### The gate, as met
 
-### Found after the walkthrough, during the PC pass
+Per BUILD-PROTOCOL §7:
 
-- **"Ready to bill" and "Collections" rendered grey dots** — two more unmapped icons, the third and
-  fourth of that fault. The names now live in their own file, the map is typed against them, and a
-  test walks every manifest. #124.
-- **All four finance screens sit under a Finance heading**, with Cash advances moved there from
-  Operations: that entry is the register, gated on `cash_advance.view_register`, and finance alone
-  reviews liquidations.
-- **A recorded customer PO can be removed** by president and VP, so a revised quotation can be
-  answered by a reissued PO. Refuses once a sales order exists against it. #125.
-- **The part-seven `--remove` could not remove a walked deal.** #126.
-- **Quotation line headers** are centred over their numeric columns.
-
-### Raised and not yet answered
-
-- **Module 03 §4's downpayment gate** and **module 04 §11's warranty gate** were not walked. Neither
-  is reported broken; neither is confirmed working by a person.
-- **The field PWA showed "You are offline".** Waiting on whether the browser was genuinely offline
-  at the time. If it was, this is §14's unbuilt offline reads rather than a defect — already recorded
-  under Known issues — and the honest answer is that only the write queue survives with no signal.
+1. **Seeded data to walk** — `scripts/sample-part-seven.ts` and `scripts/sample-warranty.ts`.
+2. **Written review steps** — the inquiry-to-delivery walkthrough, parts 7 to 28, plus the warranty
+   steps.
+3. **A human pass** — EA, on a PC and on a phone.
+4. **A clean full suite** — 136 files, 1,601 tests, 0 failures.
+5. **Sample data removed** — `PART7`, `WALKTHROUGH` and `WARRANTY` all removed and verified empty.
+6. **Committed, and only then tagged.**
 
 ## Module 05 — Finance, Billing and Collections
 
