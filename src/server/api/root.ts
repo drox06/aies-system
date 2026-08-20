@@ -3,6 +3,7 @@ import { adminRouter } from "@/server/api/routers/admin";
 import { approvalsRouter } from "@/server/api/routers/approvals";
 import { auditRouter } from "@/server/api/routers/audit";
 import { authRouter } from "@/server/api/routers/auth";
+import { collabRouter } from "@/server/api/routers/collab";
 import { commentsRouter } from "@/server/api/routers/comments";
 import { crmRouter } from "@/server/api/routers/crm";
 import { quotationRouter } from "@/server/api/routers/quotation";
@@ -33,6 +34,7 @@ export const appRouter = router({
   finance: financeRouter,
   order: orderRouter,
   operations: operationsRouter,
+  collab: collabRouter,
 });
 
 export type AppRouter = typeof appRouter;

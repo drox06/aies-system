@@ -1,4 +1,5 @@
 import { buildModuleRegistry, type ModuleManifest } from "./module-registry";
+import { collabManifest } from "./modules/collab.manifest";
 import { crmManifest } from "./modules/crm.manifest";
 import { financeManifest } from "./modules/finance.manifest";
 import { foundationManifest } from "./modules/foundation.manifest";
@@ -15,6 +16,7 @@ const manifests: readonly ModuleManifest[] = [
   financeManifest,
   orderManifest,
   operationsManifest,
+  collabManifest,
 ];
 
 export const registry = buildModuleRegistry(manifests);

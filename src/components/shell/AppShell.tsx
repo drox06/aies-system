@@ -25,6 +25,7 @@ import {
   Receipt,
   Phone,
   Banknote,
+  ListChecks,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BackButton } from "@/components/shell/BackButton";
@@ -372,6 +373,8 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   receipt: Receipt,
   phone: Phone,
   banknote: Banknote,
+  // Module 06 (specs/06-collaboration.md).
+  "list-checks": ListChecks,
 };
 
 const ICON_SIZE = 20;

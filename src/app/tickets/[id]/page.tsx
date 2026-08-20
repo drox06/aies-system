@@ -3,6 +3,7 @@
 import { use } from "react";
 import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
+import { TaskPanel } from "@/components/TaskPanel";
 import { CashAdvancePanel } from "./CashAdvancePanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { MaterialPanel } from "./MaterialPanel";
@@ -286,6 +287,12 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
             <p className="mt-2 text-xs text-text-muted">
               Not built yet. Everything from generating the ticket to the crew coming home is.
             </p>
+          </Card>
+
+          {/* Above History deliberately: what is still owed on this ticket is read more often than
+              what has already happened to it. */}
+          <Card className="p-4">
+            <TaskPanel entityType="Ticket" entityId={data.id} />
           </Card>
 
           <Card className="p-4">

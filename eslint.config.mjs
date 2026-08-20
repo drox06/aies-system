@@ -72,6 +72,11 @@ const UI_SAFE_SERVER_MODULES = [
   "@/server/core/operations/timesheet-rules",
   "@/server/core/operations/dispatch-rules",
   "@/server/core/order/po-verification",
+  // Module 06's task rules. Pure — the statuses, priorities, the urgency bands My Work sorts on,
+  // and the map from a task's entityType to the record's own screen. Listed for the reason every
+  // entry here exists: a screen that recomputed "overdue" would eventually disagree with the server
+  // about which tasks are late.
+  "@/server/core/collab/task-rules",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
   // weight — but it is listed rather than assumed, because a value import from here would.

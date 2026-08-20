@@ -4619,3 +4619,39 @@ there is nothing to have withheld against — a 2307 there would claim credit fo
 Verified on live data rather than asserted: a ₱112,000 statement with ₱2,000 withheld sits at
 `partially_paid` with ₱2,000 ageing after the customer pays ₱110,000, and closes to `paid` with a
 zero balance the moment the form is recorded.
+
+---
+
+## #137 — An assignment is its own act, with its own clock
+
+**2026-08-21.** Module 06 session 1, building §2's `Task`. Four rulings, all of them about what an
+incomplete task means — because §1's problem is work that exists only in somebody's memory, and the
+tempting fixes all involve making the platform fill in a blank it does not know the answer to.
+
+**`assignedAt` is a column, not a read of `updatedAt`.** Retitling a task would otherwise restart
+every age measured from it, and §8 fires `task.overdue` off dates like this. The clock starts on a
+real handover, does not move when the same person is re-saved onto it, and is cleared when the task
+is put down — nobody owes it, so nothing has been owed since any particular moment. Same fault
+`Timesheet.submittedAt` was added to avoid the day before.
+
+**An unassigned task and an undated task are both legal, and `daysLate` is null rather than zero.**
+§2's templates raise work before anybody has picked it up, and forcing a name on those would put a
+*wrong* owner on real work, which looks like an answer. An undated task is not on time and not late;
+it is uncommitted. Zero would sort it among the healthy rows. My Work gives it its own band at the
+bottom and a count in the summary, which is the prompt to go and agree a date.
+
+**But a task raised by hand with nobody named becomes the raiser's.** The service keeps permitting
+unassigned tasks; the *procedure* does not leave one. My Work reads by assignee and session 1 has no
+board, so an unassigned task raised through the screen would be written down and then shown nowhere —
+the same silence §1 is trying to end. The rule is at the router because it is about the entry path,
+not about what a task is.
+
+**Priority breaks ties inside an urgency band and never across one.** An urgent task due next month
+is not more pressing than a normal one that was due last Tuesday. A queue where priority outranks
+lateness fills with whatever the loudest person marked urgent — which is the meeting culture §1
+describes, moved into software.
+
+**`task.create` and `task.assign` are separate grants.** Anybody may write work down, including work
+they are taking on themselves. Putting work in *another person's* queue is the act that used to
+happen in the meeting, and it is the one that needs to be attributable. Moving a task along needs
+only `task.create`, so a technician does not need a manager to tick off their own work.

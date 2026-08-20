@@ -404,6 +404,10 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
     format: "AIESMC-{YY}{####}",
     label: "Maintenance Contract",
   },
+  // specs/06-collaboration.md §2's task. Numbered like every other document because a task is a
+  // record somebody is accountable for — "AIESTSK-260014" is what a person quotes when they ask
+  // about it, and a cuid is not.
+  { documentType: "task", format: "AIESTSK-{YY}{####}", label: "Task" },
   {
     documentType: "controlled_doc",
     format: "AIES-{DEPT}-{TYPE}-{###}",

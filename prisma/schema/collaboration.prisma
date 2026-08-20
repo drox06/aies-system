@@ -1,0 +1,98 @@
+/// Module 06 — Collaboration Workspace (specs/06-collaboration.md).
+///
+/// §1 states the problem in the company's own words: *"All work assignments are done thru meetings
+/// without proper documentation."* The spec's reading of that is the thing to hold on to —
+///
+/// > Work is assigned in a way that produces no record. The fix is not "build a chat app" — a chat
+/// > app produces no record either.
+///
+/// So `Task` comes first and `Channel` comes second, and the field that carries the whole argument
+/// is `entityId`: a task hangs off the record it serves rather than floating on a board.
+
+/// §2's task — the Trello replacement, and the unit of accountability the company currently lacks.
+model Task {
+  id     String @id @default(cuid())
+  /// AIESTSK-{YY}{####} from the numbering service.
+  number String @unique
+
+  title       String
+  description String?
+
+  /// The record this task serves — an inquiry, quotation, sales order, ticket, project, cash
+  /// advance, material request.
+  ///
+  /// Plain strings rather than a relation, and deliberately: a task can attach to any of seven
+  /// models across five modules, and a real foreign key would mean either seven nullable columns or
+  /// module 06 importing every other module's schema. The same shape `FileObject` and `AuditLog`
+  /// already use for the same reason.
+  ///
+  /// Both nullable, because §2 also allows a free-standing task — "book the Christmas party" belongs
+  /// to no record and is still work somebody owes.
+  entityType String?
+  entityId   String?
+
+  /// §2's boards. Plain ids until session 3 builds `Board`; a task with no board is not homeless,
+  /// it simply has not been placed on one, and My Work reads assignee rather than board.
+  boardId  String?
+  columnId String?
+  position Int     @default(0)
+
+  assigneeId String?
+  /// People who want to know without owning it. §2 keeps watchers separate from the assignee
+  /// because a task with five owners has none.
+  watcherIds String[] @default([])
+
+  /// todo | in_progress | blocked | for_review | done | cancelled (§2).
+  status String @default("todo")
+  /// low | normal | high | urgent (§2). `urgent` is also what §7's quiet hours let through.
+  priority String @default("normal")
+
+  dueAt       DateTime?
+  startAt     DateTime?
+  completedAt DateTime?
+
+  /// When it was put in somebody's hands.
+  ///
+  /// Its own column rather than a read of `updatedAt`, which moves on any edit — retitling a task
+  /// would silently restart every age measured from it. The same fault `Timesheet.submittedAt` was
+  /// added to avoid on 2026-08-20, and §8 emits `task.overdue`, so an honest clock is load-bearing
+  /// here rather than decorative.
+  assignedAt DateTime?
+
+  /// What somebody thought it would take, and what it took. Both nullable: an unestimated task is
+  /// ordinary, and a zero would be an estimate somebody later averages.
+  estimateHours Decimal? @db.Decimal(6, 2)
+  actualHours   Decimal? @db.Decimal(6, 2)
+
+  labels String[] @default([])
+  /// `[{ text, done }]` — §2's checklist. Json because it is read whole and never queried across.
+  checklist Json     @default("[]")
+
+  parentTaskId     String?
+  /// Tasks that must finish first. An array rather than a join table for the same reason the
+  /// checklist is Json: it is read with the task and never aggregated over.
+  blockedByTaskIds String[] @default([])
+
+  /// §2's routine admin work, as an RRULE string. Null for the overwhelming majority.
+  recurrenceRule String?
+
+  /// The template that created it, when an event did rather than a person (§2's trigger table).
+  /// Session 2 fills this in; it exists now so the column does not arrive after there is data.
+  createdByTemplate String?
+
+  createdById String
+
+  version Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  deletedBy String?
+
+  /// My Work's query: everything assigned to me that is not finished, by due date.
+  @@index([assigneeId, status, dueAt])
+  /// The record's own task list.
+  @@index([entityType, entityId])
+  @@index([boardId, columnId, position])
+  @@index([status, dueAt])
+}

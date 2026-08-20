@@ -3357,8 +3357,45 @@ unreliable rather than that the job is not theirs.
 **Next concrete step:** the module 05 review gate, and module 04's tag revisited now that it means
 what it says. Both EA's to give (BUILD-PROTOCOL §7.3). Then module 06.
 
+## Module 06 — Collaboration Workspace
+
+specs/06-collaboration.md. §1 states the problem in the company's own words: *"All work assignments
+are done thru meetings without proper documentation."* The spec's own reading of that is what the
+module is built around — the fix is not a chat app, because a chat app produces no record either.
+
+### Session 1 — §2's task, and the one screen that answers "what am I supposed to be doing?" (2026-08-21)
+
+**Built:** the `Task` model and migration; `task-rules.ts` (pure, allow-listed); `task-service.ts`
+(create, assign, status, My Work, a record's own list); five procedures behind `task.view` /
+`task.create` / `task.assign`; **`/my-work`**; a reusable **`TaskPanel`**, dropped into the ticket
+record page the way `AuditTrail` already is.
+
+The field carrying the whole argument is `entityId`. A task hangs off the record it serves — an
+inquiry, a quotation, a sales order, a ticket, a project, a cash advance, a material request — rather
+than floating on a board. Both halves of that link are required together: a type with no id points at
+nothing and an id with no type resolves to no screen, and either alone is a link that looks real and
+goes nowhere.
+
+**The rulings, all four in docs/DECISIONS.md #137:** `assignedAt` is its own clock; an unassigned or
+undated task is legal and `daysLate` is **null**, never zero; a task raised *through the screen* with
+nobody named becomes the raiser's, because My Work reads by assignee and session 1 has no board to
+catch it; priority breaks ties inside an urgency band and never jumps one.
+
+**Two guards fired, which is the system working.** `nav-icons-exist.test.ts` caught `list-checks`
+declared in the manifest and mapped to no picture — the fault that shipped four times before the test
+existed. The permission seed guard passed because all three new permissions name roles that exist.
+
+**`unreached-mutations` was run before calling the session done**, not at the end of the module: all
+five collab procedures have UI callers. Platform total is 23 of 321, down from 47 of 311.
+
+**Next concrete step — session 2:** §2's `TaskTemplate` and the thirteen event triggers, with the
+three assignment modes (round-robin, all, least-loaded) tested. Confirmed with EA: **all** for
+approvals, **least-loaded** for crew work, **all** elsewhere, mode visible on screen, and
+"least-loaded" documented as counting open tasks rather than effort.
+
 ## Not started
-- [ ] Modules 05–10
+- [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is
+      under way (session 1 in, sessions 2–6 to go).
 - [ ] **Documentation, at the very end** — commissioned 2026-08-18, deliberately *not* drafted per
       module. Two deliverables:
       1. **Operations Manual** — the whole platform: how a deal travels from inquiry to closed
