@@ -122,6 +122,27 @@ async function main() {
     })
   ).filter((order) => FIXTURE_ACTOR.test(order.ownerId ?? ""));
 
+  /*
+    Users the fixtures create on `@test.local`.
+
+    Fourteen of them were live on 2026-08-20 — fifteen of the twenty active users were test
+    accounts, which made "how many operations managers are there" read as fifteen when the answer
+    is one. Module 06 builds assignee lists off exactly that question.
+
+    Every one of those fixtures *has* a correct cleanup, in the right order, deleting `UserRole`
+    before `User`. They leaked anyway, for the reason docs/DECISIONS.md #132 records: cleanup is
+    sequential, so one failure part-way up the chain abandons everything below it. That cannot be
+    fixed by making each `afterAll` more careful, which is why it belongs in this sweep.
+
+    Matched on the domain alone. No real account can hold `@test.local`, and the company's
+    deliberate walkthrough helper sits on the real company domain — so the domain match protects it
+    without a hand-maintained exclusion list that somebody would have to remember to update.
+  */
+  const testUsers = await db.user.findMany({
+    where: { email: { endsWith: "@test.local" } },
+    select: { id: true, name: true, email: true },
+  });
+
   const accounts = await db.customerAccount.findMany({
     where: {
       OR: [
@@ -220,10 +241,20 @@ async function main() {
   await db.customerAccount.deleteMany({ where: { id: { in: accounts.map((a) => a.id) } } });
   await db.paymentTerm.deleteMany({ where: { id: { in: terms.map((t) => t.id) } } });
 
+  // Children first, as everywhere else here. Audit rows naming these users keep their id and
+  // label — a record of who did something must not change because the account was tidied away.
+  const testUserIds = testUsers.map((user) => user.id);
+  await db.userRole.deleteMany({ where: { userId: { in: testUserIds } } });
+  await db.userPermissionOverride.deleteMany({ where: { userId: { in: testUserIds } } });
+  await db.session.deleteMany({ where: { userId: { in: testUserIds } } });
+  await db.account.deleteMany({ where: { userId: { in: testUserIds } } });
+  await db.recoveryCode.deleteMany({ where: { userId: { in: testUserIds } } });
+  await db.user.deleteMany({ where: { id: { in: testUserIds } } });
+
   console.log(
     `\nDeleted ${quotations.length} quotation(s), ${suppliers.length} supplier(s), ` +
       `${accounts.length} account(s), ${leakedOrders.length} leaked sales order(s), ` +
-      `${terms.length} payment term(s). Reset the counters next.`,
+      `${terms.length} payment term(s), ${testUsers.length} test user(s). Reset the counters next.`,
   );
 }
 
