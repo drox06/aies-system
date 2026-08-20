@@ -351,6 +351,13 @@ export function isCollected(payment: {
 export function statementStatusFor(statement: {
   total: number;
   amountPaid: number;
+  /**
+   * Withheld tax credited once the 2307 is in hand — settles the statement without being cash.
+   *
+   * Optional so every existing caller keeps working and reads zero, which is the state of any
+   * statement whose customer does not withhold. Added 2026-08-20 with the column.
+   */
+  amountWithheldCredited?: number;
   dueDate: Date | string;
   status: string;
   now?: Date;
@@ -360,12 +367,20 @@ export function statementStatusFor(statement: {
   }
   if (statement.status === "draft") return "draft";
 
-  if (statement.amountPaid >= statement.total) return "paid";
+  /*
+    Settled is cash plus credited withholding.
+
+    A customer who pays in full and withholds 2% has sent every peso they owe — the rest is with the
+    BIR, and the 2307 is how AIES gets it. Judging "paid" on cash alone would leave that statement
+    outstanding forever and overstate receivables by the withheld amount on every job.
+  */
+  const settled = statement.amountPaid + (statement.amountWithheldCredited ?? 0);
+  if (settled >= statement.total) return "paid";
 
   const now = statement.now ?? new Date();
   if (new Date(statement.dueDate).getTime() < now.getTime()) return "overdue";
 
-  return statement.amountPaid > 0 ? "partially_paid" : "issued";
+  return settled > 0 ? "partially_paid" : "issued";
 }
 
 /**

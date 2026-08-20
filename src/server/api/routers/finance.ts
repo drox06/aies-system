@@ -41,6 +41,7 @@ import {
   clearChequeService,
   issueStatementService,
   pendingChequesService,
+  recordForm2307Service,
   statementsService,
   outstanding2307sService,
   raiseStatementService,
@@ -348,6 +349,21 @@ export const financeRouter = router({
       z.object({ id: z.string(), approve: z.boolean(), reason: z.string().max(1000).nullish() }),
     )
     .mutation(({ ctx, input }) => decideExpenseService(actorMeta(ctx), input)),
+
+  /**
+   * §3.2 — the customer's 2307 arrived, so the withheld tax becomes creditable and the statement
+   * closes. The company chose this reading on 2026-08-20: neither cash nor credit until the form
+   * is in hand.
+   */
+  recordForm2307: p("payment.record")
+    .input(
+      z.object({
+        paymentId: z.string(),
+        fileId: z.string().nullish(),
+        receivedAt: z.coerce.date().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordForm2307Service(actorMeta(ctx), input)),
 
   /** §3's statements, drafts included — the list the billing clerk works from. */
   statements: p("billing_statement.create")

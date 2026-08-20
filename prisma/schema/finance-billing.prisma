@@ -48,7 +48,25 @@ model BillingStatement {
   expectedWithholdingAmount Int @default(0)
   expectedNetCollectible    Int @default(0)
 
+  /// Cash actually received, and only cash.
+  ///
+  /// Kept clean of tax credits on purpose. When a customer withholds, the money AIES never receives
+  /// is recovered from the BIR against the 2307, and folding that into `amountPaid` would make a
+  /// single number mean "cash in" on one statement and "cash in plus a tax credit" on another —
+  /// which is exactly the kind of quiet blend that makes a receivables report impossible to argue
+  /// with later.
   amountPaid Int @default(0)
+
+  /// Withheld tax credited to this statement once the customer's BIR Form 2307 is in hand.
+  ///
+  /// Added 2026-08-20, on the company's decision. Until the form arrives AIES has neither the cash
+  /// nor the credit, so the statement stays `partially_paid` and the shortfall keeps ageing — which
+  /// is the conservative and correct reading. Without this column every withholding customer's
+  /// statement stayed part-paid forever and receivables were permanently overstated by the
+  /// withheld amount.
+  amountWithheldCredited Int @default(0)
+
+  /// total − amountPaid − amountWithheldCredited. What is still genuinely outstanding.
   balance    Int
 
   /// draft | issued | partially_paid | paid | overdue | cancelled | written_off

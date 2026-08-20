@@ -4581,3 +4581,41 @@ mutations with no caller would fire constantly mid-build and was not obviously c
 true — but a **report** is not a guard. A list of unreached mutations, printed at the end of a
 session, costs nothing and is exactly the question I have now had to ask by hand four times.
 `scripts/unreached-mutations.ts` now exists and is the first thing to run at a module's review gate.
+
+---
+
+## #136 — Withheld tax is credited when the 2307 arrives, not when the customer pays
+
+**2026-08-20.** The company's decision, taken from three options after the behaviour was found by
+walking §3: a customer who withholds 2% pays less than the statement says, so the statement sat at
+`partially_paid` with the withheld amount outstanding **forever**. Every withholding customer's job
+overstated receivables by exactly the tax they had withheld.
+
+Three readings were possible, and EA chose the first:
+
+- **A — stays part-paid until the 2307 arrives, then closes.** Chosen.
+- B — closes on payment; the withheld amount lives only in the 2307 register.
+- C — something else.
+
+A is the conservative reading and the right one. The customer has sent every peso they owe; the rest
+is with the BIR. But **until AIES holds the form it can claim nothing**, so it has neither the cash
+nor the credit, and closing on payment would report money the company might never see as collected.
+§3.2 is blunt about the stakes: unrecovered 2307s are "real money — creditable against income tax and
+worthless if never collected."
+
+**Credited, not paid.** The credit lands in a new `amountWithheldCredited` column, never in
+`amountPaid`. Cash in the bank and a claim on the BIR are different kinds of asset, and blending them
+into one number would make a receivables report impossible to argue with — which is the only thing a
+receivables report is for. `balance` is now `total − amountPaid − amountWithheldCredited`.
+
+**The bug this nearly introduced.** The first pass updated the balance on the payment path from cash
+alone. A second payment against a statement whose withholding had already been credited would have
+recomputed the balance without the credit and quietly resurrected it as outstanding. Both the
+allocation path and the bounced-cheque reversal now carry the credit through.
+
+**A bounced payment's withholding is refused.** The cheque never cleared, so no payment happened, so
+there is nothing to have withheld against — a 2307 there would claim credit for tax nobody remitted.
+
+Verified on live data rather than asserted: a ₱112,000 statement with ₱2,000 withheld sits at
+`partially_paid` with ₱2,000 ageing after the customer pays ₱110,000, and closes to `paid` with a
+zero balance the moment the form is recorded.

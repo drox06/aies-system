@@ -539,6 +539,7 @@ async function applySettlement(
     id: string;
     total: number;
     amountPaid: number;
+    amountWithheldCredited: number;
     dueDate: Date;
     status: string;
   }[],
@@ -550,14 +551,23 @@ async function applySettlement(
     if (!statement) continue;
 
     const amountPaid = statement.amountPaid + allocation.amount;
+    /*
+      Any 2307 credit already on this statement stays part of what is settled.
+
+      Missed on the first pass and it would have been a real fault: a second payment against a
+      statement whose withholding had already been credited would have recomputed the balance from
+      cash alone and quietly resurrected the credited amount as outstanding.
+    */
+    const credited = statement.amountWithheldCredited;
     await tx.billingStatement.update({
       where: { id: statement.id },
       data: {
         amountPaid,
-        balance: statement.total - amountPaid,
+        balance: statement.total - amountPaid - credited,
         status: statementStatusFor({
           total: statement.total,
           amountPaid,
+          amountWithheldCredited: credited,
           dueDate: statement.dueDate,
           status: statement.status,
         }),
@@ -800,12 +810,13 @@ export async function bounceChequeService(
       for (const allocation of payment.allocations) {
         const statement = byId.get(allocation.billingStatementId);
         if (!statement) continue;
+        // Same on the way back out: reversing cash must not disturb a tax credit.
         const amountPaid = Math.max(0, statement.amountPaid - allocation.amount);
         await tx.billingStatement.update({
           where: { id: statement.id },
           data: {
             amountPaid,
-            balance: statement.total - amountPaid,
+            balance: statement.total - amountPaid - statement.amountWithheldCredited,
             status: statementStatusFor({
               total: statement.total,
               amountPaid,
@@ -1089,4 +1100,166 @@ export async function pendingChequesService() {
     /** Whether the cheque's date has arrived — the day it can be presented, not the day it clears. */
     presentable: cheque.checkDate ? cheque.checkDate <= today : true,
   }));
+}
+
+/**
+ * §3.2 — the customer's BIR Form 2307 arrives, and the withheld tax becomes recoverable.
+ *
+ * ## Why this closes the statement
+ *
+ * The company's decision, 2026-08-20, taken as option A of three: **the statement stays
+ * `partially_paid` until the form is in hand, then closes.**
+ *
+ * The reasoning is conservative and right. A customer who pays in full and withholds 2% has sent
+ * every peso they owe — the rest is with the BIR. But until AIES holds the 2307 it can claim
+ * nothing, so it has neither the cash nor the credit, and a statement that closed on payment would
+ * report money AIES might never see as collected. Equally, leaving it open forever overstated
+ * receivables by the withheld amount on every withholding customer's job, which is what the platform
+ * did until this existed.
+ *
+ * So the credit lands here, on the day the form does.
+ *
+ * ## Credited, not paid
+ *
+ * It writes `amountWithheldCredited`, never `amountPaid`. §3.2 calls unrecovered 2307s "real money
+ * — creditable against income tax and worthless if never collected", and the two are different
+ * kinds of asset: one is in the bank, one is a claim on the BIR. A single blended number would make
+ * a receivables report impossible to argue with, and arguing with it is the point.
+ *
+ * ## Apportioned across the statements the payment settled
+ *
+ * §3 models the invoice-to-statement relationship through the payment, so a payment covering two
+ * statements credits both — in the proportion it allocated to each, because that is the proportion
+ * of the withholding each actually bore.
+ */
+export async function recordForm2307Service(
+  actor: ActorMeta,
+  input: { paymentId: string; fileId?: string | null; receivedAt?: Date },
+) {
+  const payment = await db.payment.findFirst({
+    where: { id: input.paymentId, deletedAt: null },
+    select: {
+      id: true,
+      number: true,
+      accountId: true,
+      withholdingTaxAmount: true,
+      form2307ReceivedAt: true,
+      bouncedAt: true,
+    },
+  });
+  if (!payment) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That payment no longer exists." });
+  }
+  if (!payment.withholdingTaxAmount || payment.withholdingTaxAmount <= 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${payment.number} has no tax withheld against it, so there is no 2307 to record. ` +
+        `If the customer withheld and it was not entered, correct the payment first.`,
+    });
+  }
+  if (payment.form2307ReceivedAt) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `A 2307 is already on file for ${payment.number}.`,
+    });
+  }
+  /*
+    A bounced payment's withholding is not creditable.
+
+    The cheque did not clear, so no payment happened, so there is nothing for the customer to have
+    withheld against — a 2307 here would be a claim on tax nobody remitted.
+  */
+  if (payment.bouncedAt) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${payment.number} bounced, so no tax was withheld on it. A 2307 against a payment that ` +
+        `never cleared would claim credit for tax nobody paid.`,
+    });
+  }
+
+  const receivedAt = input.receivedAt ?? new Date();
+  if (receivedAt.getTime() > Date.now()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That date is in the future. Record the 2307 on the day it actually arrived.",
+    });
+  }
+
+  const allocations = await db.paymentAllocation.findMany({
+    where: { paymentId: payment.id },
+    select: { billingStatementId: true, amount: true },
+  });
+  const allocatedTotal = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+
+  await db.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        form2307FileId: input.fileId ?? null,
+        form2307ReceivedAt: receivedAt,
+      },
+    });
+
+    // Apportioned by what each statement actually bore. The last one absorbs the rounding remainder
+    // so the credited total is exactly the withheld amount and never a centavo adrift.
+    let remaining = payment.withholdingTaxAmount;
+    for (const [index, allocation] of allocations.entries()) {
+      const isLast = index === allocations.length - 1;
+      const share = isLast
+        ? remaining
+        : allocatedTotal === 0
+          ? 0
+          : Math.round((allocation.amount / allocatedTotal) * payment.withholdingTaxAmount);
+      remaining -= share;
+
+      const statement = await tx.billingStatement.findUnique({
+        where: { id: allocation.billingStatementId },
+        select: {
+          id: true,
+          total: true,
+          amountPaid: true,
+          amountWithheldCredited: true,
+          dueDate: true,
+          status: true,
+        },
+      });
+      if (!statement) continue;
+
+      const credited = statement.amountWithheldCredited + share;
+      await tx.billingStatement.update({
+        where: { id: statement.id },
+        data: {
+          amountWithheldCredited: credited,
+          balance: statement.total - statement.amountPaid - credited,
+          status: statementStatusFor({
+            total: statement.total,
+            amountPaid: statement.amountPaid,
+            amountWithheldCredited: credited,
+            dueDate: statement.dueDate,
+            status: statement.status,
+          }),
+          version: { increment: 1 },
+        },
+      });
+    }
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "update",
+      entityType: PAYMENT_ENTITY_TYPE,
+      entityId: payment.id,
+      summary:
+        `BIR Form 2307 received for ${payment.number} — PHP ` +
+        `${(payment.withholdingTaxAmount / 100).toFixed(2)} of withheld tax is now creditable, ` +
+        `and credited across ${allocations.length} statement(s)`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { creditedCentavos: payment.withholdingTaxAmount, statements: allocations.length };
 }

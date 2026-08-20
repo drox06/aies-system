@@ -1,10 +1,15 @@
 "use client";
 
+import { useState } from "react";
+
 import Link from "next/link";
 import { DateCell } from "@/components/ui/cells";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { AGEING_BUCKETS, type AgeingBucket } from "@/server/core/finance/invoice-rules";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -143,13 +148,30 @@ export default function ReceivablesPage() {
           </p>
           <ul className="mt-2 space-y-1 text-sm text-amber-900">
             {chase.data.map((row) => (
-              <li key={row.paymentId} className="flex flex-wrap justify-between gap-2">
-                <span>
-                  {row.accountName ?? "Unknown"} · <span className="tabular">{row.number}</span>
-                </span>
-                <span className="tabular">
-                  {pesos(row.withholdingTaxAmount)} — {row.daysOutstanding} days
-                </span>
+              <li key={row.paymentId} className="border-b border-amber-200 pb-2 last:border-0">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span>
+                    {row.accountName ?? "Unknown"} · <span className="tabular">{row.number}</span>
+                  </span>
+                  <span className="tabular">
+                    {pesos(row.withholdingTaxAmount)} — {row.daysOutstanding} days
+                  </span>
+                </div>
+                {/*
+                  The action the register was missing.
+
+                  It listed what to chase and gave no way to close one, so a 2307 arriving in the
+                  post left the payment on this list and the statement part-paid forever. The
+                  company chose that the credit lands the day the form does. docs/DECISIONS.md #136.
+                */}
+                <MarkForm2307Received
+                  paymentId={row.paymentId}
+                  number={row.number}
+                  onDone={() => {
+                    void chase.refetch();
+                    void receivables.refetch();
+                  }}
+                />
               </li>
             ))}
           </ul>
@@ -160,6 +182,80 @@ export default function ReceivablesPage() {
           </p>
         </Card>
       )}
+    </div>
+  );
+}
+
+/**
+ * Recording that a customer's BIR Form 2307 arrived.
+ *
+ * ## Why this closes the statement
+ *
+ * The company's decision on 2026-08-20. A customer who pays in full and withholds 2% has sent every
+ * peso they owe — the rest is with the BIR — but until AIES holds the 2307 it can claim nothing, so
+ * it has neither the cash nor the credit. The statement therefore stays part-paid and keeps ageing
+ * until the form is in hand, and closes on the day it arrives.
+ *
+ * ## The date is asked for
+ *
+ * Not assumed to be today. A 2307 usually turns up in the post weeks after the payment, and the
+ * date that matters for chasing the next one is when it actually came, not when somebody got round
+ * to keying it.
+ */
+function MarkForm2307Received({
+  paymentId,
+  number,
+  onDone,
+}: {
+  paymentId: string;
+  number: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [receivedAt, setReceivedAt] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const record = trpc.finance.recordForm2307.useMutation({
+    onSuccess: (result) => {
+      toastSuccess(
+        `2307 recorded for ${number}. ₱${(result.creditedCentavos / 100).toLocaleString("en-PH", {
+          minimumFractionDigits: 2,
+        })} credited across ${result.statements} statement${result.statements === 1 ? "" : "s"}.`,
+      );
+      setOpen(false);
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <Button variant="secondary" size="sm" className="mt-1.5" onClick={() => setOpen(true)}>
+        The 2307 arrived
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-end gap-2">
+      <div>
+        <Label htmlFor={`f2307-${paymentId}`}>Date it arrived</Label>
+        <Input
+          id={`f2307-${paymentId}`}
+          type="date"
+          value={receivedAt}
+          onChange={(event) => setReceivedAt(event.target.value)}
+        />
+      </div>
+      <Button
+        size="sm"
+        disabled={record.isPending || receivedAt === ""}
+        onClick={() => record.mutate({ paymentId, receivedAt: new Date(receivedAt) })}
+      >
+        {record.isPending ? "Recording…" : "Record it"}
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+        Discard
+      </Button>
     </div>
   );
 }
