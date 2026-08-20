@@ -3196,8 +3196,49 @@ approve, self-approval refused and a project required. Three permissions added a
 exist and only `prisma db seed` noticed — a half-seeded permission works for whoever tries it first.
 docs/DECISIONS.md #133, which is #128 for the third time and says so.
 
-**Next concrete step:** EA re-walks docs/WALKTHROUGH-MODULE-05.md against the deployed build, then the
-module 05 review gate.
+### Session 12 — what the walk found, and what it could not see (2026-08-20)
+
+EA walked the module against the deployed build. Six things came back, and every one was a defect
+rather than a preference:
+
+- **§6 was silent about cash already out.** ₱24,000 released that morning; the P&L read 22.41%
+  against a 21.01% quote and said nothing about liquidation taking it to 18.6% — a job that beat its
+  estimate turning into one that missed it. §5b is right that only approved liquidation lines post as
+  cost, so counting it would have been wrong; staying quiet was worse. Now reported beside the
+  caveats **with the projected margin worked out**, so the reader is not left doing the arithmetic
+  that decides whether the number matters.
+- **§8 said "nothing to export" for two opposite situations** — nothing in the period, and records
+  present but unapproved. Different actions entirely. The empty state now counts what was excluded,
+  says when the most recent record is, and offers to jump to that month; three period presets sit
+  under the date fields, because defaulting to last month is right for the monthly routine and wrong
+  for every other use.
+- **The expense description rule measured the wrong thing.** `length < 3` let "crane" through — a
+  one-word description passing the check that exists to stop one-word descriptions. Now fifteen
+  characters *and* three words, mirrored in the form so the button never enables into a refusal.
+- **Self-approval left a real gap**, which EA named precisely: the President arranges a crane at
+  nine at night and nobody else is online, so the cost sits invisible — which is what the refusal was
+  protecting the margin from. The control stays; everybody holding `expense.approve` is now notified
+  on submission, and the submitter is told the outcome with the rejection reason.
+- **Payables findings threw away their own numbers.** docs/DECISIONS.md #134.
+
+### Session 13 — the walk is half done, and the half not walked is the older half
+
+Worth stating plainly, because the module reads as finished and is not verified as finished.
+
+**Walked:** §4's downpayment gate, §5b's release queue, §6's P&L and expenses and cost rates, §7's
+payables and the three-way match, §8's export. Sessions 5 to 11 of this module.
+
+**Never walked by anybody:** §2's billing schedule and its milestone triggers (*Ready to bill*), §3's
+billing statement and the BIR service invoice, §4's **final** billing gate, §5's receivables ageing,
+collections worklist, payment recording and cheque clearing. Sessions 1 to 4 — the *older* half, and
+the half that touches BIR-numbered documents and customer money.
+
+Every defect this module has produced was found by a person using a screen, and none by the suite.
+Tagging on the strength of a walk that covered the newer half would be asserting something nobody has
+checked.
+
+**Next concrete step:** seed and walk §2, §3 and §5 — billing schedule through statement, invoice,
+payment and collections — then the module 05 review gate.
 
 ## Not started
 - [ ] Modules 05–10
