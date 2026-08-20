@@ -29,7 +29,7 @@ became — not merely what they wrote.
 | 03 Order & Procurement | ✅ accepted 20 Aug | — | `sample-payables.ts` |
 | 04 Operations & Projects | ⚠️ accepted 20 Aug, **but nine gaps were built after the tag** | below | `sample-records-dispatch.ts`, `sample-warranty.ts` |
 | 05 Finance & Billing | ✅ both halves walked 20 Aug, all good | `WALKTHROUGH-MODULE-05.md`, `WALKTHROUGH-MODULE-05-BILLING.md` | `sample-finance.ts` (FIN5), `sample-billing.ts` (BILL7) |
-| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–2 need no seed |
+| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–3 need no seed |
 | 07–10 | ⬜ not built | | |
 
 ---
@@ -125,3 +125,27 @@ walk is to make a real thing happen and watch the work appear.
 **Known and deliberate:** six templates assign to `sales` or `technician`, which nobody currently
 holds, so their work arrives unassigned. That is the correct behaviour and the reason `/tasks` leads
 with unassigned work — but it is also a prompt to decide who holds those roles before go-live.
+
+---
+
+## Module 06 — session 3: boards
+
+**Where:** the sidebar's **Boards**.
+
+| Step | Where | Expect |
+|---|---|---|
+| Make a board arranged by hand | `/boards` → New board → *Arranged by hand* | Five columns: To do, In progress, Blocked, For review, Done |
+| Put a task on it | Open it → *Put a task on it* | Every open task not already on the board is offered |
+| Drag a card to **In progress** | The board | It moves **and the task's status changes with it** — check the task on My Work |
+| Do the same on a phone | The board | No dragging needed: each card has a column dropdown that does the identical move |
+| Set a WIP limit of 1 on In progress | Settings → How many at once | Put two cards there. The header goes **red** and says *2 / 1 over* — and the move is still allowed, deliberately |
+| Turn on a lane per person | Settings → Rows | The board splits into rows, one per owner, with unowned work in its own lane |
+| Make a board that keeps itself current | `/boards` → New board → *Keeps itself current*, Whose = **Mine** | It fills with your own open tasks without anything being dragged |
+| Try to drag on that board | The smart board | Refused, with the reason: what is on it is decided by its filter |
+| Open the same smart board as the test finance account | The smart board | **A different set of cards** — one board, each person's own work |
+| Make one with *Only what is past its date* | New board | Undated tasks do **not** appear. They are uncommitted, not late |
+| Delete a board with cards on it | Settings → Delete board | The dialog says the tasks are not deleted. Check afterwards: they are still on My Work |
+
+**Known and deliberate:** the smart-board filter asks about **tasks**, not records. "All quotations
+awaiting my approval" is the Approvals screen; a board that duplicated it would be a second answer to
+the same question. docs/DECISIONS.md #141.

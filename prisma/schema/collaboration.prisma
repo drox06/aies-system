@@ -135,3 +135,48 @@ model TaskTemplate {
 
   @@index([trigger, isActive])
 }
+
+/// §2's board — the kanban the company currently keeps in Trello, and the smart boards that keep
+/// themselves.
+///
+/// > **Smart boards**: a board can be defined by a filter rather than manual placement […] This is
+/// > what makes the boards stay current without a human maintaining them.
+///
+/// A manual board is a place cards are put. A smart board is a question asked of every task, and
+/// nothing is ever placed on it — which is why `columns` means two different things depending on
+/// `type`, and why the service resolves a view rather than the screen reading rows directly.
+model Board {
+  id   String @id @default(cuid())
+  name String
+  /// manual | smart (§2).
+  type String @default("manual")
+
+  /// Who it belongs to. A board is somebody's — an unowned board is one nobody tidies.
+  ownerId   String
+  /// Private boards are the owner's alone. §2 keeps the flag because a personal board is a
+  /// legitimate thing to want and a shared one that reads as private is not.
+  isPrivate Boolean @default(false)
+
+  /// `[{ key, label, statuses? }]`.
+  ///
+  /// On a manual board a card sits in a column because somebody dragged it there, and `statuses` is
+  /// the status a card takes on when it lands. On a smart board there is no placement at all: each
+  /// column is a bucket the filter's results fall into by status.
+  columns Json
+
+  /// `{ [columnKey]: number }` — §2's WIP limits. Null on boards that do not use them.
+  wipLimits Json?
+
+  /// The question a smart board asks. Null on a manual board. See board-rules.ts for the shape.
+  filterRule Json?
+
+  /// none | assignee | priority (§2's swimlanes). Stored on the board because it is how this board
+  /// is read, not a per-visit preference.
+  swimlaneBy String @default("none")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([ownerId, deletedAt])
+}

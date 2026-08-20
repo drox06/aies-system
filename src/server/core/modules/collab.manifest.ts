@@ -115,6 +115,25 @@ export const collabManifest = defineManifest({
       */
       defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
     },
+    {
+      key: "task.manage_boards",
+      label: "Create and change boards",
+      group: "Collaboration",
+      /*
+        §14 names this permission. Wider than the template grant, narrower than everybody: making a
+        board is an ordinary act — a manager wants a board for their own jobs — but a board is also
+        how a team agrees what it is looking at, and a hundred half-made boards is how that stops
+        working. Working *from* a board needs nothing beyond `task.create`.
+      */
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "admin_manager",
+        "marketing_manager",
+        "finance_officer",
+      ],
+    },
   ],
 
   emits: ["task.created", "task.assigned", "task.completed"],
@@ -131,6 +150,17 @@ export const collabManifest = defineManifest({
   consumes: TRIGGER_EVENTS.map((event) => ({
     event,
     handler: async (payload: unknown) => {
+      /*
+        Off during the test suite, and nowhere else.
+
+        The suite creates real orders and tickets through the real services, which emit real events;
+        when the queue drains, this subscriber raised 278 real tasks for real people against fixture
+        records that had already been deleted. docs/DECISIONS.md #142. The check is here rather than
+        in the service so that `runTemplatesForEvent` still behaves exactly as it does in production
+        when a test calls it directly.
+      */
+      if (process.env.AIES_DISABLE_TASK_TEMPLATES === "1") return;
+
       const { runTemplatesForEvent } = await import("@/server/core/collab/task-template-service");
       await runTemplatesForEvent(event, (payload ?? {}) as Record<string, unknown>);
     },
@@ -165,6 +195,17 @@ export const collabManifest = defineManifest({
       permission: "task.assign",
       group: "Collaboration",
       order: 50,
+    },
+    {
+      label: "Boards",
+      href: "/boards",
+      icon: "columns",
+      // §2's Trello replacement. `task.view`, not `task.manage_boards` — reading a board is how
+      // most people will use one, and hiding the entry from them would leave the boards to the
+      // handful of people who can make them.
+      permission: "task.view",
+      group: "Collaboration",
+      order: 51,
     },
   ],
 });

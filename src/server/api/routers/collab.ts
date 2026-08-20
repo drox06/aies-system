@@ -14,6 +14,22 @@ import {
 import { TASK_ENTITY_TYPES, TASK_PRIORITIES, TASK_STATUSES } from "@/server/core/collab/task-rules";
 import { ASSIGN_MODES } from "@/server/core/collab/task-template-rules";
 import {
+  BOARD_TYPES,
+  SWIMLANE_OPTIONS,
+  type BoardColumn,
+  type BoardFilterRule,
+} from "@/server/core/collab/board-rules";
+import {
+  boardViewService,
+  boardsService,
+  createBoardService,
+  deleteBoardService,
+  moveCardService,
+  placeableTasksService,
+  removeCardService,
+  updateBoardService,
+} from "@/server/core/collab/board-service";
+import {
   setTemplateActiveService,
   setTemplateAssignModeService,
   taskTemplatesService,
@@ -153,6 +169,92 @@ export const collabRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setTemplateAssignModeService(actorMeta(ctx), input)),
+
+  // ---- §2's boards ------------------------------------------------------------------------------
+
+  boards: p("task.view").query(({ ctx }) => boardsService(ctx.user.id)),
+
+  /** One board, resolved. The viewer matters: a smart board's `assignee: "me"` means the reader. */
+  board: p("task.view")
+    .input(z.object({ boardId: z.string(), includeDone: z.boolean().optional() }))
+    .query(({ ctx, input }) => boardViewService(ctx.user.id, input)),
+
+  placeableTasks: p("task.view")
+    .input(z.object({ boardId: z.string() }))
+    .query(({ input }) => placeableTasksService(input)),
+
+  createBoard: p("task.manage_boards")
+    .input(
+      z.object({
+        name: z.string().min(2).max(80),
+        type: z.enum(BOARD_TYPES).optional(),
+        isPrivate: z.boolean().optional(),
+        columns: z
+          .array(
+            z.object({
+              key: z.string().min(1).max(40),
+              label: z.string().min(1).max(40),
+              statuses: z.array(z.enum(TASK_STATUSES)).optional(),
+            }),
+          )
+          .optional(),
+        wipLimits: z.record(z.string(), z.number().int().positive()).nullish(),
+        filterRule: z.record(z.string(), z.unknown()).nullish(),
+        swimlaneBy: z.enum(SWIMLANE_OPTIONS).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      createBoardService(actorMeta(ctx), {
+        ...input,
+        columns: input.columns as BoardColumn[] | undefined,
+        filterRule: (input.filterRule ?? null) as BoardFilterRule | null,
+      }),
+    ),
+
+  updateBoard: p("task.manage_boards")
+    .input(
+      z.object({
+        boardId: z.string(),
+        name: z.string().min(2).max(80).optional(),
+        isPrivate: z.boolean().optional(),
+        wipLimits: z.record(z.string(), z.number().int().positive()).nullish(),
+        filterRule: z.record(z.string(), z.unknown()).nullish(),
+        swimlaneBy: z.enum(SWIMLANE_OPTIONS).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      updateBoardService(actorMeta(ctx), {
+        ...input,
+        filterRule:
+          input.filterRule === undefined ? undefined : (input.filterRule as BoardFilterRule | null),
+      }),
+    ),
+
+  deleteBoard: p("task.manage_boards")
+    .input(z.object({ boardId: z.string() }))
+    .mutation(({ ctx, input }) => deleteBoardService(actorMeta(ctx), input)),
+
+  /**
+   * Moving a card.
+   *
+   * `task.create` rather than `task.manage_boards`: dragging a card is doing the work, and the
+   * column carries the status, so this is the same act as ticking a task off. Building the board is
+   * a different job from working from it.
+   */
+  moveCard: p("task.create")
+    .input(
+      z.object({
+        taskId: z.string(),
+        boardId: z.string(),
+        columnKey: z.string(),
+        position: z.number().int().min(0).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => moveCardService(actorMeta(ctx), input)),
+
+  removeCard: p("task.create")
+    .input(z.object({ taskId: z.string() }))
+    .mutation(({ ctx, input }) => removeCardService(actorMeta(ctx), input)),
 });
 
 function requireAssign(permissions: ReadonlySet<string>) {

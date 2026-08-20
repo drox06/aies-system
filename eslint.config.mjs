@@ -81,6 +81,10 @@ const UI_SAFE_SERVER_MODULES = [
   // screen exists to say what the platform will do without being asked; if it described the modes
   // in its own words they would eventually stop being what the service does.
   "@/server/core/collab/task-template-rules",
+  // The board rules: what a column is, when one is over its WIP limit, what a smart board's filter
+  // says. The board screen renders all three, and a second copy on the client is a second answer
+  // waiting to disagree with the server's.
+  "@/server/core/collab/board-rules",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
   // weight — but it is listed rather than assumed, because a value import from here would.

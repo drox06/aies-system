@@ -18,10 +18,16 @@ import type { TaskTemplateSpec } from "@/server/core/collab/task-template-rules"
  *
  * ## Why every run is scoped to its own template
  *
- * There is no separate test database here. Firing `sales_order.created` unscoped would set the
- * company's fourteen real templates going and raise real work, with real notifications, for real
- * people — so each run names the fixture template it is testing. That narrowing exists in the
- * service for exactly this reason and nothing in production passes it.
+ * There is no separate test database here. Firing a trigger unscoped would set the company's
+ * fourteen real templates going and raise real work, with real notifications, for real people — so
+ * each run names the fixture template it is testing. That narrowing exists in the service for
+ * exactly this reason and nothing in production passes it.
+ *
+ * ## Why the fixtures use a real cash advance
+ *
+ * The service refuses to raise work on a record that is no longer there (docs/DECISIONS.md #142), so
+ * a test firing at an invented id would be testing the refusal rather than the template. A real
+ * record is also the truer test.
  *
  * ## What is pinned
  *
@@ -44,14 +50,8 @@ const templateIds: string[] = [];
 const templateKeys: string[] = [];
 const userIds: string[] = [];
 const advanceIds: string[] = [];
-/** Every fake record id these tests hang tasks off, so cleanup can find them by target too. */
-const entityIds = [
-  `so-${suffix}`,
-  `all-${suffix}`,
-  `cond-${suffix}`,
-  `nobody-${suffix}`,
-  `biz-${suffix}`,
-];
+/** Every record these tests hang tasks off, so cleanup can find them by target too. */
+const entityIds: string[] = [];
 
 async function makeTemplate(spec: TaskTemplateSpec) {
   const row = await db.taskTemplate.create({
@@ -66,6 +66,32 @@ async function makeTemplate(spec: TaskTemplateSpec) {
   templateIds.push(row.id);
   templateKeys.push(row.key);
   return row;
+}
+
+/**
+ * A real cash advance for the generic cases to be about.
+ *
+ * They used to fire `sales_order.created` at an invented id. That stopped working the moment the
+ * service learned to check the record still exists (docs/DECISIONS.md #142) — correctly: raising work
+ * on a record that is not there is exactly what that check is for. So the fixtures now use a record
+ * that genuinely exists, which is also a truer test.
+ */
+async function makeAdvance(requestedById: string, over: Record<string, unknown> = {}) {
+  const advance = await db.cashAdvance.create({
+    data: {
+      number: `CA-TEST-${randomUUID().slice(0, 8)}`,
+      requestedById,
+      amountRequested: 250000,
+      neededBy: new Date("2026-09-01T00:00:00.000Z"),
+      purpose: "Fixture for the task template tests",
+      status: "requested",
+      ...over,
+    },
+    select: { id: true },
+  });
+  advanceIds.push(advance.id);
+  entityIds.push(advance.id);
+  return advance;
 }
 
 async function makeViewer(name: string) {
@@ -152,7 +178,7 @@ describe("a template firing", () => {
     await makeTemplate({
       key,
       name: "A sales order is raised",
-      trigger: "sales_order.created",
+      trigger: "cash_advance.requested",
       tasks: [
         {
           key: "acknowledge-po",
@@ -172,10 +198,11 @@ describe("a template firing", () => {
       ],
     });
 
-    const salesOrderId = `so-${suffix}`;
-    const payload = { salesOrderId, number: `AIESSO-TEST${suffix}` };
+    const requester = await makeViewer("Requester one");
+    const advance = await makeAdvance(requester.id);
+    const payload = { cashAdvanceId: advance.id, number: `AIESCA-TEST${suffix}` };
 
-    const first = await runTemplatesForEvent("sales_order.created", payload, new Date(), {
+    const first = await runTemplatesForEvent("cash_advance.requested", payload, new Date(), {
       templateKeys: [key],
     });
     expect(first.failures).toEqual([]);
@@ -183,17 +210,18 @@ describe("a template firing", () => {
 
     const rows = await tasksFrom(key);
     expect(rows).toHaveLength(2);
-    expect(rows.every((row) => row.entityType === "SalesOrder")).toBe(true);
-    expect(rows.every((row) => row.entityId === salesOrderId)).toBe(true);
-    // The title says which job it is about — a queue of "Acknowledge the PO" ×5 is unusable.
-    expect(rows[0]!.title).toContain(payload.number);
+    expect(rows.every((row) => row.entityType === "CashAdvance")).toBe(true);
+    expect(rows.every((row) => row.entityId === advance.id)).toBe(true);
+    // The title says which record it is about — a queue of five identical titles is unusable. The
+    // reference comes off the record itself, not off the payload.
+    expect(rows[0]!.title).toContain("CA-TEST-");
     expect(
       rows.find((row) => row.createdByTemplate === `${key}:downpayment-invoice`)!.priority,
     ).toBe("high");
 
     // The retry. §6 of module 00 requires this handler to be idempotent, and it creates numbered
     // records that ring somebody's bell.
-    const second = await runTemplatesForEvent("sales_order.created", payload, new Date(), {
+    const second = await runTemplatesForEvent("cash_advance.requested", payload, new Date(), {
       templateKeys: [key],
     });
     expect(second.created).toEqual([]);
@@ -208,7 +236,7 @@ describe("a template firing", () => {
     await makeTemplate({
       key,
       name: "A cash advance is requested",
-      trigger: "sales_order.created",
+      trigger: "cash_advance.requested",
       tasks: [
         {
           key: "approve",
@@ -219,8 +247,9 @@ describe("a template firing", () => {
       ],
     });
 
-    const payload = { salesOrderId: `all-${suffix}`, number: "AIESSO-ALL" };
-    const run = await runTemplatesForEvent("sales_order.created", payload, new Date(), {
+    const advance = await makeAdvance(first.id);
+    const payload = { cashAdvanceId: advance.id };
+    const run = await runTemplatesForEvent("cash_advance.requested", payload, new Date(), {
       templateKeys: [key],
     });
 
@@ -232,7 +261,7 @@ describe("a template firing", () => {
     expect(owners).toContain(first.id);
     expect(owners).toContain(second.id);
 
-    const retry = await runTemplatesForEvent("sales_order.created", payload, new Date(), {
+    const retry = await runTemplatesForEvent("cash_advance.requested", payload, new Date(), {
       templateKeys: [key],
     });
     expect(retry.created).toEqual([]);
@@ -240,12 +269,13 @@ describe("a template firing", () => {
   });
 
   it("raises nothing when the condition does not match", async () => {
-    await makeViewer("Conditional");
+    const conditional = await makeViewer("Conditional");
+    const condAdvance = await makeAdvance(conditional.id);
     const key = KEY("cond");
     await makeTemplate({
       key,
       name: "Only accepted commissioning",
-      trigger: "sales_order.created",
+      trigger: "cash_advance.requested",
       condition: { result: "accepted" },
       tasks: [
         {
@@ -258,16 +288,16 @@ describe("a template firing", () => {
     });
 
     await runTemplatesForEvent(
-      "sales_order.created",
-      { salesOrderId: `cond-${suffix}`, result: "rejected" },
+      "cash_advance.requested",
+      { cashAdvanceId: condAdvance.id, result: "rejected" },
       new Date(),
       { templateKeys: [key] },
     );
     expect(await tasksFrom(key)).toHaveLength(0);
 
     await runTemplatesForEvent(
-      "sales_order.created",
-      { salesOrderId: `cond-${suffix}`, result: "accepted" },
+      "cash_advance.requested",
+      { cashAdvanceId: condAdvance.id, result: "accepted" },
       new Date(),
       { templateKeys: [key] },
     );
@@ -275,11 +305,13 @@ describe("a template firing", () => {
   });
 
   it("records the work unassigned when the role has no active holder", async () => {
+    const orphanRequester = await makeViewer("Orphan requester");
+    const orphanAdvance = await makeAdvance(orphanRequester.id);
     const key = KEY("nobody");
     await makeTemplate({
       key,
       name: "Nobody holds this",
-      trigger: "sales_order.created",
+      trigger: "cash_advance.requested",
       tasks: [
         {
           key: "orphan",
@@ -292,8 +324,8 @@ describe("a template firing", () => {
     });
 
     await runTemplatesForEvent(
-      "sales_order.created",
-      { salesOrderId: `nobody-${suffix}` },
+      "cash_advance.requested",
+      { cashAdvanceId: orphanAdvance.id },
       new Date(),
       { templateKeys: [key] },
     );
@@ -305,12 +337,13 @@ describe("a template firing", () => {
   });
 
   it("counts business days, not calendar days", async () => {
-    await makeViewer("Weekend");
+    const weekend = await makeViewer("Weekend");
+    const bizAdvance = await makeAdvance(weekend.id);
     const key = KEY("bizdays");
     await makeTemplate({
       key,
       name: "Due tomorrow",
-      trigger: "sales_order.created",
+      trigger: "cash_advance.requested",
       tasks: [
         {
           key: "next-day",
@@ -324,7 +357,7 @@ describe("a template firing", () => {
 
     // A Friday. "+1 day" must not land on Saturday.
     const friday = new Date("2026-08-21T09:00:00.000Z");
-    await runTemplatesForEvent("sales_order.created", { salesOrderId: `biz-${suffix}` }, friday, {
+    await runTemplatesForEvent("cash_advance.requested", { cashAdvanceId: bizAdvance.id }, friday, {
       templateKeys: [key],
     });
 

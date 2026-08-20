@@ -182,6 +182,41 @@ function titleFor(spec: TaskSpec, target: TriggerTarget): string {
   return target.reference ? `${spec.title} — ${target.reference}` : spec.title;
 }
 
+/**
+ * Whether the record a template is about is still there.
+ *
+ * An event is emitted inside the transaction that created the record and handled some time later,
+ * when the queue drains. In between, the record can be gone — and raising "acknowledge the PO" on a
+ * sales order that no longer exists produces work nobody can do, on a screen nobody can open.
+ *
+ * Found by the suite rather than reasoned about: fixtures created real records, emitted real events
+ * and then deleted the records, and the drain raised 278 tasks pointing at nothing.
+ * docs/DECISIONS.md #142.
+ */
+async function recordStillExists(entityType: string, entityId: string): Promise<boolean> {
+  const where = { id: entityId, deletedAt: null };
+  switch (entityType) {
+    case "SalesOrder":
+      return (await db.salesOrder.count({ where })) > 0;
+    case "Ticket":
+      return (await db.ticket.count({ where })) > 0;
+    case "Project":
+      return (await db.project.count({ where })) > 0;
+    case "CashAdvance":
+      return (await db.cashAdvance.count({ where })) > 0;
+    case "MaterialRequest":
+      return (await db.materialRequest.count({ where })) > 0;
+    case "Inquiry":
+      return (await db.inquiry.count({ where })) > 0;
+    case "Quotation":
+      return (await db.quotation.count({ where })) > 0;
+    default:
+      // An entity type nothing here knows about. Left alone rather than refused: a new record type
+      // arriving in a later module should not silently stop its templates working.
+      return true;
+  }
+}
+
 export interface RunTemplatesOptions {
   /**
    * Consider only these template keys.
@@ -236,6 +271,12 @@ export async function runTemplatesForEvent(
     for (const target of targets) {
       if (!conditionMatches(template.condition, target.conditionValues)) continue;
 
+      // Checked per target rather than per template so one missing record does not stop the others.
+      if (!(await recordStillExists(target.entityType, target.entityId))) {
+        result.skipped += template.tasks.length;
+        continue;
+      }
+
       for (const spec of template.tasks) {
         const stamp = templateStamp(template.key, spec.key);
         try {
@@ -249,6 +290,21 @@ export async function runTemplatesForEvent(
             select: { assigneeId: true },
           });
           const alreadyWith = new Set(existing.map((task) => task.assigneeId));
+
+          /*
+            One task per stamp per record — **except** in `all` mode.
+
+            The per-assignee check exists because `all` legitimately raises the same stamp once per
+            approver. For every other mode it is wrong, and dangerously so: `least_loaded` picks the
+            lightest queue *at the moment it runs*, so a retried event finds the first recipient now
+            carrying one more task and hands the duplicate to somebody else. Nothing would look
+            wrong — two people would simply both do the job. Found by the suite on 2026-08-21 when a
+            retry created rather than skipped. docs/DECISIONS.md #142.
+          */
+          if (spec.assignMode !== "all" && existing.length > 0) {
+            result.skipped += 1;
+            continue;
+          }
 
           const assignees = await assigneesFor(spec, target, template.key);
 

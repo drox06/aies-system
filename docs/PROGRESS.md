@@ -3442,6 +3442,44 @@ leads with it under "Nobody owns these".
 **Next concrete step — session 3:** §2's boards. Kanban and list views, drag-and-drop, WIP limits,
 swimlanes, and the smart boards defined by a filter rather than by manual placement.
 
+### Session 3 — boards, and the ones that keep themselves (2026-08-21)
+
+§2's Trello replacement. `Board`, the kanban, WIP limits, swimlanes, and the smart boards that are
+a question rather than a place.
+
+**Built:** the model and migration; `board-rules.ts` (pure — columns, the filter language, WIP state,
+lanes); `board-service.ts`; **`/boards`** with a new-board form that explains the two kinds;
+**`/boards/[id]`** — kanban with drag-and-drop, a column dropdown beside it for touch, swimlanes by
+person or priority, and a settings panel for WIP limits, privacy and deletion; `task.manage_boards`,
+seeded.
+
+**The distinction the whole session turns on:** a manual board is a **place**, a smart board is a
+**question**. Nothing is ever placed on a smart board, which is why the view is resolved in the
+service rather than read from the table — reading rows would work for one kind and silently return
+nothing for the other. A smart board with no filter is refused at creation, and `assignee: "me"`
+resolves to whoever is looking, so one board shows each person their own work.
+
+**Three calls of mine, recorded as mine** (docs/DECISIONS.md #141): a WIP limit reports rather than
+refuses; smart boards filter tasks rather than records, because a record-level board would duplicate
+screens that already exist; and drag-and-drop is the browser's own, with a dropdown beside every card
+so a phone can do the same move.
+
+**Deleting a board frees its cards.** A board is a way of looking at work — deleting one must not
+delete the work, and must not leave tasks pointing at a board that no longer exists. Pinned by a test.
+
+**Suite:** 84 collab tests passing; collab is 0 of 18 procedures unreached, read whole this time.
+
+**And the full suite found what the collab tests could not.** It ended clean — 150 files, zero
+failures — and left **278 real tasks in the database**. The fixtures were not at fault and neither was
+session 2's fix: the suite creates real orders and tickets through the real services, those emit real
+events, something drains the queue, and module 06's subscriber raised four tasks per order against
+records the tests had already deleted. Purged, and fixed three ways — the suite no longer fans out, no
+work is raised on a record that has gone, and **a retry no longer hands a duplicate to a different
+person** under `least_loaded`, which was a real production bug hiding behind a check that looked
+idempotent. docs/DECISIONS.md #142.
+
+**Next concrete step — session 4:** §3's channels and direct messages, and §4's threads on records.
+
 ## Not started
 - [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is
       under way (session 1 in, sessions 2–6 to go).

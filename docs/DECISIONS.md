@@ -4740,3 +4740,93 @@ fan-out §2 describes.
 `viewer` currently have **no active holders**. Six of the fourteen templates assign to `sales` or
 `technician`, so until somebody holds those roles that work will be raised **unassigned** — recorded,
 correct, and on nobody's My Work. `/tasks` leads with exactly those, under "Nobody owns these".
+
+---
+
+## #141 — Three calls of mine on §2's boards
+
+**2026-08-21.** Module 06 session 3. Recorded as mine, per EA's standing instruction.
+
+**1. A WIP limit reports; it does not refuse.** §2 asks for WIP limits and does not say what happens
+at the limit. Refusing the drop was the obvious reading and is the wrong one: it would not reduce the
+work, it would leave the card sitting in the column it has already left. A board that disagrees with
+reality is worse than no board — which is the exact failure this module exists to end. So the column
+turns red and says how far over it is, which is the conversation the limit was meant to start.
+
+**2. Smart boards filter *tasks*, not records.** §2's two examples name records — "all tickets
+blocked at a gate", "all quotations awaiting my approval" — and boards in this platform hold tasks. A
+record-level smart board would mean module 06 querying module 02's and module 04's tables, and it
+would land beside screens that already answer those questions: the approvals queue, the pipeline, the
+ticket list. What is built is the filter over tasks, which is what makes a board *stay current
+without a human maintaining it* — the stated purpose of the feature. If EA wants "all quotations
+awaiting my approval" as a board rather than as the approvals screen, that is a change worth making
+deliberately rather than one to slip in here.
+
+**3. Drag-and-drop, with a dropdown beside it.** No drag-and-drop library was added. The browser's
+own HTML5 drag events cover a desk, and they do not exist on a touch screen — so every card also
+carries a column dropdown that performs the identical move in one tap. A technician reading this on a
+phone is a real reader, and a board they can only look at is half a board.
+
+**And one thing that is not a call but a consequence worth stating:** moving a card **sets the task's
+status**, because the column carries the status it stands for. Without that, a board would record
+where a card sits and the task would record what is happening, and by Wednesday they would disagree.
+It is also why moving a card is gated on `task.create` rather than `task.manage_boards`: dragging a
+card is doing the work. Building the board is a different job from working from it.
+
+---
+
+## #142 — The fan-out does not need the test to call it
+
+**2026-08-21.** The first full suite after §2's templates landed left **278 real tasks** in the
+company's database. #139 had already been written, the fix it describes was in, and it did not help
+at all — because it fixed the wrong half.
+
+#139's leak was a test calling `runTemplatesForEvent` directly. This one needed nothing of the kind.
+The suite creates real sales orders, tickets, QA failures and commissioning records through the real
+services, and those services `emit()` real domain events into the outbox. Something in the run drains
+the queue. Every subscriber then runs — including module 06's, which raised four tasks per sales
+order, assigned by role to whoever really holds it, against fixture records the tests had already
+deleted.
+
+**Three fixes, at three different depths.**
+
+1. **The suite does not fan out *in its own process*.** `tests/setup.ts` sets
+   `AIES_DISABLE_TASK_TEMPLATES=1` and the manifest subscriber honours it, which covers the tests
+   that drain the queue themselves.
+
+   **This is not the fix, and I first wrote it up as though it were.** The next full run left 268
+   more tasks. The drain that matters is not in the test process at all: `vercel.json` runs
+   `/api/cron/drain` **every minute** against the same database, so events a fixture emits are
+   picked up seconds later by the deployed application, where no test env var exists or ever could.
+   A flag set in one process cannot govern another.
+2. **No work is raised on a record that is gone.** An event is emitted inside the transaction that
+   created a record and handled whenever the queue next drains; in between, the record can be
+   deleted. Raising "acknowledge the PO" against a sales order that no longer exists produces work
+   nobody can do on a screen nobody can open. This one is a production improvement that the leak
+   merely revealed.
+3. **A retry no longer duplicates work under `least_loaded`.** Found while fixing the other two, and
+   the most serious of the three. The idempotency check was per **assignee**, which is right for
+   `all` mode and wrong for every other: `least_loaded` picks the lightest queue *at the moment it
+   runs*, so a retried event finds the first recipient now carrying one more task and hands the
+   duplicate to somebody else. The stamp check would not catch it, nothing would look wrong, and two
+   people would quietly do the same job. Now: one task per stamp per record, except `all`.
+
+**What actually stops it, and what does not.** Nothing in the codebase can. The database is shared
+by the suite, the local dev server and a production cron on a one-minute schedule; any event a
+fixture emits is a real event to every one of them. Fix 2 narrows the window — a record deleted
+before the drain raises nothing — but a drain that lands *during* the test, while the fixture record
+still exists, produces perfectly correct tasks that are orphaned a second later when the test cleans
+up.
+
+So the control is the sweep: `scripts/purge-leaked-test-records.ts` finds tasks pointing at no real
+record, and `npm test` now ends by printing the count. **The real answer is a separate test
+database**, which #1 rejected in the first week and which has now caused three distinct classes of
+leak — test users, test payment terms, and this. That is a change with a cost and an owner, so it is
+EA's to make rather than mine to slip in; it is written up here so the argument is on the record when
+somebody asks why the suite keeps making rubbish.
+
+**What this says about idempotency.** "Idempotent" was satisfied on the surface — the same stamp, the
+same record. It was not idempotent in fact, because part of the input was *the state of the world at
+the moment of the retry*. Any handler that chooses a person, a number or a date at run time has this
+problem. Worth asking of every subscriber module 07 onwards adds: **if this runs twice, does it pick
+the same answer twice?**
