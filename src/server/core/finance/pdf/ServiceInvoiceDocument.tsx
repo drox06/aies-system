@@ -94,6 +94,30 @@ export function ServiceInvoiceDocument({
     <Document title={invoice.number}>
       <Page size="A4" style={pdfStyles.page}>
         {/*
+          The watermark, drawn first so everything else sits over it.
+
+          Light enough to read through — a reference copy is a working sheet somebody transcribes
+          figures from, and a watermark dark enough to obscure a digit would defeat the only purpose
+          the document has. `fixed` so it repeats if the statement list ever runs to a second page.
+        */}
+        <Text
+          fixed
+          style={{
+            position: "absolute",
+            top: 330,
+            left: 0,
+            right: 0,
+            textAlign: "center",
+            fontFamily: "Helvetica-Bold",
+            fontSize: 62,
+            color: PDF_COLORS.border,
+            transform: "rotate(-28deg)",
+          }}
+        >
+          REFERENCE
+        </Text>
+
+        {/*
           The cancellation, first and unmissable.
 
           A cancelled invoice that looks like a valid one is worse than no document — somebody will
@@ -133,8 +157,27 @@ export function ServiceInvoiceDocument({
           </View>
 
           <View style={{ alignItems: "flex-end" }}>
+            {/*
+              Named for what it is, at the size somebody actually reads.
+
+              "SERVICE INVOICE" alone, over a number in a BIR-looking series, is a document that
+              gets filed as the real thing by anybody who does not reach the footer. The company
+              confirmed on 2026-08-20 that the official invoice is issued on an external registered
+              form and this never goes to a customer — so the heading says so rather than relying on
+              a reader getting to the bottom of the page.
+            */}
             <Text style={{ fontFamily: "Helvetica-Bold", fontSize: 16, color: PDF_COLORS.navy800 }}>
               SERVICE INVOICE
+            </Text>
+            <Text
+              style={{
+                fontFamily: "Helvetica-Bold",
+                fontSize: 9,
+                color: PDF_COLORS.textMuted,
+                letterSpacing: 1,
+              }}
+            >
+              REFERENCE COPY
             </Text>
             <Text style={{ fontFamily: "Helvetica-Bold", fontSize: 12, marginTop: 2 }}>
               {invoice.number}
