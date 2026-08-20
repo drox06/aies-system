@@ -3237,8 +3237,94 @@ Every defect this module has produced was found by a person using a screen, and 
 Tagging on the strength of a walk that covered the newer half would be asserting something nobody has
 checked.
 
-**Next concrete step:** seed and walk §2, §3 and §5 — billing schedule through statement, invoice,
-payment and collections — then the module 05 review gate.
+### Session 14 — half the module had no way in (2026-08-20)
+
+Seeding the §2/§3/§5 walk, then checking where each step would be performed: **fourteen finance
+procedures had no UI caller.** Raising a statement, issuing it, recording a payment, clearing a
+cheque, generating a schedule, cancelling any of them. The three screens in this half were read-only
+bar logging a call.
+
+The platform could tell you a milestone was ready to bill and offered no way to bill it, and tell you
+a customer owed ₱240,750 at eighty days and offered no way to record their cheque. §3 — the section
+that issues BIR-numbered documents and takes customer money — had no entry path at all.
+docs/DECISIONS.md #135, which is #128 for the fourth time and by far the largest instance.
+
+`scripts/unreached-mutations.ts` now answers that question mechanically, because it had been asked by
+hand four times. Not a test — #133 was right that a guard would fire constantly mid-build and get
+skipped. A report blocks nothing and belongs at a review gate. Across the platform it found **47 of
+311**; module 04 holds 22 of them and was tagged complete, which needs triage before that tag means
+what it says.
+
+### Session 15 — §3's entry path, built to spec (2026-08-20)
+
+- **Raise a statement** from the milestone on Ready to bill; **`/finance/statements`** with drafts,
+  open and settled, the PDC register above them, and issue / cancel / record-payment / clear / bounce.
+  One screen rather than three because §3 opens by insisting the two documents are not the same
+  record, and the way to teach that is to put them where one is seen producing the other.
+- **The service invoice as a document.** AIES was issuing BIR-numbered invoices it could neither
+  print nor send. Built to §3.3 — VAT breakdown, both TINs, all three sales classes even at zero.
+  The company then confirmed the official invoice is issued on an **external registered form**, so
+  this is labelled a reference copy at top, middle and bottom.
+- **§3.2's 2307**, on the company's ruling: the statement stays part-paid and keeps ageing until the
+  form is in hand, then closes. Credited in its own column, never folded into `amountPaid` — cash in
+  the bank and a claim on the BIR are different kinds of asset. docs/DECISIONS.md #136.
+- **§2's schedule and §4's gate** on the sales order, with generate, cancel-milestone and the seven
+  conditions each naming their owner.
+
+Every one verified by running it against the live database rather than by compiling: the two-document
+flow end to end, a rendered PDF, and the 2307 closing a ₱112,000 statement from `partially_paid` to
+`paid`.
+
+**Unreached finance procedures: 14 → 3.** `collectionHistory` and `setRemindersEnabled` belong on a
+collections row; `creditExposure` belongs on module 03's order screen, where §5 wants it checked when
+a new order is raised.
+
+**EA walked it and reported all good.** One fix came out of the walk: Ready to bill emptied silently
+after the last milestone was billed, so a successful raise looked identical to nothing to do. It now
+carries the statements just raised.
+
+**Suite at the gate:** 143 files, **1,681 tests, zero failures** — the first fully clean full run
+since the `amountWithheldCredited` migration, and the record the module 05 tag would sit on.
+
+### Session 16 — module 04's 22 unreached procedures, triaged (2026-08-20)
+
+`module-04-complete` was applied after a review that did not ask whether every action had a door.
+Twenty-two of its procedures have no caller. Triaged rather than assumed: **nine are real gaps, six
+are legitimately unreached, two are probably dead code.** "Twenty-two missing screens" was the wrong
+reading, and so would "twenty-two items of work owed" have been.
+
+**Build — the nine**
+
+| Procedure | What is actually broken |
+|---|---|
+| `decideTimesheet` · `timesheetsAwaiting` | Hours can be submitted and **never approved**. §6 counts only approved timesheets, so labour cost reads zero on every real job |
+| `decideExpense` · `expensesAwaiting` | The same for field expenses — same permission, same screen, same consequence |
+| `submitCashAdvance` | `requestCashAdvance` creates a **draft** and nothing can send it for approval. Request → dead end |
+| `advanceLiquidation` · `liquidationsAwaitingCheck` | Money released **never returns as project cost** |
+| `createStandaloneTicket` | A callout not arising from a sales order cannot be raised at all |
+| `createContract` | Contracts can be listed and activated, not created |
+| `recordUnavailability` · `listUnavailability` · `removeUnavailability` | Crew off sick cannot be recorded; the board schedules them anyway |
+| `adjustStock` | Items can be edited, quantities cannot be corrected |
+| `bumpForEmergency` | Dispatch cannot reprioritise for an emergency |
+
+**Leave, recorded — the six.** `listMaterialRequests` and `listMobilizations` are cross-ticket lists
+whose per-ticket views exist; a company-wide one is module 09's reporting job. `standbyEvidence`,
+`firstTimeRight` and `travelBetweenTickets` are reports with no dashboard to live on — also module 09.
+`determineWarrantyClaim` previews a rule `raiseWarrantyClaim` already applies and stores.
+
+**Verify then delete — the two.** `createChecklistTemplate` appears superseded by `saveChecklistDraft`,
+which is what the screen calls; `activeChecklistTemplate` by `listChecklistTemplates`. Dead code that
+looks like a feature is worse than none, because the next person builds around it.
+
+**The method, which is the durable part.** One question per procedure — *who is supposed to do this,
+and where would they go?* — with three legitimate answers, not one: build it, delete it, or record it
+as deliberate with the reason. Treating everything unreached as work owed is how a backlog becomes
+noise. `scripts/unreached-mutations.ts` produces the list; the triage is what makes it useful.
+
+**Next concrete step:** timesheet and field-expense approval — primary the operations manager,
+escalating to the admin manager after 16 working hours, with the President and VP keeping the
+standing authority they hold everywhere. Then the cash advance submit/liquidate pair, then
+unavailability. The module 05 tag is EA's to give (BUILD-PROTOCOL §7.3).
 
 ## Not started
 - [ ] Modules 05–10

@@ -286,10 +286,15 @@ export function ServiceInvoiceDocument({
           @react-pdf paints in document order, so "on top" means "written last" — it was drawn first
           and therefore behind, which on a page this dense meant it barely read at all.
 
-          Over the top means it has to be much lighter than it would need to be underneath: this is a
-          working sheet somebody transcribes figures from, and a watermark that obscures a single
-          digit destroys the only purpose the document has. `surface2` is the palest token in the
-          set. `fixed` so it repeats if the statement list ever runs to a second page.
+          Set with `opacity` rather than by picking a pale colour, at the company's instruction on
+          2026-08-20. The two are not equivalent: a pale ink painted over black text still *covers*
+          it, while opacity lets the text beneath show through. On a sheet whose whole purpose is
+          that somebody transcribes figures off it, a digit half-covered by a light grey is worse
+          than one seen through a grey haze.
+
+          `textMuted` at 35% rather than the palest token at full strength, so the word actually
+          reads at that opacity. `fixed` so it repeats if the statement list ever runs to a second
+          page.
         */}
         <Text
           fixed
@@ -301,7 +306,8 @@ export function ServiceInvoiceDocument({
             textAlign: "center",
             fontFamily: "Helvetica-Bold",
             fontSize: 62,
-            color: PDF_COLORS.surface2,
+            color: PDF_COLORS.textMuted,
+            opacity: 0.35,
             transform: "rotate(-28deg)",
           }}
         >
