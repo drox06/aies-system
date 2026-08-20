@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { DateCell } from "@/components/ui/cells";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
+import { RaiseCallout } from "./RaiseCallout";
 import { Input } from "@/components/ui/input";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { trpc } from "@/lib/trpc/client";
@@ -55,6 +56,17 @@ export default function TicketsPage() {
         title="Tickets"
         description="Operational work, by what is due first. A ticket is generated from a sales order, or raised on its own."
       />
+
+      {/*
+        Raising work that did not come from a sales order.
+
+        The header has said "or raised on its own" since this screen was built, and there was no way
+        to do it — a customer ringing about a broken pump could not be given a ticket at all.
+        docs/DECISIONS.md #135's triage.
+      */}
+      <div className="mb-3">
+        <RaiseCallout onRaised={() => void list.refetch()} />
+      </div>
 
       <div className="mb-3">
         <Input
