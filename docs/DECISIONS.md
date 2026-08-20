@@ -4539,3 +4539,45 @@ is the absent-is-not-zero rule this platform applies everywhere else.
 
 The **difference** gets its own line, because it is the sentence a person actually says: not "your
 invoice disagrees with our receipt" but "you have billed us for ₱75,000 of goods that never arrived."
+
+---
+
+## #135 — AIES cannot bill a customer or take a payment
+
+**2026-08-20.** Seeding the §2/§3/§5 walk, then checking where each step would be performed. Fourteen
+finance procedures have **no UI caller at all**:
+
+```
+bounceCheque      cancelInvoice     cancelMilestone   cancelStatement
+clearCheque       collectionHistory creditExposure    finalBillingGate
+generateSchedule  issueStatement    raiseStatement    recordPayment
+schedule          setRemindersEnabled
+```
+
+The three screens that exist in this half are read-only, with one exception:
+
+| Screen | What it can do |
+|---|---|
+| Ready to bill | Lists billable milestones. **No way to bill one.** |
+| Receivables | Shows ageing and outstanding 2307s. |
+| Collections | Shows the worklist; can log a call. |
+
+So the platform can tell you a milestone is ready to bill and offers no way to bill it. It can tell
+you a customer owes ₱240,750 at eighty days and offers no way to record their cheque when it arrives.
+**§3 — the section that issues BIR-numbered documents and takes customer money — has no entry path
+whatsoever.**
+
+This is docs/DECISIONS.md #128 for the fourth time and by far the largest instance. #133 covered three
+missing screens in §6 and §7; this is the core of what module 05 is *for*. The services are written,
+tested and correct. Nobody can reach any of them.
+
+**Why it stayed invisible.** Every reason from #133 applies again, plus one specific to this half: the
+walkthroughs so far were written for the sections built most recently, and a module is easiest to
+believe finished exactly where it is least recently examined. The company asked "anything else to walk
+on?" and the answer turned out to be "half of it, and that half cannot be walked."
+
+**The check that would have caught it, and why it does not exist yet.** #133 said a guard forbidding
+mutations with no caller would fire constantly mid-build and was not obviously cheap. That is still
+true — but a **report** is not a guard. A list of unreached mutations, printed at the end of a
+session, costs nothing and is exactly the question I have now had to ask by hand four times.
+`scripts/unreached-mutations.ts` now exists and is the first thing to run at a module's review gate.
