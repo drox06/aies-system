@@ -259,10 +259,30 @@ function StatementRow({ row, onChanged }: { row: Statement; onChanged: () => voi
         </p>
       )}
 
+      {/*
+        The BIR document, openable.
+
+        It existed as a number on a row and nothing else — AIES was issuing invoices it could not
+        print or send to the customer who needs them. §3.3 says what the PDF must carry; the link is
+        what makes it reachable. docs/DECISIONS.md #135.
+      */}
       {row.invoices.length > 0 && (
-        <p className="mt-1 text-xs">
-          Service invoice{row.invoices.length === 1 ? "" : "s"}:{" "}
-          {row.invoices.map((invoice) => `${invoice.number} (${invoice.status})`).join(", ")}
+        <p className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs">
+          <span className="text-text-muted">
+            Service invoice{row.invoices.length === 1 ? "" : "s"}:
+          </span>
+          {row.invoices.map((invoice) => (
+            <a
+              key={invoice.id}
+              href={`/api/service-invoices/${invoice.id}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className={`underline ${invoice.status === "cancelled" ? "text-danger" : ""}`}
+            >
+              {invoice.number}
+              {invoice.status === "cancelled" ? " (cancelled)" : ""}
+            </a>
+          ))}
         </p>
       )}
 
