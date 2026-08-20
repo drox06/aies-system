@@ -1,13 +1,16 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { AuditTrail } from "@/components/AuditTrail";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
 import { DateCell } from "@/components/ui/cells";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
 import { formatMoney } from "@/lib/format";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 import { OrderFromSuppliers } from "./OrderFromSuppliers";
 import { ProposeTickets } from "./ProposeTickets";
@@ -50,6 +53,9 @@ export default function SalesOrderPage({ params }: { params: Promise<{ id: strin
   const utils = trpc.useUtils();
 
   const order = trpc.order.getSalesOrder.useQuery({ salesOrderId: id });
+  const me = trpc.system.whoami.useQuery(undefined, { retry: false });
+  // §4's gate is finance's to open — the same permission that records any other payment.
+  const canRecordPayment = (me.data?.permissions ?? []).includes("payment.record");
   const supplierPos = trpc.order.listSupplierPos.useQuery({ salesOrderId: id }, { retry: false });
 
   const refresh = () => {
@@ -130,6 +136,24 @@ export default function SalesOrderPage({ params }: { params: Promise<{ id: strin
               </p>
               {/* §4: "a clear gate indicator so nobody has to ask finance in a chat app". */}
               <p className="mt-1.5 text-xs text-text-muted">{gate.message}</p>
+
+              {/*
+                And the control that clears it, beside the indicator that shows it.
+
+                §4's gate has been readable since module 03 session 2 and openable by nobody: no order
+                ever left `not_required`, and even if one had, there was no way to record the money
+                arriving. Putting the control anywhere else would have repeated the fault it fixes —
+                a status somebody has to ask about in a chat app.
+              */}
+              {data.financeStatus === "awaiting_downpayment" && canRecordPayment && (
+                <RecordDownpayment
+                  salesOrderId={data.id}
+                  number={data.number}
+                  currency={data.currency}
+                  amount={data.downpaymentAmount}
+                  onDone={() => void order.refetch()}
+                />
+              )}
             </Card>
 
             <Card className="p-4">
@@ -284,6 +308,102 @@ function Row({
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs text-text-muted">{label}</dt>
       <dd className={strong ? "tabular font-semibold" : "tabular"}>{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * Finance recording that the customer's downpayment arrived.
+ *
+ * Asks for a reference rather than only a confirmation, because the next thing that happens is AIES
+ * committing money to a supplier on the strength of it. "Somebody said it came in" is not what
+ * procurement should be relying on; a deposit slip number is.
+ *
+ * The date defaults to today and can be moved back — payments are usually recorded the morning after
+ * they land — but not forward, which the service refuses.
+ */
+function RecordDownpayment({
+  salesOrderId,
+  number,
+  currency,
+  amount,
+  onDone,
+}: {
+  salesOrderId: string;
+  number: string;
+  currency: string;
+  amount: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reference, setReference] = useState("");
+  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().slice(0, 10));
+
+  const record = trpc.order.recordDownpayment.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Downpayment recorded on ${number}.`);
+      setOpen(false);
+      setReference("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <Button variant="secondary" size="sm" className="mt-2" onClick={() => setOpen(true)}>
+        Record the downpayment
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-border p-2.5">
+      <p className="text-xs">
+        Expecting{" "}
+        <span className="tabular font-medium">
+          {currency} {amount}
+        </span>
+        . Recording it clears procurement to order.
+      </p>
+      <div className="mt-2 space-y-2">
+        <div>
+          <Label htmlFor="dp-ref">How it arrived</Label>
+          <Input
+            id="dp-ref"
+            value={reference}
+            placeholder="BDO deposit slip 4471902"
+            onChange={(e) => setReference(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="dp-date">When</Label>
+          <Input
+            id="dp-date"
+            type="date"
+            value={receivedAt}
+            onChange={(e) => setReceivedAt(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          disabled={record.isPending || reference.trim().length === 0}
+          onClick={() =>
+            record.mutate({
+              salesOrderId,
+              reference: reference.trim(),
+              receivedAt: receivedAt ? new Date(receivedAt) : null,
+            })
+          }
+        >
+          {record.isPending ? "Recording…" : "Record it"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }

@@ -248,6 +248,33 @@ export async function createSalesOrderFromPoService(
 
   const anyExecution = lines.some((line) => line.requiresExecution);
 
+  /*
+    What the customer agreed to pay up front, from the term on their quotation.
+
+    `downpaymentPct` is stored as a fraction on `PaymentTerm` — 0.30 for thirty per cent — and the
+    gate's message multiplies by 100 to say so. Both sides of that have to agree, and this is the one
+    place the conversion happens.
+
+    A quotation with no payment term produces zero, which produces `not_required`. That is right: a
+    deal nobody set terms on has no agreed downpayment, and inventing one here would gate procurement
+    on a figure the customer never saw.
+  */
+  /*
+    Read separately, because `Quotation` carries `paymentTermsId` as a plain column with no relation
+    to `PaymentTerm` — module 02 stores the id and prints `paymentTermsText`, and never needed to
+    join. Adding the relation would be tidier and is a migration on a schema about to take live data,
+    for one read on one path. A findUnique is the smaller change.
+  */
+  const term = po.quotation!.paymentTermsId
+    ? await db.paymentTerm.findUnique({
+        where: { id: po.quotation!.paymentTermsId },
+        select: { name: true, downpaymentPct: true },
+      })
+    : null;
+
+  const downpaymentPct = Number(term?.downpaymentPct ?? 0);
+  const downpaymentAmount = Number(po.quotation!.total) * downpaymentPct;
+
   const salesOrder = await db.$transaction(async (tx) => {
     const created = await tx.salesOrder.create({
       data: {
@@ -264,16 +291,33 @@ export async function createSalesOrderFromPoService(
         totalCost: po.quotation!.totalCost,
         marginAmount: po.quotation!.marginAmount,
         paymentTermsId: po.quotation!.paymentTermsId,
-        // Module 05 owns `PaymentTerm` and its `downpaymentPct`, so there is nothing to read yet.
-        // §4's gate reads these two, and session 2 wires them when the terms exist.
-        downpaymentPct: 0,
-        downpaymentAmount: 0,
+        /*
+          §4's gate, finally connected to something.
+
+          This was hardcoded `0` / `not_required` from module 03 session 1, with a comment saying
+          module 05 would wire it "when the terms exist". The terms existed from module 05 session 1
+          and nobody came back, so **every order ever raised had the gate switched off**: no order
+          reached `awaiting_downpayment`, `downpaymentGate` never blocked, and procurement was
+          ungated on the customer's money while looking gated. The company found it on 2026-08-19 by
+          asking the reasonable question — "how is this cleared?" — and the honest answer was that
+          nothing cleared it because nothing ever set it.
+
+          The lesson is not "somebody forgot". It is that **a placeholder with a plausible value is
+          invisible**: `not_required` is a legitimate state, so nothing looked wrong on any screen, in
+          any test, or in the schema. A placeholder that had thrown, or that had been `null` on a
+          non-nullable column, would have been found the same afternoon.
+
+          `downpaymentAmount` is computed from the order total rather than the quotation's, so a
+          rounding difference between the two cannot leave finance chasing a figure the order does
+          not show.
+        */
+        downpaymentPct: downpaymentPct.toString(),
+        downpaymentAmount: downpaymentAmount.toFixed(2),
         status: "open",
         procurementStatus: "pending",
-        // §4: with no payment terms to read, there is no downpayment to wait for. Starting at
-        // `awaiting_downpayment` would show a gate indicator on every order for a condition nobody
-        // has set.
-        financeStatus: "not_required",
+        // No downpayment agreed means nothing to wait for. Starting at `awaiting_downpayment` on
+        // those orders would put a gate indicator on every one of them for a condition nobody set.
+        financeStatus: downpaymentPct > 0 ? "awaiting_downpayment" : "not_required",
         executionStatus: anyExecution ? "pending" : "not_required",
         ownerId: input.ownerId ?? actor.actorId,
         lines: { create: lines },
@@ -430,4 +474,113 @@ export async function listSalesOrdersService(
     downpaymentPct: order.downpaymentPct.toString(),
     downpaymentAmount: order.downpaymentAmount.toString(),
   }));
+}
+
+/**
+ * Finance records that the customer's downpayment has arrived, which opens §4's gate.
+ *
+ * ## The other half of the gate
+ *
+ * `downpaymentGate` reads `financeStatus`, and until this existed nothing could move it. Orders were
+ * created `not_required` and stayed there; had they been created `awaiting_downpayment` they would
+ * have stayed *there*, and procurement would have been blocked on every order for ever. Wiring the
+ * first half without this one would have replaced an invisible hole with a visible deadlock.
+ *
+ * ## Why it is deliberately small
+ *
+ * This records **that the money came**, not the accounting for it. §3's collections and the statement
+ * chain in module 05 own where the payment sits, how it is allocated and what receipt it produces.
+ * What procurement needs to know is one thing — may AIES commit money to suppliers yet — and that is
+ * a single status with a date, a reference and a name against it.
+ *
+ * When §3's payments land, this becomes the thing that observes them rather than the thing that is
+ * typed. It is deliberately shaped so that swap is a change of caller, not of meaning.
+ *
+ * ## What it refuses
+ *
+ * **An order with no downpayment agreed.** `not_required` is not a gate waiting to be opened, it is
+ * the absence of one, and recording a downpayment against it would invent a term the customer never
+ * agreed to.
+ *
+ * **Recording it twice.** The second call is refused rather than silently accepted, because a
+ * duplicate would suggest two payments where there was one, and because a caller doing it twice has
+ * usually mistaken which order they are on.
+ */
+export async function recordDownpaymentService(
+  actor: ActorMeta,
+  input: { salesOrderId: string; reference: string; receivedAt?: Date | null },
+) {
+  const order = await db.salesOrder.findFirst({
+    where: { id: input.salesOrderId, deletedAt: null },
+    select: {
+      id: true,
+      number: true,
+      financeStatus: true,
+      downpaymentPct: true,
+      downpaymentAmount: true,
+      currency: true,
+    },
+  });
+  if (!order) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That sales order no longer exists." });
+  }
+
+  if (order.financeStatus === "not_required") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${order.number} has no downpayment agreed, so there is nothing waiting on one. Check the ` +
+        `payment terms on the quotation if that is wrong.`,
+    });
+  }
+
+  if (order.financeStatus !== "awaiting_downpayment") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${order.number} is already ${order.financeStatus.replace(/_/g, " ")}.`,
+    });
+  }
+
+  const reference = input.reference.trim();
+  if (reference.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Record how the money arrived — the deposit slip, the transfer reference, the cheque " +
+        "number. This is what procurement is relying on when it commits to a supplier.",
+    });
+  }
+
+  const receivedAt = input.receivedAt ?? new Date();
+  if (receivedAt.getTime() > Date.now()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The downpayment cannot have arrived in the future. Check the date.",
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.salesOrder.update({
+      where: { id: order.id },
+      data: { financeStatus: "downpayment_received", version: { increment: 1 } },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "downpayment_received",
+      entityType: SALES_ORDER_ENTITY_TYPE,
+      entityId: order.id,
+      summary:
+        `Recorded the ${(Number(order.downpaymentPct) * 100).toFixed(0)}% downpayment on ` +
+        `${order.number} — ${order.currency} ${Number(order.downpaymentAmount).toFixed(2)}, ` +
+        `reference ${reference}`,
+      diff: { financeStatus: { from: order.financeStatus, to: "downpayment_received" } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { financeStatus: "downpayment_received" as const };
 }

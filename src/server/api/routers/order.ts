@@ -14,6 +14,7 @@ import {
   getSalesOrderService,
   listSalesOrdersService,
   verifyCustomerPoService,
+  recordDownpaymentService,
 } from "@/server/core/order/sales-order-service";
 import {
   acceptGoodsReceiptService,
@@ -111,6 +112,23 @@ export const orderRouter = router({
    * may unrecord it. The service refuses once a sales order exists against it, which is where the
    * line between correcting a record and rewriting history sits.
    */
+  /**
+   * §4's gate, opened: finance records that the customer's downpayment arrived.
+   *
+   * On `payment.record`, which module 05 already defines and finance already holds — this is the
+   * same act as recording any other payment, seen from the one angle procurement needs. It is not a
+   * new permission because it is not a new authority.
+   */
+  recordDownpayment: p("payment.record")
+    .input(
+      z.object({
+        salesOrderId: z.string(),
+        reference: z.string().min(1).max(200),
+        receivedAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordDownpaymentService(actorMeta(ctx), input)),
+
   removeCustomerPo: p("customer_po.remove")
     .input(z.object({ customerPOId: z.string(), reason: z.string().min(10).max(1000) }))
     .mutation(({ ctx, input }) => removeCustomerPoService(actorMeta(ctx), input)),

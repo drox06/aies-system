@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   checkCustomerPoService,
   createSalesOrderFromPoService,
+  recordDownpaymentService,
   getSalesOrderService,
   lineRequiresExecution,
   verifyCustomerPoService,
@@ -390,5 +391,130 @@ describe("what counts as field work", () => {
     // on `Product`, and inventing one here would give module 04 a second mechanism to reconcile —
     // recorded rather than half-implemented. This assertion is the reminder.
     expect(lineRequiresExecution("freight")).toBe(false);
+  });
+});
+
+/**
+ * §4's downpayment gate, connected at last.
+ *
+ * The gate function has been correct and tested since module 03 session 2, and **switched off since
+ * module 03 session 1**: `createSalesOrderFromPoService` hardcoded `downpaymentPct: 0` and
+ * `financeStatus: "not_required"` with a comment saying module 05 would wire it "when the terms
+ * exist". They existed from module 05 session 1 and nobody came back, so no order ever reached the
+ * gate and procurement was ungated on the customer's money while looking gated.
+ *
+ * Nothing in the suite could see it, because `not_required` is a legitimate state and every test
+ * asserted the gate function rather than whether anything ever reaches it. These tests assert the
+ * reaching.
+ */
+describe("§4 — the downpayment gate, end to end", () => {
+  async function termWithDownpayment(pct: string) {
+    return db.paymentTerm.create({
+      data: {
+        name: `SO-TERM-${randomUUID().slice(0, 8)}`,
+        downpaymentPct: pct,
+        balanceTrigger: "on delivery",
+      },
+    });
+  }
+
+  it("puts an order on the gate when the quotation's terms ask for a downpayment", async () => {
+    const term = await termWithDownpayment("0.30");
+    const { po, quotation } = await makeQuotationWithPo();
+    await db.quotation.update({
+      where: { id: quotation.id },
+      data: { paymentTermsId: term.id },
+    });
+
+    // §3's verification comes first — the gate under test is the one after it.
+    await verifyCustomerPoService(actor, { customerPOId: po.id });
+    const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    const saved = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
+
+    expect(saved.financeStatus).toBe("awaiting_downpayment");
+    expect(Number(saved.downpaymentPct)).toBeCloseTo(0.3);
+    // Computed from the order's own total, so finance is never chasing a figure the order does not
+    // show — see the comment at the creation site.
+    expect(Number(saved.downpaymentAmount)).toBeCloseTo(Number(saved.total) * 0.3, 2);
+  });
+
+  it("leaves an order alone when no downpayment was agreed", async () => {
+    // A deal nobody set terms on has no agreed downpayment, and inventing one would gate
+    // procurement on a figure the customer never saw.
+    const { po } = await makeQuotationWithPo();
+    await verifyCustomerPoService(actor, { customerPOId: po.id });
+    const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    const saved = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
+
+    expect(saved.financeStatus).toBe("not_required");
+    expect(Number(saved.downpaymentAmount)).toBe(0);
+  });
+
+  it("opens the gate when finance records the money, and keeps the reference", async () => {
+    const term = await termWithDownpayment("0.50");
+    const { po, quotation } = await makeQuotationWithPo();
+    await db.quotation.update({ where: { id: quotation.id }, data: { paymentTermsId: term.id } });
+
+    await verifyCustomerPoService(actor, { customerPOId: po.id });
+    const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+    await recordDownpaymentService(actor, {
+      salesOrderId: order.id,
+      reference: "BDO deposit slip 4471902",
+    });
+
+    const saved = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(saved.financeStatus).toBe("downpayment_received");
+
+    // The reference is what procurement is relying on when it commits to a supplier, so it has to
+    // survive somewhere a person can read it months later.
+    const log = await db.auditLog.findFirst({
+      where: { entityId: order.id, action: "downpayment_received" },
+    });
+    expect(log?.summary).toContain("4471902");
+  });
+
+  it("refuses to record a downpayment nobody agreed to, or to record one twice", async () => {
+    const { po } = await makeQuotationWithPo();
+    await verifyCustomerPoService(actor, { customerPOId: po.id });
+    const noTerms = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+
+    await expect(
+      recordDownpaymentService(actor, { salesOrderId: noTerms.id, reference: "anything" }),
+    ).rejects.toThrow(/no downpayment agreed/);
+
+    const term = await termWithDownpayment("0.25");
+    const second = await makeQuotationWithPo();
+    await db.quotation.update({
+      where: { id: second.quotation.id },
+      data: { paymentTermsId: term.id },
+    });
+    await verifyCustomerPoService(actor, { customerPOId: second.po.id });
+    const order = await createSalesOrderFromPoService(actor, { customerPOId: second.po.id });
+
+    await recordDownpaymentService(actor, { salesOrderId: order.id, reference: "first" });
+    // A duplicate would suggest two payments where there was one.
+    await expect(
+      recordDownpaymentService(actor, { salesOrderId: order.id, reference: "again" }),
+    ).rejects.toThrow(/already/);
+  });
+
+  it("refuses a downpayment with no reference, and one dated in the future", async () => {
+    const term = await termWithDownpayment("0.30");
+    const { po, quotation } = await makeQuotationWithPo();
+    await db.quotation.update({ where: { id: quotation.id }, data: { paymentTermsId: term.id } });
+    await verifyCustomerPoService(actor, { customerPOId: po.id });
+    const order = await createSalesOrderFromPoService(actor, { customerPOId: po.id });
+
+    await expect(
+      recordDownpaymentService(actor, { salesOrderId: order.id, reference: "   " }),
+    ).rejects.toThrow(/how the money arrived/);
+
+    await expect(
+      recordDownpaymentService(actor, {
+        salesOrderId: order.id,
+        reference: "ok",
+        receivedAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      }),
+    ).rejects.toThrow(/arrived in the future/);
   });
 });
