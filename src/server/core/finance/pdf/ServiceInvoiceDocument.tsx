@@ -4,14 +4,21 @@ import { PDF_COLORS, pdfStyles } from "@/server/core/quotation/pdf/theme";
 import type { CompanyDetails } from "@/server/core/company";
 
 /**
- * §3's Service Invoice — the BIR document evidencing the sale.
+ * §3's Service Invoice — the platform's record of the sale, and a reference for the official form.
  *
- * ## Why this is not the quotation document with different words
+ * ## What this document is, and is not
  *
- * A quotation is a commercial offer AIES can lay out as it likes. This is a **statutory document**,
- * and §3.3 names what it must carry: the VAT breakdown, the company TIN, and the customer TIN. The
- * layout is therefore built around those rather than around looking handsome — the VAT summary is a
- * block of its own, and the two TINs sit where somebody checking compliance looks first.
+ * **It is not the official service invoice.** AIES issues that on an external, BIR-registered form,
+ * which the company confirmed on 2026-08-20. This is the platform's record of the same transaction,
+ * laid out so whoever fills that form has every figure in one place.
+ *
+ * That distinction is the reason the layout still follows §3.3 exactly — the VAT breakdown as its
+ * own block, both TINs, all three sales classes. A reference document is only useful if it carries
+ * precisely what the official one needs, in a shape somebody can transcribe without re-deriving
+ * anything. Making it *look* less like an invoice would make it worse at its actual job.
+ *
+ * The footer says which it is, because a document that carries a number, a VAT breakdown and two
+ * TINs will otherwise be taken for the real thing by somebody who has not been told.
  *
  * It was also, until 2026-08-20, **not built at all**. AIES issued BIR-numbered invoices and could
  * neither print nor send them, because the two-document model's second half stopped at a database
@@ -250,6 +257,18 @@ export function ServiceInvoiceDocument({
           )}
         </View>
 
+        {/*
+          Not the official document.
+
+          AIES issues its official service invoice on an external, BIR-registered form. This one is
+          the platform's record of the same sale, printed so whoever fills that form has every
+          figure in front of them — the VAT split, the withholding and the net — without going back
+          through three screens to assemble it.
+
+          The company said so on 2026-08-20, and the footer had to change with it: it previously
+          read "this serves as your official receipt", which was a claim the platform is not
+          entitled to make and which a customer could reasonably have filed as one.
+        */}
         <Text
           fixed
           style={{
@@ -262,8 +281,7 @@ export function ServiceInvoiceDocument({
             textAlign: "center",
           }}
         >
-          {company.name} · TIN {company.tin} · This serves as your official receipt for the services
-          rendered.
+          This serves as a reference for the official service invoice.
         </Text>
       </Page>
     </Document>
