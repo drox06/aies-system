@@ -63,10 +63,22 @@ export default function BillingWorklistPage() {
 
       {rows.length === 0 ? (
         <Card className="mt-4 p-4">
+          {/*
+            Empty because there is nothing to bill, or empty because you just billed it.
+
+            Those look identical and are not. A milestone leaves this list the moment a statement is
+            raised from it — correctly — so somebody who raises the last one watches the row vanish
+            and is left on a screen that says nothing happened. EA hit exactly that on 2026-08-20,
+            having successfully raised AIESBS-260510 a moment earlier, and reasonably reported that
+            the button did not exist.
+
+            The list below is the trail. It costs one query and it answers "where did it go".
+          */}
           <EmptyState
             title="Nothing is ready to bill."
             description="A milestone appears here when the event it bills on happens — an order raised, goods signed for, a project closed. If an order has no billing plan yet, plan it from the order itself."
           />
+          <RecentlyRaised />
         </Card>
       ) : (
         <>
@@ -177,6 +189,54 @@ export default function BillingWorklistPage() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * What was billed recently, shown when there is nothing left to bill.
+ *
+ * A milestone leaves the ready list as soon as a statement is raised from it, which is right — it is
+ * no longer waiting for anybody. But it makes the successful case and the nothing-to-do case look
+ * the same, and the successful one is the more confusing of the two: the row you just acted on is
+ * gone and the screen implies you imagined it.
+ *
+ * Deliberately only rendered on the empty screen. When there *is* work to do, that work is the point
+ * and a history underneath it is noise.
+ */
+function RecentlyRaised() {
+  const statements = trpc.finance.statements.useQuery({});
+
+  const recent = (statements.data ?? []).filter((row) => row.status !== "cancelled").slice(0, 5);
+
+  if (recent.length === 0) return null;
+
+  return (
+    <div className="mt-4 border-t border-border pt-3">
+      <p className="text-xs text-text-muted">
+        Recently raised — a milestone leaves this list once its statement exists.
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {recent.map((row) => (
+          <li key={row.id} className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
+            <span>
+              <span className="tabular font-medium">{row.number}</span>{" "}
+              <span className="text-text-muted">{row.accountName}</span>
+            </span>
+            <span className="text-text-muted">
+              {row.status.replace(/_/g, " ")} ·{" "}
+              <span className="tabular">
+                ₱{(row.total / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs">
+        <Link href="/finance/statements" className="underline">
+          All statements
+        </Link>
+      </p>
     </div>
   );
 }
