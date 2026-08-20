@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui/layout";
+import { NewContract } from "./NewContract";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { DateCell } from "@/components/ui/cells";
 import { daysUntil } from "@/server/core/operations/renewal-rules";
@@ -34,7 +35,14 @@ export default function ContractsPage() {
         description="What the company has committed to service, and when each commitment runs out."
       />
 
-      {contracts.isPending && <p className="text-sm text-text-muted">Loading…</p>}
+      {/*
+        Writing one, which this screen could not do. It could list contracts and activate them, and
+        nothing could create one — so §16's renewal loop, "where the recurring revenue in this
+        business lives", had no way to start. docs/DECISIONS.md #135's triage.
+      */}
+      <NewContract onCreated={() => void contracts.refetch()} />
+
+      {contracts.isPending && <p className="mt-4 text-sm text-text-muted">Loading…</p>}
       {contracts.error && <p className="text-sm text-danger">{contracts.error.message}</p>}
 
       {contracts.data?.length === 0 && (
