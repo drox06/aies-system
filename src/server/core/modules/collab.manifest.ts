@@ -56,6 +56,16 @@ const TRIGGER_EVENTS = [
   "ticket.demobilized",
 ];
 
+/**
+ * The events §3's automatic channels listen for.
+ *
+ * Both are already in `TRIGGER_EVENTS` for a different reason — templates — and both are subscribed
+ * twice on purpose rather than folded into one handler. A project channel opening and a task being
+ * raised are unrelated consequences of the same fact, and one failing must not take the other with
+ * it: the job runner calls each subscriber in turn.
+ */
+const CHANNEL_EVENTS = ["ticket.generated", "project.closed"];
+
 export const collabManifest = defineManifest({
   key: "collab",
   name: "Collaboration",
@@ -134,9 +144,51 @@ export const collabManifest = defineManifest({
         "finance_officer",
       ],
     },
+    {
+      key: "channel.create",
+      label: "Open a channel",
+      group: "Collaboration",
+      /*
+        Everybody who does the company's work.
+
+        §1's problem is that things are said and not written down. A platform where most people
+        cannot open a channel to say something in would push those conversations back to the phone,
+        which is exactly where they are now. `viewer` is out: it is the read-only account.
+      */
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "operations_manager",
+        "admin_manager",
+        "marketing_manager",
+        "sales",
+        "finance_officer",
+        "technician",
+      ],
+    },
+    {
+      key: "channel.manage",
+      label: "Rename, archive and manage the members of any channel",
+      group: "Collaboration",
+      // Acting on a channel that is not yours — including archiving one people are using.
+      defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
+    },
+    {
+      key: "message.delete_any",
+      label: "Remove somebody else's message",
+      group: "Collaboration",
+      /*
+        Narrow, and audited when used.
+
+        A conversation people can have edited out from under them is not a record. This exists for
+        the case that genuinely needs it — something posted that should never have been — and every
+        use writes an audit row naming who did it.
+      */
+      defaultRoles: ["president", "vice_president", "admin_manager"],
+    },
   ],
 
-  emits: ["task.created", "task.assigned", "task.completed"],
+  emits: ["task.created", "task.assigned", "task.completed", "message.mentioned"],
 
   /**
    * §2's thirteen trigger events.
@@ -147,10 +199,36 @@ export const collabManifest = defineManifest({
    * they cannot drift in silence: a resolver with no subscription would never fire, and a
    * subscription with no resolver would run on every event and do nothing.
    */
-  consumes: TRIGGER_EVENTS.map((event) => ({
-    event,
-    handler: async (payload: unknown) => {
-      /*
+  consumes: [
+    ...CHANNEL_EVENTS.map((event) => ({
+      event,
+      handler: async (payload: unknown) => {
+        const { ensureProjectChannel, ensureTicketChannel, archiveProjectChannel } =
+          await import("@/server/core/collab/channel-service");
+        const data = (payload ?? {}) as Record<string, unknown>;
+
+        if (event === "project.closed" && typeof data.projectId === "string") {
+          // §3: the channel "archives read-only and is retained as part of the project record".
+          await archiveProjectChannel(data.projectId);
+          return;
+        }
+
+        if (event === "ticket.generated") {
+          if (typeof data.projectId === "string") await ensureProjectChannel(data.projectId);
+          // Tickets get their own channel only when they are high or emergency — §3 is explicit
+          // that a channel per routine delivery turns the list into noise. The service checks.
+          const tickets = Array.isArray(data.tickets) ? data.tickets : [];
+          for (const ticket of tickets) {
+            const id = (ticket as Record<string, unknown>).ticketId;
+            if (typeof id === "string") await ensureTicketChannel(id);
+          }
+        }
+      },
+    })),
+    ...TRIGGER_EVENTS.map((event) => ({
+      event,
+      handler: async (payload: unknown) => {
+        /*
         Off during the test suite, and nowhere else.
 
         The suite creates real orders and tickets through the real services, which emit real events;
@@ -159,12 +237,13 @@ export const collabManifest = defineManifest({
         in the service so that `runTemplatesForEvent` still behaves exactly as it does in production
         when a test calls it directly.
       */
-      if (process.env.AIES_DISABLE_TASK_TEMPLATES === "1") return;
+        if (process.env.AIES_DISABLE_TASK_TEMPLATES === "1") return;
 
-      const { runTemplatesForEvent } = await import("@/server/core/collab/task-template-service");
-      await runTemplatesForEvent(event, (payload ?? {}) as Record<string, unknown>);
-    },
-  })),
+        const { runTemplatesForEvent } = await import("@/server/core/collab/task-template-service");
+        await runTemplatesForEvent(event, (payload ?? {}) as Record<string, unknown>);
+      },
+    })),
+  ],
 
   nav: [
     {
@@ -195,6 +274,15 @@ export const collabManifest = defineManifest({
       permission: "task.assign",
       group: "Collaboration",
       order: 50,
+    },
+    {
+      label: "Channels",
+      href: "/channels",
+      icon: "message-square",
+      // Nothing narrower than "signed in". Reading a channel is not a privilege in a company of
+      // nine; which channels somebody can see is decided by membership, not by a permission.
+      group: "Collaboration",
+      order: 52,
     },
     {
       label: "Boards",

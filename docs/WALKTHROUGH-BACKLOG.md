@@ -29,7 +29,7 @@ became — not merely what they wrote.
 | 03 Order & Procurement | ✅ accepted 20 Aug | — | `sample-payables.ts` |
 | 04 Operations & Projects | ⚠️ accepted 20 Aug, **but nine gaps were built after the tag** | below | `sample-records-dispatch.ts`, `sample-warranty.ts` |
 | 05 Finance & Billing | ✅ both halves walked 20 Aug, all good | `WALKTHROUGH-MODULE-05.md`, `WALKTHROUGH-MODULE-05-BILLING.md` | `sample-finance.ts` (FIN5), `sample-billing.ts` (BILL7) |
-| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–3 need no seed |
+| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–4 need no seed |
 | 07–10 | ⬜ not built | | |
 
 ---
@@ -149,3 +149,30 @@ with unassigned work — but it is also a prompt to decide who holds those roles
 **Known and deliberate:** the smart-board filter asks about **tasks**, not records. "All quotations
 awaiting my approval" is the Approvals screen; a board that duplicated it would be a second answer to
 the same question. docs/DECISIONS.md #141.
+
+---
+
+## Module 06 — session 4: channels
+
+**Where:** the sidebar's **Channels**.
+
+| Step | Where | Expect |
+|---|---|---|
+| Open a channel | `/channels` → New channel | It exists and you are already in it |
+| Name a colleague with `@` | The composer | They get a bell naming you and the channel |
+| Name somebody whose first name is another person's whole name | The composer | **Only** the person you named is notified — the bug this was built with, DECISIONS #143 |
+| Type a real document number, e.g. `AIESSO-261561` | The composer | The message carries a card that opens that order |
+| Type a number that does not exist | The composer | Stays plain text. No dead card |
+| Reply in a thread, then reply to the reply | Any message → Reply | Both sit in the **same** thread. Threads are one level deep |
+| Set *Only when I am named*, have somebody post | The dropdown by the heading | No bell for an ordinary message; a bell for `@here` and for being named |
+| Set *Nothing*, have somebody `@here` you | The dropdown | **No bell.** Your own setting wins |
+| React, then react again with the same emoji | Any message | It toggles off and disappears entirely |
+| Edit a message within fifteen minutes to name somebody new | Any own message | Marked *edited*; the newly named person is **not** notified |
+| Try to edit after fifteen minutes | Any own message | Refused, with the suggestion to post a correction |
+| **Make a message a task** | Any message → Make it a task | A real task is raised with the message inside it, and a reply appears saying which number |
+| Search a word | `/channels` → Search | Finds it. A private channel you are not in is never searched |
+| Archive a channel | Channel → Settings → Archive it | Nothing more can be posted, by anybody. Everything stays readable |
+| Close a project that has a channel | `/projects` | Its channel archives itself and stays on the list under **Archived** |
+
+**Known and deliberate:** no attachments yet — §3 routes them through module 07's DMS, which is not
+built. Everything else in §3 is here.

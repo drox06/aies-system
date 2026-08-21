@@ -28,7 +28,7 @@ const MANIFESTS = [
 ];
 
 describe("the trigger wiring", () => {
-  it("subscribes to exactly the events it can resolve", () => {
+  it("subscribes to exactly the events it can resolve, plus the two the channels need", () => {
     /*
       The manifest lists the events literally rather than importing them, because importing the
       resolvers would pull Prisma into every module that reads the registry — and the nav reads it
@@ -36,9 +36,25 @@ describe("the trigger wiring", () => {
 
       A subscription with no resolver runs on every occurrence of that event and does nothing. A
       resolver with no subscription is never called at all.
+
+      `ticket.generated` and `project.closed` appear **twice** on purpose: once to raise §2's tasks
+      and once to open or archive §3's channels. Two unrelated consequences of one fact, kept as two
+      subscribers so that one failing does not take the other with it.
     */
     const subscribed = collabManifest.consumes.map((subscription) => subscription.event).sort();
-    expect(subscribed).toEqual([...TRIGGER_EVENTS].sort());
+    const expected = [...TRIGGER_EVENTS, "ticket.generated", "project.closed"].sort();
+    expect(subscribed).toEqual(expected);
+  });
+
+  it("subscribes to the channel events exactly twice each", () => {
+    // If one of the pair were dropped in a refactor, either the tasks or the channel would stop
+    // happening — and the other would keep working, which is exactly how it would go unnoticed.
+    for (const event of ["ticket.generated", "project.closed"]) {
+      const count = collabManifest.consumes.filter(
+        (subscription) => subscription.event === event,
+      ).length;
+      expect(count, event).toBe(2);
+    }
   });
 
   it("only listens for events some module actually emits", () => {

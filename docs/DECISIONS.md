@@ -4830,3 +4830,55 @@ same record. It was not idempotent in fact, because part of the input was *the s
 the moment of the retry*. Any handler that chooses a person, a number or a date at run time has this
 problem. Worth asking of every subscriber module 07 onwards adds: **if this runs twice, does it pick
 the same answer twice?**
+
+---
+
+## #143 — `@Maria Santos` was also notifying Maria
+
+**2026-08-21.** Module 06 session 4, found by the rules test on the first run — before the feature had
+ever been used.
+
+`findMentions` matched each name with `@` and a word boundary, longest name first. The word boundary
+after "Maria" falls on the **space** inside "Maria Santos", so a message naming one colleague named
+two: the intended person, and a different person who was never mentioned.
+
+It would have been effectively invisible in use. An unexpected notification reads as somebody else's
+mistake — *"why am I being tagged in this?"* — not as a parsing bug, and the person who was correctly
+named would notice nothing at all. In a company where two people share a first name, it would have
+happened constantly.
+
+The fix consumes each match before trying the next name: the matched span is replaced with spaces of
+the same length, so shorter names cannot match inside longer ones and every other offset stays where
+it was.
+
+**Worth generalising.** Any "longest first" match over overlapping candidates has this shape, and
+sorting by length is the half that looks like the fix. Sorting decides the *order*; it does not stop
+the shorter candidate matching afterwards.
+
+---
+
+## #144 — Three calls of mine on §3's channels
+
+**2026-08-21.** Recorded as mine, per EA's standing instruction.
+
+**1. Reading and posting need no permission.** §9 names `channel.create`, `channel.manage` and
+`message.delete_any`, and nothing for reading or posting. That is the right reading: this company is
+nine people, and a permission matrix over conversation would mean deciding in advance which
+colleagues may talk to which. Membership is the gate — a private channel is its members', everything
+else is the company's. `channel.create` exists because a wall of half-made channels is a real failure
+mode; reading one is not.
+
+**2. `none` beats `@here`.** Somebody who has turned a channel off has said what they want. Letting
+`@here` override it would teach people to *leave* channels rather than quiet them — and then they
+miss the thing that actually mattered. `@here` does reach everybody on `mentions`, because that is
+the setting for people who want the quieter version rather than none of it.
+
+**3. An edit never rewrites who was told.** The mention list is stored at post time and left alone.
+Recomputing on edit would either notify somebody about a message they were never named in, or erase
+the record of a notification that really did go out. Record links *are* re-resolved, because those
+are navigation rather than a record of who was told.
+
+**And one thing deliberately not built.** §3 routes attachments *"through the module 07 DMS, not
+loose blobs"*, and module 07 does not exist yet. Wiring them to module 00's storage now would mean
+moving them later. It is the one part of §3 this session does not build, and it is written at the top
+of `channel-service.ts` so it is not mistaken for an oversight.

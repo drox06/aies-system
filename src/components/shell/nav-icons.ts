@@ -49,6 +49,7 @@ export const NAV_ICON_NAMES = [
   "banknote",
   // Module 06 — collaboration.
   "list-checks",
+  "message-square",
 ] as const;
 
 export type NavIconName = (typeof NAV_ICON_NAMES)[number];

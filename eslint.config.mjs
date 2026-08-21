@@ -85,6 +85,10 @@ const UI_SAFE_SERVER_MODULES = [
   // says. The board screen renders all three, and a second copy on the client is a second answer
   // waiting to disagree with the server's.
   "@/server/core/collab/board-rules",
+  // §3's channel rules. The composer highlights the same mentions the server will notify and the
+  // message list renders the same record links the server resolved; two copies of either would
+  // disagree eventually, and the disagreement would be invisible.
+  "@/server/core/collab/channel-rules",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
   // weight — but it is listed rather than assumed, because a value import from here would.

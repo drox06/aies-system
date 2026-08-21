@@ -3480,6 +3480,44 @@ idempotent. docs/DECISIONS.md #142.
 
 **Next concrete step — session 4:** §3's channels and direct messages, and §4's threads on records.
 
+### Session 4 — channels, and the two seams that stop them being a parallel universe (2026-08-21)
+
+§3's Slack replacement. `Channel`, `ChannelMember`, `Message`, and the parts that make chat produce
+a record rather than replace one.
+
+**Built:** the three models and their migration; `channel-rules.ts` (mentions, record references,
+who gets told, unread, the fifteen-minute window); `channel-service.ts`; **`/channels`** with search
+across everything the reader may see; **`/channels/[id]`** with threads, reactions, record cards,
+promote-to-task and a settings panel; `channel.create`, `channel.manage`, `message.delete_any`,
+seeded.
+
+**The two seams.** A message naming `AIESSO-261561` carries a resolved card to that order — a number
+matching nothing stays plain text, because a dead link is worse than none. And **promote to task**
+turns any message into an owned, dated item carrying what was said, then posts a reply saying which
+number was raised, so the next person to scroll past does not raise it again.
+
+**Automatic channels.** A project gets one when its tickets are generated, with the manager and the
+crew in it; it archives read-only when the project closes and stays as part of the record. A ticket
+gets its own **only when it is high or emergency** — §3 is explicit that a channel per routine
+delivery turns the list into noise. Both subscribe alongside the task templates on the same two
+events, deliberately as separate subscribers so one failing cannot take the other with it.
+
+**A bug the tests found before anybody used it** (docs/DECISIONS.md #143): `@Maria Santos` also
+notified Maria. The word boundary after "Maria" falls on the space inside the longer name. Sorting
+longest-first decides the order and does not stop the shorter name matching afterwards; the fix
+consumes each match before trying the next.
+
+**Three calls of mine** (docs/DECISIONS.md #144): reading and posting need no permission, because
+membership is the gate and §9 names none; `none` beats `@here`, because overriding somebody's own
+setting teaches them to leave rather than quieten; and an edit never rewrites who was told.
+
+**Not built, and recorded rather than forgotten:** attachments. §3 routes them through module 07's
+DMS, which does not exist yet.
+
+**Suite:** 173 collab and manifest tests passing. Collab: 0 of 30 procedures unreached.
+
+**Next concrete step — session 5:** §4's shared calendar and §5's announcements with acknowledgement.
+
 ## Not started
 - [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is
       under way (session 1 in, sessions 2–6 to go).

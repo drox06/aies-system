@@ -170,14 +170,60 @@ async function main() {
   const realAdvanceIds = new Set(
     (await db.cashAdvance.findMany({ select: { id: true } })).map((row) => row.id),
   );
+  /*
+    Every entity type a template can attach to, not just three.
+
+    The first version checked SalesOrder, Ticket and CashAdvance and silently passed everything
+    else, so tasks on projects and material requests were never reported. Found on 2026-08-21 when
+    the sweep said zero and the table still held 24 rows. A check with a `return false` default
+    reports clean about exactly the cases nobody thought of.
+  */
+  const realProjectIds = new Set(
+    (await db.project.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const realMaterialRequestIds = new Set(
+    (await db.materialRequest.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const realInquiryIds = new Set(
+    (await db.inquiry.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const realQuotationIds = new Set(
+    (await db.quotation.findMany({ select: { id: true } })).map((row) => row.id),
+  );
+  const REAL_IDS: Record<string, Set<string>> = {
+    SalesOrder: realSalesOrderIds,
+    Ticket: realTicketIds,
+    CashAdvance: realAdvanceIds,
+    Project: realProjectIds,
+    MaterialRequest: realMaterialRequestIds,
+    Inquiry: realInquiryIds,
+    Quotation: realQuotationIds,
+  };
+
   const orphanTasks = templateTasks.filter((task) => {
     if (task.createdByTemplate?.startsWith("zz-test-")) return true;
-    if (!task.entityId) return false;
-    if (task.entityType === "SalesOrder") return !realSalesOrderIds.has(task.entityId);
-    if (task.entityType === "Ticket") return !realTicketIds.has(task.entityId);
-    if (task.entityType === "CashAdvance") return !realAdvanceIds.has(task.entityId);
-    return false;
+    if (!task.entityId || !task.entityType) return false;
+    const known = REAL_IDS[task.entityType];
+    // An unknown entity type is left alone rather than assumed leaked: a new record type arriving
+    // in a later module must not have its tasks quietly deleted by this script.
+    return known ? !known.has(task.entityId) : false;
   });
+
+  /*
+    Projects the tests left behind. **Reported, never deleted.**
+
+    21 of the 22 projects in the company's database on 2026-08-21 were fixtures — "Close-out project
+    <hex>", code `PRJ-<hex>` where a real one is `AIESPRJ-{YY}{####}`. They are not module 06's
+    doing and long predate it; they surfaced because tasks started hanging off them.
+
+    This script does not remove them, and the restraint is deliberate: a project owns tickets,
+    close-outs, daily progress, QA records and mobilisations, and a cascade through all of that on a
+    live database is not a tidy-up somebody should trigger by running a sweep. The list is printed so
+    the decision is a person's.
+  */
+  const fixtureProjects = (
+    await db.project.findMany({ select: { id: true, code: true, name: true } })
+  ).filter((project) => !project.code.startsWith("AIESPRJ"));
 
   const accounts = await db.customerAccount.findMany({
     where: {
@@ -217,6 +263,10 @@ async function main() {
   for (const t of orphanTasks) {
     console.log(`  ${t.number.padEnd(16)} ${t.createdByTemplate} to ${t.entityType} ${t.entityId}`);
   }
+  console.log(
+    `\nFIXTURE-NUMBERED PROJECTS (${fixtureProjects.length}) - reported only, never deleted`,
+  );
+  for (const p of fixtureProjects) console.log(`  ${p.code.padEnd(18)} ${p.name}`);
   console.log(`\nPAYMENT TERMS (${terms.length} of ${candidateTerms.length} fixture-named)`);
   for (const t of terms) console.log(`  ${t.name}`);
   if (referenced.size > 0) {

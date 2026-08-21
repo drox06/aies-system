@@ -180,3 +180,106 @@ model Board {
 
   @@index([ownerId, deletedAt])
 }
+
+/// §3's channel — the Slack replacement, and the reason it is not just a chat app.
+///
+/// §1's diagnosis is worth repeating here because it is what shapes this model: *"The fix is not
+/// 'build a chat app' — a chat app produces no record either."* What makes this one produce a record
+/// is `entityType`/`entityId`: a channel can belong to a project or a ticket, is created with it,
+/// and is archived read-only when it closes as part of that project's record.
+model Channel {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+
+  /// team | project | topic | direct (§3).
+  type String @default("topic")
+
+  /// A private channel is visible only to its members. Public channels are readable by anybody who
+  /// can reach the platform — the company is nine people, and a wall of private channels is how a
+  /// small team recreates the silence §1 is about.
+  isPrivate Boolean @default(false)
+
+  /// The record this channel belongs to, for `project` and ticket channels. Plain strings, as
+  /// everywhere else in this module.
+  entityType String?
+  entityId   String?
+
+  /// Denormalised membership, kept in step with `ChannelMember`.
+  ///
+  /// Both exist because they answer different questions: the array answers "can this person see the
+  /// channel" in one read while listing channels, and the rows carry each member's own unread mark
+  /// and notification level. The array is the copy; the rows are the record.
+  memberIds String[] @default([])
+
+  /// Archived, not deleted. §3: when a project closes its channel *"archives read-only and is
+  /// retained as part of the project record"* — the conversation is evidence of how the job was run.
+  archivedAt DateTime?
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  members  ChannelMember[]
+  messages Message[]
+
+  @@index([type, archivedAt])
+  @@index([entityType, entityId])
+}
+
+/// §3's membership, with the two things that belong to a person rather than to the channel.
+model ChannelMember {
+  id        String @id @default(cuid())
+  channelId String
+  userId    String
+
+  /// Everything after this is unread. Null means they have never opened it.
+  lastReadAt        DateTime?
+  /// all | mentions | none (§3, and §7's quiet hours read it).
+  notificationLevel String    @default("all")
+
+  joinedAt DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+/// §3's message.
+model Message {
+  id        String @id @default(cuid())
+  channelId String
+  authorId  String
+
+  body String
+
+  /// The message this one is replying to. §3's threading is one level deep by design: a reply to a
+  /// reply attaches to the same root, so a thread cannot become a tree nobody can follow.
+  threadRootId String?
+
+  /// User ids named with `@`. Stored rather than re-parsed, because the notification has already
+  /// been sent against this list and a later edit must not silently change who was told.
+  mentions      String[] @default([])
+  /// True when the message said `@here`.
+  mentionedHere Boolean  @default(false)
+
+  /// `{ "👍": ["userId", …] }` — §3's reactions. Json because it is read whole with the message.
+  reactions Json @default("{}")
+
+  /// The records this message referred to, as `[{ entityType, entityId, label }]`. Resolved once at
+  /// post time so the card renders without every reader re-parsing the body.
+  links Json @default("[]")
+
+  editedAt  DateTime?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+  deletedBy String?
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  /// The channel read, newest last.
+  @@index([channelId, createdAt])
+  @@index([threadRootId])
+}

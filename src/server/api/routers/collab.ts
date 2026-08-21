@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { p, router, type Context } from "@/server/api/trpc";
+import { p, protectedProcedure, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
   assignTaskService,
@@ -19,6 +19,23 @@ import {
   type BoardColumn,
   type BoardFilterRule,
 } from "@/server/core/collab/board-rules";
+import { CHANNEL_TYPES, NOTIFICATION_LEVELS } from "@/server/core/collab/channel-rules";
+import {
+  channelsService,
+  createChannelService,
+  deleteMessageService,
+  editMessageService,
+  joinChannelService,
+  leaveChannelService,
+  markReadService,
+  messagesService,
+  postMessageService,
+  promoteMessageService,
+  reactService,
+  searchMessagesService,
+  setNotificationLevelService,
+  updateChannelService,
+} from "@/server/core/collab/channel-service";
 import {
   boardViewService,
   boardsService,
@@ -255,6 +272,113 @@ export const collabRouter = router({
   removeCard: p("task.create")
     .input(z.object({ taskId: z.string() }))
     .mutation(({ ctx, input }) => removeCardService(actorMeta(ctx), input)),
+
+  // ---- §3's channels ----------------------------------------------------------------------------
+
+  /**
+   * Reading and posting need no permission beyond being signed in.
+   *
+   * Membership is the gate, not a role. This company is nine people; a permission matrix over
+   * conversation would mean somebody deciding in advance which colleagues may talk to which, which
+   * is the opposite of what §3 is for. `channel.create` exists because a wall of half-made channels
+   * is a real failure mode; reading one is not.
+   */
+  channels: protectedProcedure.query(({ ctx }) => channelsService(ctx.user.id)),
+
+  channel: protectedProcedure
+    .input(z.object({ channelId: z.string(), threadRootId: z.string().nullish() }))
+    .query(({ ctx, input }) => messagesService(ctx.user.id, input)),
+
+  searchMessages: protectedProcedure
+    .input(z.object({ query: z.string().min(2).max(200) }))
+    .query(({ ctx, input }) => searchMessagesService(ctx.user.id, input)),
+
+  createChannel: p("channel.create")
+    .input(
+      z.object({
+        name: z.string().min(2).max(60),
+        description: z.string().max(500).nullish(),
+        type: z.enum(CHANNEL_TYPES).optional(),
+        isPrivate: z.boolean().optional(),
+        memberIds: z.array(z.string()).max(50).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createChannelService(actorMeta(ctx), input)),
+
+  postMessage: protectedProcedure
+    .input(
+      z.object({
+        channelId: z.string(),
+        body: z.string().min(1).max(8000),
+        threadRootId: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => postMessageService(actorMeta(ctx), input)),
+
+  editMessage: protectedProcedure
+    .input(z.object({ messageId: z.string(), body: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }) => editMessageService(actorMeta(ctx), input)),
+
+  /** Own message inside the window, or anybody's with `message.delete_any` — which is audited. */
+  deleteMessage: protectedProcedure
+    .input(z.object({ messageId: z.string() }))
+    .mutation(({ ctx, input }) =>
+      deleteMessageService(actorMeta(ctx), {
+        ...input,
+        canDeleteAny: ctx.user.permissions.has("message.delete_any"),
+      }),
+    ),
+
+  react: protectedProcedure
+    .input(z.object({ messageId: z.string(), emoji: z.string().min(1).max(8) }))
+    .mutation(({ ctx, input }) => reactService(actorMeta(ctx), input)),
+
+  markChannelRead: protectedProcedure
+    .input(z.object({ channelId: z.string() }))
+    .mutation(({ ctx, input }) => markReadService(ctx.user.id, input)),
+
+  joinChannel: protectedProcedure
+    .input(z.object({ channelId: z.string() }))
+    .mutation(({ ctx, input }) => joinChannelService(actorMeta(ctx), input)),
+
+  leaveChannel: protectedProcedure
+    .input(z.object({ channelId: z.string() }))
+    .mutation(({ ctx, input }) => leaveChannelService(actorMeta(ctx), input)),
+
+  setChannelNotifications: protectedProcedure
+    .input(z.object({ channelId: z.string(), level: z.enum(NOTIFICATION_LEVELS) }))
+    .mutation(({ ctx, input }) => setNotificationLevelService(ctx.user.id, input)),
+
+  /** Renaming, membership and archiving — all three act on other people's access. */
+  updateChannel: p("channel.manage")
+    .input(
+      z.object({
+        channelId: z.string(),
+        name: z.string().min(2).max(60).optional(),
+        description: z.string().max(500).nullish(),
+        addMemberIds: z.array(z.string()).max(50).optional(),
+        removeMemberIds: z.array(z.string()).max(50).optional(),
+        archived: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updateChannelService(actorMeta(ctx), input)),
+
+  /**
+   * §3's promote-to-task.
+   *
+   * `task.create`, because that is what it does. The message stays where it is; what changes is that
+   * somebody now owns the thing it asked for.
+   */
+  promoteMessage: p("task.create")
+    .input(
+      z.object({
+        messageId: z.string(),
+        title: z.string().min(3).max(300),
+        assigneeId: z.string().nullish(),
+        dueAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => promoteMessageService(actorMeta(ctx), input)),
 });
 
 function requireAssign(permissions: ReadonlySet<string>) {
