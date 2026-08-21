@@ -1,0 +1,827 @@
+<title>Inquiry to Payment</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --ink: #0f1b2a;
+    --muted: #5a6b7d;
+    --heading: #012076;
+    --link: #003999;
+    --rule: #ee010c;
+    --ground: #f6f8fb;
+    --surface: #ffffff;
+    --surface-2: #eef2f7;
+    --border: #dce3eb;
+    --chip: #012076;
+    --chip-ink: #ffffff;
+  }
+
+  /* System setting: only prefers-color-scheme separates the two, and an explicit light choice wins. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e6ecf5;
+      --muted: #93a3b8;
+      --heading: #a8bcff;
+      --link: #8fa8ff;
+      --rule: #ff5a62;
+      --ground: #0b1220;
+      --surface: #121c2e;
+      --surface-2: #18253b;
+      --border: #24334a;
+      --chip: #2a3d63;
+      --chip-ink: #e6ecf5;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ink: #e6ecf5;
+    --muted: #93a3b8;
+    --heading: #a8bcff;
+    --link: #8fa8ff;
+    --rule: #ff5a62;
+    --ground: #0b1220;
+    --surface: #121c2e;
+    --surface-2: #18253b;
+    --border: #24334a;
+    --chip: #2a3d63;
+    --chip-ink: #e6ecf5;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap { max-width: 40rem; margin: 0 auto; padding: 0 1rem 4rem; }
+
+  header.top {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--ground);
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem 0 0.5rem;
+  }
+  header.top h1 {
+    margin: 0;
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+    color: var(--heading);
+    text-wrap: balance;
+  }
+  header.top p { margin: 0.15rem 0 0.5rem; font-size: 0.8rem; color: var(--muted); }
+
+  /* The part index scrolls sideways on a phone rather than wrapping into five lines. */
+  nav.parts { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.15rem; }
+  nav.parts::-webkit-scrollbar { display: none; }
+  nav.parts a {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    text-decoration: none;
+    color: var(--link);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    white-space: nowrap;
+  }
+
+  section.intro { margin-top: 1rem; }
+  section.intro h2 { font-size: 0.95rem; color: var(--heading); margin: 1rem 0 0.25rem; }
+  section.intro p { margin: 0.25rem 0; font-size: 0.9rem; }
+
+  h2.part {
+    margin: 2rem 0 0;
+    font-size: 1rem;
+    color: var(--heading);
+    letter-spacing: -0.01em;
+    scroll-margin-top: 5.5rem;
+    text-wrap: balance;
+  }
+  .part-rule { height: 2px; background: var(--rule); margin: 0.4rem 0 0.5rem; }
+  p.part-intro { margin: 0 0 1rem; font-size: 0.85rem; color: var(--muted); }
+
+  article.step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    padding: 0.85rem 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+  .step-head { display: flex; gap: 0.6rem; align-items: baseline; }
+  .n {
+    flex: 0 0 auto;
+    background: var(--chip);
+    color: var(--chip-ink);
+    border-radius: 0.35rem;
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    padding: 0.1rem 0.4rem;
+    font-weight: 600;
+  }
+  .what { font-weight: 600; font-size: 0.95rem; }
+  .who { margin: 0.3rem 0 0; font-size: 0.78rem; color: var(--muted); }
+
+  .where {
+    margin: 0.6rem 0 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem;
+    background: var(--surface-2);
+    border-left: 2px solid var(--link);
+    border-radius: 0 0.3rem 0.3rem 0;
+    padding: 0.35rem 0.5rem;
+    overflow-wrap: anywhere;
+  }
+
+  h3 {
+    margin: 0.75rem 0 0.2rem;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  ul { margin: 0; padding-left: 1.1rem; }
+  li { margin: 0.15rem 0; font-size: 0.88rem; }
+
+  .expect { background: var(--surface-2); border-radius: 0.4rem; padding: 0.5rem 0.6rem; margin-top: 0.3rem; }
+  .expect h3 { margin-top: 0; }
+
+  .note {
+    margin-top: 0.7rem;
+    font-size: 0.82rem;
+    border-left: 2px solid var(--rule);
+    padding: 0.3rem 0 0.3rem 0.6rem;
+    color: var(--muted);
+  }
+
+  footer { margin-top: 2.5rem; font-size: 0.78rem; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>From an enquiry to the money in the bank</h1>
+    <p>38 steps · AIES Operations Platform</p>
+    <nav class="parts">
+      <a href="#part-1-the-enquiry-arrives">1. The enquiry arrives</a>
+      <a href="#part-2-the-quotation">2. The quotation</a>
+      <a href="#part-3-the-customer-s-purchase-order">3. The customer's purchase order</a>
+      <a href="#part-4-money-before-the-work-starts">4. Money before the work starts</a>
+      <a href="#part-5-buying-what-the-job-needs">5. Buying what the job needs</a>
+      <a href="#part-6-doing-the-work">6. Doing the work</a>
+      <a href="#part-7-delivery-where-the-job-is-supply-only">7. Delivery, where the job is supply-only</a>
+      <a href="#part-8-final-billing-and-the-money-in">8. Final billing and the money in</a>
+    </nav>
+  </header>
+
+  <section class="intro">
+    <h2>Before you start</h2>
+    <p>
+      The platform is at <a href="https://aies-system.vercel.app">aies-system.vercel.app</a>. Sign in
+      with your own account. The walkthrough moves between four people on purpose, because the gates
+      are the point and a gate you can walk through yourself is not a gate.
+    </p>
+    <p>
+      First sign-in on an account that has not been used asks you to change the password, then to set
+      up an authenticator app. Neither can be skipped. <strong>Keep the recovery codes you are
+      shown</strong> — there is no administrator who can reset an authenticator for you, and that is
+      deliberate.
+    </p>
+
+    <h2>How to read a step</h2>
+    <p>
+      Each step names who does it, where to go, what to do there, and what should happen. If what
+      happens is not what the step says, stop and note the step number and what you saw. That is the
+      finding — not a fault to work around.
+    </p>
+
+    <h2>A note on refusals</h2>
+    <p>
+      Several steps will refuse. A quotation with no cost will not be submitted; a job with no client
+      approval will not mobilise; a final statement will not be raised for work that is unfinished.
+      Every refusal names what is missing and whose it is. Those are the controls the platform was
+      built for — the walkthrough is as much about checking they hold as it is about the happy path.
+    </p>
+  </section>
+
+  
+  <h2 class="part" id="part-1-the-enquiry-arrives">Part 1 — The enquiry arrives</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">Everything starts as an inquiry, whether it came by email, on the phone, or from somebody walking in. Nothing further in the platform can happen until one exists.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">1</span>
+      <span class="what">Log the inquiry</span>
+    </div>
+    <p class="who">EM (Sales and Marketing) or DJ (Operations)</p>
+    <p class="where">Sidebar → Sales → Inquiries → “Log inquiry”</p>
+    <h3>What to do</h3>
+    <ul><li>Choose the customer account, or create one if this is a new customer.</li><li>Give it a subject in the customer's own words — “two 75kW motors rewound”, not “motor job”.</li><li>Add the items or scope as far as they are known. Unknowns are fine at this stage.</li><li>Set the required-by date if the customer gave one.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A number of the form AIESINQ-26xxxx.</li><li>Status: new. A one-working-day clock starts on acknowledging it.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">2</span>
+      <span class="what">Acknowledge it</span>
+    </div>
+    <p class="who">Whoever owns the inquiry</p>
+    <p class="where">Sales → Inquiries → open the inquiry → “Acknowledge”</p>
+    <h3>What to do</h3>
+    <ul><li>Press Acknowledge once you have replied to the customer.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Status moves to acknowledged and the SLA clock stops.</li><li>Left unacknowledged past one working day, it escalates — that is the platform chasing, not a fault.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">3</span>
+      <span class="what">Complete the requirements</span>
+    </div>
+    <p class="who">EM or DJ</p>
+    <p class="where">The inquiry → the requirements checklist on the record</p>
+    <h3>What to do</h3>
+    <ul><li>Work down the checklist for this kind of job and tick what has been received.</li><li>Where a document is needed, upload it.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>The checklist shows what is still missing.</li><li>You cannot move the inquiry to quoting until the mandatory items are in — that is the gate, and it is deliberate.</li></ul>
+    </div>
+    <p class="note">This is where most of the back-and-forth with a customer lives. The checklist is the record that it happened.</p>
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">4</span>
+      <span class="what">Request a site inspection, if the job needs one</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">The inquiry → “Request inspection”</p>
+    <h3>What to do</h3>
+    <ul><li>Name the technician and the date.</li><li>Say what needs looking at.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>The technician is notified and it appears on the calendar.</li><li>The SLA clock pauses while an inspection is outstanding.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">5</span>
+      <span class="what">Move it to quoting</span>
+    </div>
+    <p class="who">EM</p>
+    <p class="where">The inquiry → “Start quoting”</p>
+    <h3>What to do</h3>
+    <ul><li>Press it once the requirements are complete.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A draft quotation is raised automatically and linked to the inquiry.</li><li>The inquiry is now quoting. Find the draft under Sales → Quotations.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-2-the-quotation">Part 2 — The quotation</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">A quotation is the company's price and its terms. Two gates stand between a draft and a customer: it must have a cost behind it, and the Vice President must approve it.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">6</span>
+      <span class="what">Build the quotation</span>
+    </div>
+    <p class="who">EM</p>
+    <p class="where">Sales → Quotations → open the draft</p>
+    <h3>What to do</h3>
+    <ul><li>Add a line per item or scope of work.</li><li>Enter the supplier cost against each line, and the margin you intend.</li><li>Choose the payment terms — this decides the billing schedule later, so it matters.</li><li>Set the validity date.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>The total, the VAT and the margin update as you type.</li><li>Local jobs are numbered AIESLQ26xxxx; indent jobs AIESIQ26xxxx.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">7</span>
+      <span class="what">Meet the cost gate</span>
+    </div>
+    <p class="who">EM</p>
+    <p class="where">The quotation</p>
+    <h3>What to do</h3>
+    <ul><li>Make sure every line has a cost — not an estimate typed into the description.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>With a line costed at zero the quotation refuses to be submitted, and says which line.</li><li>This is what stops a job being sold at a price nobody checked.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">8</span>
+      <span class="what">Send it for approval</span>
+    </div>
+    <p class="who">EM</p>
+    <p class="where">The quotation → “Submit for approval”</p>
+    <h3>What to do</h3>
+    <ul><li>Press it.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>It appears in KJ's queue at Sales → Quotations for Approval.</li><li>KJ is notified. After 24 hours with no decision it escalates to EA.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">9</span>
+      <span class="what">Approve or reject</span>
+    </div>
+    <p class="who">KJ (Vice President)</p>
+    <p class="where">Sales → Quotations for Approval</p>
+    <h3>What to do</h3>
+    <ul><li>Open it, check the margin and the terms.</li><li>Approve, or reject with a reason.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Approved: the quotation can now be sent.</li><li>Rejected: it goes back to EM with the reason attached, and the reason is kept.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">10</span>
+      <span class="what">Send it to the customer</span>
+    </div>
+    <p class="who">EM</p>
+    <p class="where">The quotation → “Send”</p>
+    <h3>What to do</h3>
+    <ul><li>Download the PDF and send it to the customer from your own email.</li><li>Then press Send so the platform knows it has gone.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Status: sent, with the date.</li><li>A follow-up reminder is scheduled seven days out.</li><li>The validity date now counts down; it expires on its own if nothing comes back.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-3-the-customer-s-purchase-order">Part 3 — The customer's purchase order</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">The customer's PO is the moment the job becomes real. It is the single act that turns a quotation into a sales order and starts everything downstream.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">11</span>
+      <span class="what">Record the customer's PO</span>
+    </div>
+    <p class="who">EM</p>
+    <p class="where">Sales → Pipeline → the “Received PO” column, or the quotation → “Record PO”</p>
+    <h3>What to do</h3>
+    <ul><li>Enter the customer's own PO number and its date.</li><li>Upload the PO document itself — this is the paper the job is done against.</li><li>Confirm the amount matches the quotation. Where it does not, say so; the difference is recorded rather than hidden.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A sales order is raised: AIESSO-26xxxx.</li><li>The quotation is marked won, and the inquiry closes with it.</li><li>Tasks appear for sales, operations, procurement and finance — automatically.</li></ul>
+    </div>
+    <p class="note">Check My Work straight after this step. Four tasks should be waiting, and that is the platform replacing the meeting where those jobs used to be handed out.</p>
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">12</span>
+      <span class="what">Look at the sales order</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Orders → Sales orders → the new order</p>
+    <h3>What to do</h3>
+    <ul><li>Read the lines: which are supply-only, which need work on site.</li><li>Check the billing schedule panel below the header.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A billing schedule generated from the payment terms on the quotation.</li><li>A downpayment milestone, if the terms have one, sitting at ready to bill.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-4-money-before-the-work-starts">Part 4 — Money before the work starts</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">Where the terms call for a downpayment, the platform will not let the job mobilise until it is in. This is the first of the two places money is collected.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">13</span>
+      <span class="what">Raise the downpayment statement</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Ready to bill</p>
+    <h3>What to do</h3>
+    <ul><li>Find the milestone for this order and press “Raise a statement”.</li><li>Check the amount and the due date.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A draft billing statement: AIESBS-26xxxx.</li><li>Nothing has gone to the customer yet — a draft is not a demand.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">14</span>
+      <span class="what">Issue it</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Statements → the draft → “Issue”</p>
+    <h3>What to do</h3>
+    <ul><li>Issue it, then send the statement to the customer.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Status: issued. It now appears in Receivables and starts ageing.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">15</span>
+      <span class="what">Record the payment when it arrives</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Statements → the statement → “Record payment”</p>
+    <h3>What to do</h3>
+    <ul><li>Choose the method. For a cheque, enter the cheque number and its date.</li><li>Enter the amount received. If the customer withheld tax, enter what actually arrived.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A payment: AIESPMT-26xxxx, and a service invoice: AIESSI-26xxxx.</li><li>A cheque sits as pending until you clear it — the money is not counted before the bank has it.</li><li>Where tax was withheld, the statement stays part-paid until the 2307 form arrives. That is intentional.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">16</span>
+      <span class="what">Print the service invoice</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">The statement → the service invoice → “PDF”</p>
+    <h3>What to do</h3>
+    <ul><li>Open the PDF.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A reference copy, marked as such. AIES issues the official invoice on its registered external form; this is what you copy from.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-5-buying-what-the-job-needs">Part 5 — Buying what the job needs</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">Runs in parallel with the work. Procurement is PD's.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">17</span>
+      <span class="what">Ask suppliers for prices</span>
+    </div>
+    <p class="who">PD (Admin Manager)</p>
+    <p class="where">Orders → Procurement → “New RFQ”</p>
+    <h3>What to do</h3>
+    <ul><li>Pick the suppliers — several at once is normal.</li><li>List what is needed.</li><li>Send, then record each supplier's reply as it comes back.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESRFQ-26xxxx, and a comparison across the replies.</li><li>Applying an offer copies its prices onto the order rather than making you retype them.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">18</span>
+      <span class="what">Raise the supplier PO</span>
+    </div>
+    <p class="who">PD</p>
+    <p class="where">Orders → Procurement → “Raise supplier PO”</p>
+    <h3>What to do</h3>
+    <ul><li>Choose the supplier and confirm the lines and prices.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESPO-26xxxx, requiring approval before it is sent.</li><li>Above the threshold it needs a second approval — the clause 8.4 control.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">19</span>
+      <span class="what">Receive the goods</span>
+    </div>
+    <p class="who">PD</p>
+    <p class="where">Orders → Procurement → the PO → “Record receipt”</p>
+    <h3>What to do</h3>
+    <ul><li>Enter what actually arrived, line by line. Short deliveries are recorded as short.</li><li>Note any damage.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESGRN-26xxxx.</li><li>A three-way check between the PO, the receipt and the supplier's invoice. Differences are shown with their numbers, not just flagged.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-6-doing-the-work">Part 6 — Doing the work</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">Every job runs through the same gates, and each one exists because skipping it has cost the company money before. A gate refuses with a reason; read the reason.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">20</span>
+      <span class="what">Generate the tickets</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Orders → Sales orders → the order → “Generate tickets”</p>
+    <h3>What to do</h3>
+    <ul><li>Press it.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>One ticket per piece of work: AIESTKT-26xxxx.</li><li>A project record for the job as a whole, and a channel for it under Collaboration → Channels.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">21</span>
+      <span class="what">Site inspection</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Operations → Site inspections</p>
+    <h3>What to do</h3>
+    <ul><li>Record what was found, who attended, and photographs.</li><li>If the scope has changed, say so here — it raises a revision task for sales.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESSI-26xxxx, with the photographs attached to the record rather than in somebody's phone.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">22</span>
+      <span class="what">Method statement, and the client's approval of it</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Operations → Method statements</p>
+    <h3>What to do</h3>
+    <ul><li>Prepare the statement, or upload the client's own form where they insist on theirs.</li><li>Submit it to the client, then record their approval when it comes.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESMTH-26xxxx.</li><li>Work cannot mobilise until the client has approved. Always.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">23</span>
+      <span class="what">Materials</span>
+    </div>
+    <p class="who">DJ, then PD</p>
+    <p class="where">Operations → the ticket → “Raise material request”, then Operations → Store</p>
+    <h3>What to do</h3>
+    <ul><li>Raise the request against the ticket.</li><li>PD approves it and issues from the store, recording who took what.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESMR-26xxxx.</li><li>What the store cannot supply becomes a purchase task for PD.</li><li>Tools issued are on a custody list until they come back.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">24</span>
+      <span class="what">Cash advance</span>
+    </div>
+    <p class="who">The crew lead, then Finance</p>
+    <p class="where">Finance → Cash advances → “Request”, then Finance → Cash to release</p>
+    <h3>What to do</h3>
+    <ul><li>Request the advance, saying what it is for and when it is needed.</li><li>It is approved, then released. Record the release when the money actually goes.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESCA-26xxxx.</li><li>A liquidation deadline is set the moment it is released, and it appears on the calendar.</li><li>Somebody with an overdue liquidation cannot request another advance.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">25</span>
+      <span class="what">Mobilise</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Operations → the ticket → the mobilisation panel</p>
+    <h3>What to do</h3>
+    <ul><li>Check the readiness list and mobilise.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>It refuses while anything is outstanding — downpayment, method statement, materials, crew — and names what.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">26</span>
+      <span class="what">Record progress each day</span>
+    </div>
+    <p class="who">The crew</p>
+    <p class="where">Operations → Delivery mode (on a phone), or the ticket</p>
+    <h3>What to do</h3>
+    <ul><li>Record what was done, hours worked, and photographs.</li><li>Record standby time and why, if the crew was held up.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Hours reach the job's cost once approved at Operations → Hours and expenses.</li><li>Standby with a reason is what makes a claim against the client possible later.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">27</span>
+      <span class="what">The client's QA</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Operations → the ticket → the QA panel</p>
+    <h3>What to do</h3>
+    <ul><li>Record the client's verdict and upload their evidence.</li><li>Where it failed, record each defect.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESQA-26xxxx.</li><li>A failure raises rectification work and a re-inspection automatically.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">28</span>
+      <span class="what">Testing and commissioning</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Operations → the ticket → the T&amp;C panel</p>
+    <h3>What to do</h3>
+    <ul><li>Record the results and any punch items.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESTC-26xxxx and a certificate.</li><li>Accepted commissioning is what opens final billing.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">29</span>
+      <span class="what">Demobilise and liquidate</span>
+    </div>
+    <p class="who">The crew lead</p>
+    <p class="where">Operations → the ticket → demobilisation, then Finance → Cash advances</p>
+    <h3>What to do</h3>
+    <ul><li>Record the demobilisation and reconcile the tools.</li><li>Liquidate the advance: receipts in, unspent cash returned.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Anything not returned is listed by name.</li><li>Only approved liquidation lines count as job cost.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">30</span>
+      <span class="what">Service report and close-out</span>
+    </div>
+    <p class="who">DJ</p>
+    <p class="where">Operations → the ticket → service report, then Operations → Projects</p>
+    <h3>What to do</h3>
+    <ul><li>Write the service report and have the client sign it.</li><li>Work down the close-out checklist on the project.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESSR-26xxxx.</li><li>The project closes only when the checklist is clear, and it says what is blocking it.</li><li>Closing raises the final invoice task for finance.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-7-delivery-where-the-job-is-supply-only">Part 7 — Delivery, where the job is supply-only</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">Supply lines take the delivery lane instead of the site gates above.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">31</span>
+      <span class="what">Issue the delivery receipt</span>
+    </div>
+    <p class="who">PD</p>
+    <p class="where">Operations → the delivery ticket → “Request DR”</p>
+    <h3>What to do</h3>
+    <ul><li>Request the DR, and confirm the site contact before the vehicle leaves.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESDR-26xxxx.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">32</span>
+      <span class="what">Record what happened at the door</span>
+    </div>
+    <p class="who">The driver</p>
+    <p class="where">Operations → Delivery mode, on a phone</p>
+    <h3>What to do</h3>
+    <ul><li>Capture the recipient's signature, or record the attempt as failed and why.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>A failed attempt raises a task to contact the customer and reschedule.</li><li>A signed DR is what makes the delivery billable.</li></ul>
+    </div>
+    
+  </article>
+
+  <h2 class="part" id="part-8-final-billing-and-the-money-in">Part 8 — Final billing and the money in</h2>
+  <div class="part-rule"></div>
+  <p class="part-intro">The last stretch. Everything here is finance's, and the gate before it is the reason the rest of the platform exists.</p>
+  
+  <article class="step">
+    <div class="step-head">
+      <span class="n">33</span>
+      <span class="what">Check the final billing gate</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Orders → Sales orders → the order → the billing panel</p>
+    <h3>What to do</h3>
+    <ul><li>Read the gate.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>It lists the seven conditions and names the owner of anything outstanding.</li><li>It will not let a final statement be raised while work is unfinished — which is what stops AIES billing for a job it has not delivered.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">34</span>
+      <span class="what">Raise and issue the final statement</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Ready to bill → the milestone → “Raise a statement”, then Issue</p>
+    <h3>What to do</h3>
+    <ul><li>Check the amount against the order and the variations.</li><li>Issue it and send it to the customer.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESBS-26xxxx, ageing from its due date.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">35</span>
+      <span class="what">Record the payment</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Statements → the statement → “Record payment”</p>
+    <h3>What to do</h3>
+    <ul><li>Bank transfer: enter the reference and the amount.</li><li>Cheque: enter the number and date, then clear it when the bank confirms.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>AIESPMT-26xxxx and the service invoice.</li><li>A bounced cheque reverses cleanly and the statement goes back to outstanding.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">36</span>
+      <span class="what">Record the 2307 when it arrives</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Statements → the statement → “Record 2307”</p>
+    <h3>What to do</h3>
+    <ul><li>Enter the withheld amount and the form's date.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>The statement closes to paid.</li><li>Until the form is in hand the withheld amount keeps ageing, because AIES has neither the cash nor the credit.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">37</span>
+      <span class="what">Check the job actually made money</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Operations → Projects → the project → the P&amp;L panel</p>
+    <h3>What to do</h3>
+    <ul><li>Compare the quoted margin with the actual.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Contract value, cost, and margin — with caveats named: hours with no cost rate, advances not yet liquidated.</li><li>Where an advance is still out, it shows what the margin becomes once it is liquidated.</li></ul>
+    </div>
+    
+  </article>
+  <article class="step">
+    <div class="step-head">
+      <span class="n">38</span>
+      <span class="what">Chase what is still owed</span>
+    </div>
+    <p class="who">Finance</p>
+    <p class="where">Finance → Receivables and Finance → Collections</p>
+    <h3>What to do</h3>
+    <ul><li>Work the ageing list.</li><li>Log each call or email against the customer.</li></ul>
+    <div class="expect">
+      <h3>What should happen</h3>
+      <ul><li>Ageing buckets, and the credit exposure per customer.</li><li>A logged conversation is what the next person picks up from.</li></ul>
+    </div>
+    
+  </article>
+
+  <footer>
+    Generated 2026-08-21 from the platform&rsquo;s own navigation and
+    document numbering. The same content is in the printable PDF.
+  </footer>
+</div>
