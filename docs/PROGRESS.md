@@ -3550,6 +3550,47 @@ created as real tasks, and §7's notification preferences with quiet hours (18:0
 `urgent` and emergency tickets passing through, suppressed notifications queued into the morning
 digest rather than dropped).
 
+### Session 6 — meetings that leave a record, and a platform that lets people sleep (2026-08-21)
+
+The last session of module 06. §6's meetings and §7's notification preferences.
+
+**Built:** the `Meeting` model and `NotificationSchedule`, plus `heldUntil` on `Notification`;
+`quiet-hours-rules.ts` (pure — the wrapping window, what passes anyway, when a held message is
+released); `meeting-service.ts`; `notification-settings-service.ts`; **`/meetings`** and
+**`/meetings/[id]`** with agenda, action items, decisions, minutes and cancellation;
+**`/settings/notifications`**, reached from the account menu; `meeting.manage`, seeded;
+`AIESMTG-{YY}{####}`.
+
+**§6's action items are tasks and nothing else** (docs/DECISIONS.md #148). Not a list on the minutes
+— that is §1's failure with better formatting, invisible on My Work and chased only by whoever
+rereads the notes. `Meeting` joined the records a task can hang off, and an item appears in both
+places because it is one thing. A series carries its open items forward as a **live reading** of the
+previous meeting's tasks, so anything closed since has already dropped off.
+
+**Quiet hours hold; they never drop** (docs/DECISIONS.md #147). §7's sentence forbids the obvious
+`return` — a message discarded at 23:00 is the same message missed, silently. It is written, hidden
+from the bell until `heldUntil`, and released by the drain that already runs every minute. The
+settings screen shows how many are waiting, which is what makes the promise checkable. The window
+wraps midnight, which is the whole difficulty: read as an ordinary range it would be silent at
+exactly the wrong times.
+
+**What is honestly limited:** with no push channel and no email consumer (docs/DECISIONS.md #10),
+quiet hours today govern the bell and the digest. The rule and the storage are real, so they will
+mean the same thing the day push lands.
+
+**Two guards fired again**, both correctly: `every-screen-has-a-door` caught `/settings/notifications`
+with no way in — it now sits in the account menu, where a personal setting belongs — and
+`unreached-mutations` caught `cancelMeeting` with no caller, so the meeting page gained the button
+and the reason it asks for.
+
+**Suite:** 19 new tests. Collab: 0 of 27 procedures unreached.
+
+**Module 06 is feature-complete.** §2 tasks, templates and boards; §3 channels; §4 calendar; §5
+announcements; §6 meetings; §7 notifications. The one thing deliberately not built is message
+attachments, which §3 routes through module 07's DMS.
+
+**Next concrete step:** module 07 — the NAS-backed document management system.
+
 ## Not started
 - [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is
       under way (session 1 in, sessions 2–6 to go).

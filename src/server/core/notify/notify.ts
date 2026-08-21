@@ -1,6 +1,13 @@
 import { db } from "@/lib/db";
 import { enqueue } from "@/server/core/jobs/queue";
 import { getNotificationType, type NotificationChannels } from "./registry";
+import {
+  DEFAULT_QUIET_HOURS,
+  isQuiet,
+  passesQuietHours,
+  releaseAt,
+  type QuietHours,
+} from "@/server/core/collab/quiet-hours-rules";
 
 export interface NotifyInput {
   recipientId: string;
@@ -9,6 +16,31 @@ export interface NotifyInput {
   body?: string;
   entityType?: string;
   entityId?: string;
+  /**
+   * Passes §7's quiet hours whatever the hour.
+   *
+   * For the caller to decide, because only the caller knows: an `urgent` task, an emergency ticket.
+   * Set it sparingly — §7's warning is that a platform which pings at midnight gets muted, and then
+   * the message that mattered is missed as well.
+   */
+  urgent?: boolean;
+}
+
+/**
+ * §7's quiet hours for one person, defaults included.
+ *
+ * A row exists only when somebody has changed something, so most people are served entirely from
+ * the constants in `quiet-hours-rules.ts`.
+ */
+async function scheduleFor(userId: string): Promise<QuietHours> {
+  const row = await db.notificationSchedule.findUnique({ where: { userId } });
+  if (!row) return DEFAULT_QUIET_HOURS;
+  return {
+    quietHoursOn: row.quietHoursOn,
+    quietFromMinutes: row.quietFromMinutes ?? DEFAULT_QUIET_HOURS.quietFromMinutes,
+    quietToMinutes: row.quietToMinutes ?? DEFAULT_QUIET_HOURS.quietToMinutes,
+    digestAtMinutes: row.digestAtMinutes,
+  };
 }
 
 async function resolveChannels(userId: string, type: string): Promise<NotificationChannels> {
@@ -66,6 +98,21 @@ export async function notify(input: NotifyInput): Promise<void> {
     }
   }
 
+  /*
+    §7's quiet hours: held until morning, never dropped.
+
+    The distinction the company drew on 2026-08-20 and the reason there is a column rather than an
+    early `return`: a notification discarded at 23:00 is exactly the outcome §7 is trying to prevent,
+    only silently. It is written now, hidden from the bell until `heldUntil`, and released by the
+    drain — so somebody who wakes up finds the night's news waiting rather than missing.
+  */
+  const now = new Date();
+  const schedule = await scheduleFor(input.recipientId);
+  const held =
+    isQuiet(now, schedule) && !passesQuietHours(input.type, input.urgent ?? false)
+      ? releaseAt(now, schedule)
+      : null;
+
   await db.notification.create({
     data: {
       recipientId: input.recipientId,
@@ -74,20 +121,37 @@ export async function notify(input: NotifyInput): Promise<void> {
       body: input.body,
       entityType: input.entityType,
       entityId: input.entityId,
+      heldUntil: held,
     },
   });
 }
 
+/**
+ * Everything whose quiet hours have passed, released.
+ *
+ * Called by the drain, which runs every minute — so "the morning digest" is accurate to the minute
+ * without a second schedule to keep. Returns the count so the cron's log says what it did.
+ */
+export async function releaseHeldNotifications(now: Date = new Date()): Promise<number> {
+  const { count } = await db.notification.updateMany({
+    where: { heldUntil: { not: null, lte: now } },
+    data: { heldUntil: null },
+  });
+  return count;
+}
+
 export function listNotifications(recipientId: string, options: { unreadOnly?: boolean } = {}) {
   return db.notification.findMany({
-    where: { recipientId, ...(options.unreadOnly ? { readAt: null } : {}) },
+    // A held notification exists and is not yet news. Both halves matter: it is not lost, and it is
+    // not shown at two in the morning to somebody who happens to open the app.
+    where: { recipientId, heldUntil: null, ...(options.unreadOnly ? { readAt: null } : {}) },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
 }
 
 export function unreadNotificationCount(recipientId: string): Promise<number> {
-  return db.notification.count({ where: { recipientId, readAt: null } });
+  return db.notification.count({ where: { recipientId, readAt: null, heldUntil: null } });
 }
 
 export async function markNotificationRead(recipientId: string, notificationId: string) {

@@ -409,6 +409,9 @@ const NUMBERING_FORMATS: NumberingFormatSeed[] = [
   // record somebody is accountable for — "AIESTSK-260014" is what a person quotes when they ask
   // about it, and a cuid is not.
   { documentType: "task", format: "AIESTSK-{YY}{####}", label: "Task" },
+  // specs/06-collaboration.md §6. Numbered because minutes are referred to by number in the next
+  // meeting, and "the one in August" is not a reference.
+  { documentType: "meeting", format: "AIESMTG-{YY}{####}", label: "Meeting" },
   {
     documentType: "controlled_doc",
     format: "AIES-{DEPT}-{TYPE}-{###}",

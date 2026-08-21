@@ -70,7 +70,19 @@ export const collabManifest = defineManifest({
   key: "collab",
   name: "Collaboration",
   version: "0.1.0",
-  models: ["Task"],
+  models: [
+    "Task",
+    "TaskTemplate",
+    "Board",
+    "Channel",
+    "ChannelMember",
+    "Message",
+    "CalendarEvent",
+    "CalendarFeedToken",
+    "Announcement",
+    "AnnouncementAck",
+    "Meeting",
+  ],
 
   permissions: [
     {
@@ -205,6 +217,7 @@ export const collabManifest = defineManifest({
     "task.completed",
     "message.mentioned",
     "announcement.published",
+    "meeting.minutes_published",
   ],
 
   /**
@@ -291,6 +304,15 @@ export const collabManifest = defineManifest({
       permission: "task.assign",
       group: "Collaboration",
       order: 50,
+    },
+    {
+      label: "Meetings",
+      href: "/meetings",
+      icon: "users",
+      // Everybody: §6's point is that a meeting leaves a record, and a record only half the company
+      // can read is half a record.
+      group: "Collaboration",
+      order: 55,
     },
     {
       label: "Calendar",

@@ -29,7 +29,7 @@ became — not merely what they wrote.
 | 03 Order & Procurement | ✅ accepted 20 Aug | — | `sample-payables.ts` |
 | 04 Operations & Projects | ⚠️ accepted 20 Aug, **but nine gaps were built after the tag** | below | `sample-records-dispatch.ts`, `sample-warranty.ts` |
 | 05 Finance & Billing | ✅ both halves walked 20 Aug, all good | `WALKTHROUGH-MODULE-05.md`, `WALKTHROUGH-MODULE-05-BILLING.md` | `sample-finance.ts` (FIN5), `sample-billing.ts` (BILL7) |
-| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–5 need no seed |
+| 06 Collaboration | ⬜ **parked**, feature-complete | below | none — no seed needed for any session |
 | 07–10 | ⬜ not built | | |
 
 ---
@@ -200,3 +200,27 @@ built. Everything else in §3 is here.
 
 **Known and deliberate:** the calendar is read-only in both directions — §4 rules out two-way Google
 sync in v1. Everything but the diary comes from the record that owns the date.
+
+---
+
+## Module 06 — session 6: meetings and quiet hours
+
+**Where:** the sidebar's **Meetings**, and **What I am told about** in the account menu.
+
+| Step | Where | Expect |
+|---|---|---|
+| Call a meeting | `/meetings` → Call a meeting | Numbered `AIESMTG-…`, with whoever you invited |
+| Add an action item | The meeting → Add an action item | A **task number** appears. Check My Work — it is there, linked back to the meeting |
+| Write it up with two decisions | Write it up | Decisions are listed **separately** from the prose, and the meeting is marked held |
+| Try to cancel it now | Cancel it | Refused: it has been held and written up |
+| Call two meetings with the same series name | Call a meeting, twice | The later one shows **Still open from last time** |
+| Close one of those items, reopen the later meeting | My Work, then the meeting | The closed one has dropped off the carried-forward list on its own |
+| Cancel a scheduled meeting without a reason | Cancel it | Refused — it asks why, and everybody invited sees it |
+| Open **What I am told about** | Account menu | Quiet hours 18:00–07:00, marked *Default*, with the digest time |
+| Set a message type to *Only in the daily digest* | The list | Saved. It still reaches you — once, in the morning |
+| Move quiet hours to cover now, then have somebody assign you a task | Settings, then another account | **No bell.** The settings screen shows *1 waiting for morning* |
+| Wait for the release time, or set the digest time to a minute from now | Settings | It appears in the bell. Nothing was thrown away |
+| Have somebody raise an **urgent** cash advance during quiet hours | `/cash-advances` | It comes through anyway — marked *reaches you at any hour* on the settings list |
+
+**Known and deliberate:** there is no push notification or email yet, so quiet hours govern the bell
+and the digest. The rule and the storage are real and will mean the same thing when push lands.

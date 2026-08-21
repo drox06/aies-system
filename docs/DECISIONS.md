@@ -4935,3 +4935,57 @@ audience are kept and counted separately: they did read it, and that still count
 **A notice must stand on its own.** Twenty characters minimum, and the form says why: this is the
 text somebody will later be shown as proof of what they agreed they had read. "See attached" is not
 evidence of anything.
+
+---
+
+## #147 — Quiet hours hold a notification; they never drop one
+
+**2026-08-21.** §7 gives the rule and, read closely, forbids the obvious implementation:
+
+> **Quiet hours by default (18:00–07:00 Asia/Manila)** except for `urgent` priority and emergency
+> tickets — a system that pings technicians at midnight gets muted, and then the important message is
+> missed too.
+
+The straightforward reading is `if (isQuiet(now)) return;` inside `notify()`. That produces exactly
+the outcome the sentence warns about — the message is missed — only silently, and with nobody able to
+tell it ever existed. So the notification is **written**, carries `heldUntil`, is hidden from the bell
+and the unread count until then, and is released by the drain that already runs every minute. The
+settings screen shows how many are waiting, which is the only way somebody can believe the promise.
+
+**The window wraps midnight**, and that is the whole difficulty of the code. Treated as an ordinary
+range, 18:00 to 07:00 lets every evening message through and holds every morning one — nothing
+errors, the platform is simply silent at precisely the wrong times.
+
+**Release is the digest time, not the moment the window lifts.** The same by default and different
+the instant somebody moves their digest later, at which point releasing at 07:00 sharp would deliver
+the night's messages before they asked for them.
+
+**The list of what passes anyway is deliberately three entries long.** Every addition is a promise
+that the thing is worth waking somebody for, and a list that grows is how the phone ends up
+face-down — which is the failure §7 names.
+
+---
+
+## #148 — §6's action items are tasks, and the series carries a reading rather than a copy
+
+**2026-08-21.** Two calls on meetings, both mine.
+
+**An action item is a task and nothing else.** §6 asks for *"action items that are created as real
+tasks with owners and due dates"*, and the temptation is a list on the meeting record — simpler,
+self-contained, and exactly §1's failure with better formatting. An item stored on the minutes is
+invisible on My Work, invisible on every board, and chased only by whoever rereads the notes. So
+`addActionItemService` calls `createTaskService` and stores nothing of its own, `Meeting` joins the
+list of records a task can hang off, and the item appears in both places because it *is* one thing.
+
+Raising one needs `task.create` rather than `meeting.manage`: anybody in the room who agrees to do
+something should be able to write it down without the chair doing it for them.
+
+**A series carries its open items forward as a live reading.** §6 asks for the behaviour and does not
+say how. Copying the open items onto the next agenda would create a second record of one job — and
+the copy is the one that goes stale, so the standing agenda slowly fills with work that was finished
+weeks ago. The next meeting queries the previous one's tasks instead, filtered to those still open,
+every time it is opened. An item closed on Tuesday is not on Thursday's agenda.
+
+Only the **immediately** previous meeting. Reaching further back would turn a standing agenda into an
+archive of everything anybody has ever failed to do, which is how a recurring meeting stops being
+read at all.

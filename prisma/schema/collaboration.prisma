@@ -379,3 +379,50 @@ model AnnouncementAck {
   @@unique([announcementId, userId])
   @@index([userId])
 }
+
+/// §6's meeting: *"Since meetings will not disappear, make them produce records instead of
+/// replacing them."*
+///
+/// The action items are **not** a field on this model. They are real tasks, raised through the same
+/// service everything else uses, linked back here — which is the whole point: a decision recorded in
+/// minutes that nobody owns is the meeting §1 complains about, written down more neatly.
+model Meeting {
+  id     String @id @default(cuid())
+  number String @unique
+  title  String
+
+  /// §6's recurring series. A plain key rather than a parent row: what a series needs to do is find
+  /// the previous meeting and carry its open items forward, and a shared key answers that in one
+  /// query.
+  seriesKey String?
+
+  scheduledAt DateTime
+  location    String?
+
+  /// What is to be discussed, as `[{ item, note }]`. Json because it is read whole with the meeting.
+  agenda Json @default("[]")
+
+  attendeeIds String[] @default([])
+  /// Who was invited and did not come. §6 wants attendance, and "absent" is a fact about a meeting
+  /// that decisions were taken at.
+  apologyIds  String[] @default([])
+
+  /// Written after the fact. Null until somebody writes them.
+  minutes   String?
+  /// `[{ decision, madeAt }]` — kept apart from the minutes because a decision is the thing anybody
+  /// will later search for, and burying it in prose makes that impossible.
+  decisions Json    @default("[]")
+
+  /// scheduled | held | cancelled.
+  status String    @default("scheduled")
+  heldAt DateTime?
+
+  createdById String
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([scheduledAt])
+  @@index([seriesKey, scheduledAt])
+}

@@ -28,6 +28,22 @@ import {
   deleteCalendarEventService,
 } from "@/server/core/collab/calendar-service";
 import {
+  addActionItemService,
+  cancelMeetingService,
+  meetingService,
+  meetingsService,
+  recordMinutesService,
+  scheduleMeetingService,
+} from "@/server/core/collab/meeting-service";
+import {
+  NOTIFICATION_LEVELS as SETTING_LEVELS,
+  notificationSettingsService,
+  // Aliased: §3's per-channel level and §7's per-type level are different settings that read
+  // identically, and the collision is the kind that compiles into the wrong call.
+  setNotificationLevelService as setTypeNotificationLevelService,
+  setQuietHoursService,
+} from "@/server/core/collab/notification-settings-service";
+import {
   acknowledgeAnnouncementService,
   acknowledgementListService,
   announcementsService,
@@ -469,6 +485,87 @@ export const collabRouter = router({
   acknowledgements: p("announcement.publish")
     .input(z.object({ announcementId: z.string() }))
     .query(({ input }) => acknowledgementListService(input)),
+
+  // ---- §6's meetings ----------------------------------------------------------------------------
+
+  meetings: protectedProcedure.query(() => meetingsService()),
+
+  meeting: protectedProcedure
+    .input(z.object({ meetingId: z.string() }))
+    .query(({ input }) => meetingService(input)),
+
+  scheduleMeeting: p("meeting.manage")
+    .input(
+      z.object({
+        title: z.string().min(3).max(200),
+        scheduledAt: z.coerce.date(),
+        location: z.string().max(200).nullish(),
+        seriesKey: z.string().max(60).nullish(),
+        attendeeIds: z.array(z.string()).max(50).optional(),
+        agenda: z
+          .array(
+            z.object({ item: z.string().min(1).max(300), note: z.string().max(1000).optional() }),
+          )
+          .max(30)
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => scheduleMeetingService(actorMeta(ctx), input)),
+
+  /**
+   * §6's action item.
+   *
+   * `task.create`, not `meeting.manage`: it raises a task, and anybody in the room who agrees to do
+   * something should be able to write it down without the chair doing it for them.
+   */
+  addActionItem: p("task.create")
+    .input(
+      z.object({
+        meetingId: z.string(),
+        title: z.string().min(3).max(300),
+        assigneeId: z.string().nullish(),
+        dueAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => addActionItemService(actorMeta(ctx), input)),
+
+  recordMinutes: p("meeting.manage")
+    .input(
+      z.object({
+        meetingId: z.string(),
+        minutes: z.string().min(10).max(20000),
+        decisions: z.array(z.string().min(1).max(500)).max(30).optional(),
+        attendeeIds: z.array(z.string()).max(50).optional(),
+        apologyIds: z.array(z.string()).max(50).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordMinutesService(actorMeta(ctx), input)),
+
+  cancelMeeting: p("meeting.manage")
+    .input(z.object({ meetingId: z.string(), reason: z.string().min(5).max(500) }))
+    .mutation(({ ctx, input }) => cancelMeetingService(actorMeta(ctx), input)),
+
+  // ---- §7's notification settings ---------------------------------------------------------------
+
+  /** Everybody's own. There is no permission for deciding what you are told about. */
+  notificationSettings: protectedProcedure.query(({ ctx }) =>
+    notificationSettingsService(ctx.user.id),
+  ),
+
+  setNotificationLevel: protectedProcedure
+    .input(z.object({ type: z.string(), level: z.enum(SETTING_LEVELS) }))
+    .mutation(({ ctx, input }) => setTypeNotificationLevelService(ctx.user.id, input)),
+
+  setQuietHours: protectedProcedure
+    .input(
+      z.object({
+        quietHoursOn: z.boolean(),
+        quietFromMinutes: z.number().int().min(0).max(1439),
+        quietToMinutes: z.number().int().min(0).max(1439),
+        digestAtMinutes: z.number().int().min(0).max(1439),
+      }),
+    )
+    .mutation(({ ctx, input }) => setQuietHoursService(ctx.user.id, input)),
 });
 
 function requireAssign(permissions: ReadonlySet<string>) {

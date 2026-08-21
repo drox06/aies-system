@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   BadgeCheck,
@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const nav = trpc.system.nav.useQuery();
   const whoami = trpc.system.whoami.useQuery();
   const unread = trpc.notify.unreadCount.useQuery(undefined, {
@@ -325,6 +326,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {whoami.data?.roleKeys.join(", ") || "no roles"}
                 </p>
               </div>
+              {/*
+                Personal settings live here rather than in the sidebar. What somebody is told about
+                is about them, not about a kind of record — a nav entry would put it beside
+                Announcements and Boards, where it reads as another place work happens.
+              */}
+              <MenuItem onClick={() => router.push("/settings/notifications")}>
+                What I am told about
+              </MenuItem>
               <MenuItem onClick={() => void signOut({ callbackUrl: "/login" })}>Sign out</MenuItem>
             </Menu>
           </div>

@@ -15,10 +15,21 @@ model Notification {
   // on one quote in five minutes is one notification").
   count       Int       @default(1)
   readAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+
+  /// Held by §7's quiet hours until the morning, and **never dropped**.
+  ///
+  /// The company's decision of 2026-08-20, and the reason the column exists rather than a `return`
+  /// inside `notify()`: *"a system that pings technicians at midnight gets muted, and then the
+  /// important message is missed too"* — but a notification thrown away at 23:00 is the same
+  /// message missed, just silently. It is written now, hidden until `heldUntil`, and released by the
+  /// drain.
+  heldUntil DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([recipientId, readAt, createdAt])
+  @@index([heldUntil])
 }
 
 model NotificationPreference {
@@ -30,4 +41,29 @@ model NotificationPreference {
   digest Boolean @default(false)
 
   @@unique([userId, type])
+}
+
+/// specs/06-collaboration.md §7's quiet hours and digest time.
+///
+/// ## Why it lives in module 00's file rather than module 06's
+///
+/// `notify()` reads it on every send, and `notify()` is module 00's. Module 06 owns the *screen* and
+/// the rule, as §7 says — *"uses module 00's notify service"* — but the thing the service must
+/// consult belongs beside the service. A row exists only once somebody changes something: the
+/// defaults are in code so that eight of nine people need no row at all.
+model NotificationSchedule {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  /// Minutes past midnight, Manila. §7's default is 18:00–07:00, held in code rather than here.
+  quietFromMinutes Int?
+  quietToMinutes   Int?
+  /// Off entirely, for somebody who would rather be told at once whatever the hour.
+  quietHoursOn     Boolean @default(true)
+
+  /// When the morning digest is sent, minutes past midnight, Manila. §7: "configurable".
+  digestAtMinutes Int @default(420)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

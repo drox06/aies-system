@@ -51,6 +51,10 @@ export const TASK_ENTITY_TYPES = [
   "Project",
   "CashAdvance",
   "MaterialRequest",
+  // §6's meetings. Added when action items became real tasks: an item agreed in a meeting has to
+  // be able to point back at the meeting it was agreed in, or the task arrives with no context and
+  // the minutes have no trace of what came of them.
+  "Meeting",
 ] as const;
 export type TaskEntityType = (typeof TASK_ENTITY_TYPES)[number];
 
@@ -63,6 +67,7 @@ export const TASK_ENTITY_HREF: Record<TaskEntityType, (id: string) => string> = 
   Project: (id) => `/projects/${id}`,
   CashAdvance: (id) => `/cash-advances/${id}`,
   MaterialRequest: (id) => `/material-requests/${id}`,
+  Meeting: (id) => `/meetings/${id}`,
 };
 
 export function isTaskEntityType(value: string): value is TaskEntityType {

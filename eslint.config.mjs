@@ -92,6 +92,9 @@ const UI_SAFE_SERVER_MODULES = [
   // §4's calendar rules and §5's audience test. The calendar screen groups by day and labels each
   // source with these; the iCal feed writes the same labels. Two copies would drift.
   "@/server/core/collab/calendar-rules",
+  // §7's quiet hours. The settings screen describes the window the service enforces; a second copy
+  // of "18:00 to 07:00" is one that eventually disagrees with the code that holds the message.
+  "@/server/core/collab/quiet-hours-rules",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
   // weight — but it is listed rather than assumed, because a value import from here would.

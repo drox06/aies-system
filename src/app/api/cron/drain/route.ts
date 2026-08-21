@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { relayOutboxToJobs } from "@/server/core/jobs/relay";
 import { drain } from "@/server/core/jobs/queue";
+import { releaseHeldNotifications } from "@/server/core/notify/notify";
 import "@/server/core/jobs/handlers/events";
 
 // Hit by Vercel Cron every minute in production (Spec.md §3.3, §9.1). Vercel signs cron requests
@@ -32,8 +33,16 @@ async function handle(request: Request) {
 
   const relayed = await relayOutboxToJobs();
   const drained = await drain();
+  /*
+    §7's held notifications, released when their morning arrives.
 
-  return NextResponse.json({ relayed, ...drained });
+    Here rather than on its own schedule because this already runs every minute, which makes "the
+    morning digest" accurate to the minute with nothing extra to keep in step. A second cron would
+    be a second thing to notice had stopped.
+  */
+  const released = await releaseHeldNotifications();
+
+  return NextResponse.json({ relayed, released, ...drained });
 }
 
 /**
