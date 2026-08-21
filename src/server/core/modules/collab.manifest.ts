@@ -186,9 +186,26 @@ export const collabManifest = defineManifest({
       */
       defaultRoles: ["president", "vice_president", "admin_manager"],
     },
+    {
+      key: "announcement.publish",
+      label: "Publish an announcement, and see who has not read it",
+      group: "Collaboration",
+      /*
+        §5's announcements are ISO clause 7.4 evidence, and the compliance list is a list of
+        colleagues who have not done something. Both belong with the people who own procedure: the
+        officers and the two managers. Everybody else reads and acknowledges, which needs nothing.
+      */
+      defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
+    },
   ],
 
-  emits: ["task.created", "task.assigned", "task.completed", "message.mentioned"],
+  emits: [
+    "task.created",
+    "task.assigned",
+    "task.completed",
+    "message.mentioned",
+    "announcement.published",
+  ],
 
   /**
    * §2's thirteen trigger events.
@@ -274,6 +291,24 @@ export const collabManifest = defineManifest({
       permission: "task.assign",
       group: "Collaboration",
       order: 50,
+    },
+    {
+      label: "Calendar",
+      href: "/calendar",
+      icon: "calendar",
+      // §4's cross-company view. No permission: the dates it shows come from records people can
+      // already open, and the two finance sources are filtered inside the service.
+      group: "Collaboration",
+      order: 53,
+    },
+    {
+      label: "Announcements",
+      href: "/announcements",
+      icon: "megaphone",
+      // Everybody. An announcement nobody can find is a notice nobody read, and the acknowledgement
+      // this screen collects is the whole point of §5.
+      group: "Collaboration",
+      order: 54,
     },
     {
       label: "Channels",

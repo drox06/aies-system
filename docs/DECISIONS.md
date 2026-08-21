@@ -4882,3 +4882,56 @@ are navigation rather than a record of who was told.
 loose blobs"*, and module 07 does not exist yet. Wiring them to module 00's storage now would mean
 moving them later. It is the one part of §3 this session does not build, and it is written at the top
 of `channel-service.ts` so it is not mistaken for an oversight.
+
+---
+
+## #145 — The calendar derives every date it shows
+
+**2026-08-21.** Module 06 session 5. §4 asks for a unified calendar over tickets, mobilisations,
+deliveries, PM visits, quotation expiries, invoice due dates, liquidation deadlines, calibration
+dates and leave. The obvious implementation writes a `CalendarEvent` row whenever any of those is
+created or moved.
+
+**Nothing is written.** Every source but the manual diary reads the date off the record that owns it,
+each time the calendar is opened. A copied due date is a second thing to keep in step, and the copy
+on the calendar is the one nobody updates — so the calendar becomes the screen people learn not to
+trust, which is worse than not having one.
+
+The cost is real and worth stating: one month view is about ten queries, and it will get slower as
+sources are added. That is the right trade for a company of nine, and if it ever stops being right
+the fix is a cached read model with an explicit refresh, not scattered writes at a dozen call sites.
+
+**Permissions are applied per source, not to the screen.** A calendar is a summary of the whole
+company, and a summary that ignored permissions would be a way to read what you cannot open. The two
+money sources need a finance grant; the operational ones do not, because knowing a crew is out on
+Thursday is not privileged in a company this size. **A hidden source says so on screen** — a quiet
+month and a filtered month look identical otherwise.
+
+**The iCal token is a credential, and the screen says so.** A phone's calendar client cannot log in,
+so the URL is the identity — as it is for every calendar subscription ever made. It is 32 random
+bytes, one per person, revocable, and `lastUsedAt` shows whether anything is still using it. The
+panel that reveals it says plainly: treat this like a password. The route answers 404 rather than 401
+for a bad token, so the endpoint cannot be used to test whether a token exists.
+
+---
+
+## #146 — An acknowledgement list is built from the audience now, not at publication
+
+**2026-08-21.** §5's announcements are ISO 9001 clause 7.4 evidence, and the feature is not the
+notice — it is *"a compliance list showing who has not acknowledged"*.
+
+Two decisions make that list trustworthy.
+
+**Nobody is pre-loaded as "not read".** An acknowledgement row exists only once somebody has ticked;
+the *absence* of a row is the evidence. The alternative — writing a row per recipient at publication
+— would have to be reconciled every time somebody joins, leaves or changes role.
+
+**The audience is resolved when the list is read.** A technician who started last week is still bound
+by the safety bulletin, and somebody who has left is not somebody to chase. A list captured at
+publication would say "everybody has read it" about a company that has changed since, which is the
+most dangerous way for a compliance report to be wrong. Acknowledgements from people no longer in the
+audience are kept and counted separately: they did read it, and that still counts for something.
+
+**A notice must stand on its own.** Twenty characters minimum, and the form says why: this is the
+text somebody will later be shown as proof of what they agreed they had read. "See attached" is not
+evidence of anything.

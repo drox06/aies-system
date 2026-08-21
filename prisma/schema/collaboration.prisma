@@ -283,3 +283,99 @@ model Message {
   @@index([channelId, createdAt])
   @@index([threadRootId])
 }
+
+/// §4's manual calendar entry.
+///
+/// Only the manual ones are stored. Everything else on the calendar — tickets, mobilisations,
+/// deliveries, PM visits, quotation expiries, invoice due dates, liquidation deadlines, calibration
+/// dates, leave — is **derived from the record that owns it** and never copied here. A second copy
+/// of a due date is a second thing to keep in step, and the one on the calendar is the one nobody
+/// updates.
+model CalendarEvent {
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+  location    String?
+
+  startsAt DateTime
+  /// Null for a point in time, like a reminder.
+  endsAt   DateTime?
+  allDay   Boolean   @default(false)
+
+  ownerId     String
+  attendeeIds String[] @default([])
+
+  /// Optional link to whatever the meeting is about, as everywhere else in this module.
+  entityType String?
+  entityId   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([startsAt])
+  @@index([ownerId, startsAt])
+}
+
+/// §4's per-user iCal feed token: *"token-authenticated, so it can appear in their phone calendar"*.
+///
+/// Its own row rather than a column on `User` because it is a credential with a life of its own —
+/// it can be rotated without touching the account, and a rotation must invalidate the old URL
+/// immediately. `lastUsedAt` is what makes an unused feed safe to revoke.
+model CalendarFeedToken {
+  id     String @id @default(cuid())
+  userId String @unique
+  /// 32 random bytes, hex. Long enough that guessing is not a route in.
+  token  String @unique
+
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+/// §5's announcement — ISO 9001 clause 7.4 communication evidence.
+///
+/// The point is not the notice; it is the **acknowledgement list**. A policy change nobody can prove
+/// was read is a policy change that did not happen, and the first time a procedure is revised is the
+/// first time somebody asks who has seen it.
+model Announcement {
+  id    String @id @default(cuid())
+  title String
+  body  String
+
+  /// Empty means the whole company. Otherwise the roles it is addressed to.
+  audienceRoleKeys String[] @default([])
+
+  /// Whether people must tick that they have read it. Off for "the office is closed on Friday";
+  /// on for anything the company would ever need to prove.
+  requiresAck Boolean @default(false)
+
+  /// low | normal | urgent. Urgent passes §7's quiet hours.
+  priority String @default("normal")
+
+  publishedAt   DateTime  @default(now())
+  publishedById String
+  /// After this it stops appearing as current. Never deleted: the evidence outlives the notice.
+  expiresAt     DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  acknowledgements AnnouncementAck[]
+
+  @@index([publishedAt])
+}
+
+/// Who has read it, and when. The row exists only once somebody has acknowledged — an absent row is
+/// the evidence that they have not.
+model AnnouncementAck {
+  id             String   @id @default(cuid())
+  announcementId String
+  userId         String
+  acknowledgedAt DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+}

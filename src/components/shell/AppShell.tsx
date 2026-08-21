@@ -27,6 +27,8 @@ import {
   Banknote,
   ListChecks,
   MessageSquare,
+  CalendarDays,
+  Megaphone,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BackButton } from "@/components/shell/BackButton";
@@ -377,6 +379,8 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   // Module 06 (specs/06-collaboration.md).
   "list-checks": ListChecks,
   "message-square": MessageSquare,
+  calendar: CalendarDays,
+  megaphone: Megaphone,
 };
 
 const ICON_SIZE = 20;
@@ -390,12 +394,42 @@ interface NavEntry {
 
 /** Ungrouped entries first, then named groups in first-seen order — which, because the registry
  *  already sorted by `order`, is the order modules asked for. */
-function groupNav(entries: NavEntry[]): { group: string | null; entries: NavEntry[] }[] {
+/**
+ * The order the sidebar's groups appear in.
+ *
+ * Stated here rather than emerging from the entry `order` numbers, which is how it worked until
+ * 2026-08-21. A group's position was the lowest `order` any of its entries happened to have — so
+ * Finance led the sidebar because "Cash to release" is 1, and Collaboration trailed because "All
+ * tasks" is 50. Those numbers were chosen to sequence entries *within* a group and never to rank the
+ * groups against each other, which made the sidebar's shape an accident that any new entry could
+ * change.
+ *
+ * Collaboration first is the company's decision of 2026-08-21. It is where the day starts: My Work,
+ * what the team is on, and what has been announced.
+ *
+ * A group nobody has listed sorts after the named ones and before Admin, which stays at the bottom.
+ */
+const NAV_GROUP_ORDER = ["Collaboration", "Finance", "Sales", "Customers", "Orders", "Operations"];
+
+const UNRANKED_GROUP = 500;
+const ADMIN_GROUP = 1000;
+
+function groupRank(group: string | null): number {
+  // Ungrouped entries — My Work, My day, Approvals — are the top of the sidebar and have no
+  // heading to fold, so they always lead.
+  if (group === null) return -1;
+  if (group === "Admin") return ADMIN_GROUP;
+  const index = NAV_GROUP_ORDER.indexOf(group);
+  return index === -1 ? UNRANKED_GROUP : index;
+}
+
+export function groupNav(entries: NavEntry[]): { group: string | null; entries: NavEntry[] }[] {
   const out: { group: string | null; entries: NavEntry[] }[] = [];
   for (const entry of entries) {
     const existing = out.find((g) => g.group === entry.group);
     if (existing) existing.entries.push(entry);
     else out.push({ group: entry.group, entries: [entry] });
   }
-  return out.sort((a, b) => (a.group === null ? -1 : b.group === null ? 1 : 0));
+  // Entries keep the order the registry gave them; only the groups are re-ranked.
+  return out.sort((a, b) => groupRank(a.group) - groupRank(b.group));
 }

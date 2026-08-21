@@ -29,7 +29,7 @@ became — not merely what they wrote.
 | 03 Order & Procurement | ✅ accepted 20 Aug | — | `sample-payables.ts` |
 | 04 Operations & Projects | ⚠️ accepted 20 Aug, **but nine gaps were built after the tag** | below | `sample-records-dispatch.ts`, `sample-warranty.ts` |
 | 05 Finance & Billing | ✅ both halves walked 20 Aug, all good | `WALKTHROUGH-MODULE-05.md`, `WALKTHROUGH-MODULE-05-BILLING.md` | `sample-finance.ts` (FIN5), `sample-billing.ts` (BILL7) |
-| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–4 need no seed |
+| 06 Collaboration | ⬜ **parked** | below | none yet — sessions 1–5 need no seed |
 | 07–10 | ⬜ not built | | |
 
 ---
@@ -176,3 +176,27 @@ the same question. docs/DECISIONS.md #141.
 
 **Known and deliberate:** no attachments yet — §3 routes them through module 07's DMS, which is not
 built. Everything else in §3 is here.
+
+---
+
+## Module 06 — session 5: calendar and announcements
+
+**Where:** the sidebar's **Calendar** and **Announcements**.
+
+| Step | Where | Expect |
+|---|---|---|
+| Open the calendar | `/calendar` | Scheduled jobs, mobilisations, quotation expiries, leave and due dates — none of it entered here |
+| Switch to *Only mine* | The dropdown | Narrows to entries that name you |
+| Sign in as the test finance account and compare | `/calendar` | EA sees payment due dates; an account without the finance grant sees a line saying they are **not shown**, rather than a quieter month |
+| Add a diary entry across three days | Add an entry | It appears on **all three** days, not just the first |
+| Open *On my phone* | The header | A URL, with the warning that it is a password. Paste it into a browser — an `.ics` file downloads |
+| Replace the link | On my phone → Replace | The old URL stops working immediately. Check by pasting the old one: **404** |
+| Publish a notice needing confirmation | `/announcements` → Publish | Everybody addressed gets a bell; you do not |
+| Try to publish "See attached" | Publish | Refused, with the reason: the tick becomes evidence |
+| Confirm it as somebody else | `/announcements` | Their name moves to **Read** on the list |
+| Look at *Who has read it* | The notice | Outstanding names first, count at the top |
+| Add a new user, then look again | `/admin/users`, then the notice | The new person appears as **outstanding** — the list is built from who is here now |
+| Set a notice to expire yesterday | Publish → Off the list after | It moves to **Expired** and keeps every confirmation |
+
+**Known and deliberate:** the calendar is read-only in both directions — §4 rules out two-way Google
+sync in v1. Everything but the diary comes from the record that owns the date.

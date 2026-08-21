@@ -675,9 +675,20 @@ describe("§5 — overdue liquidation blocks the next request", () => {
     const swept = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
     expect(swept.status).toBe("overdue_liquidation");
 
+    /*
+      Matched on the payload, not on "the most recent one".
+
+      The original read the newest `cash_advance.liquidation_overdue` in the whole outbox and assumed
+      it was this test's. It held until 2026-08-21, when a seeded walkthrough advance reached its own
+      liquidation date and the same sweep marked it too — so the newest event belonged to somebody
+      else and a correct sweep failed a correct test. Shared database, shared outbox: a test that
+      says "the latest row is mine" is making a claim about everything else running.
+    */
     const event = await db.eventOutbox.findFirst({
-      where: { event: "cash_advance.liquidation_overdue" },
-      orderBy: { createdAt: "desc" },
+      where: {
+        event: "cash_advance.liquidation_overdue",
+        payload: { path: ["cashAdvanceId"], equals: advance.id },
+      },
     });
     expect((event?.payload as { cashAdvanceId?: string })?.cashAdvanceId).toBe(advance.id);
 

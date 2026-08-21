@@ -21,6 +21,19 @@ import {
 } from "@/server/core/collab/board-rules";
 import { CHANNEL_TYPES, NOTIFICATION_LEVELS } from "@/server/core/collab/channel-rules";
 import {
+  auditFeedRotation,
+  calendarFeedService,
+  calendarService,
+  createCalendarEventService,
+  deleteCalendarEventService,
+} from "@/server/core/collab/calendar-service";
+import {
+  acknowledgeAnnouncementService,
+  acknowledgementListService,
+  announcementsService,
+  publishAnnouncementService,
+} from "@/server/core/collab/announcement-service";
+import {
   channelsService,
   createChannelService,
   deleteMessageService,
@@ -379,6 +392,83 @@ export const collabRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => promoteMessageService(actorMeta(ctx), input)),
+
+  // ---- §4's calendar ----------------------------------------------------------------------------
+
+  /**
+   * Everything happening, from the records that already hold the dates.
+   *
+   * No permission of its own: what a person may see is decided source by source inside the service,
+   * because a calendar is a summary of the company and a summary that ignored permissions would be
+   * a way to read what you cannot open.
+   */
+  calendar: protectedProcedure
+    .input(
+      z.object({
+        from: z.coerce.date(),
+        to: z.coerce.date(),
+        scope: z.enum(["mine", "team"]).optional(),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      calendarService({ id: ctx.user.id, permissions: ctx.user.permissions }, input),
+    ),
+
+  addCalendarEvent: protectedProcedure
+    .input(
+      z.object({
+        title: z.string().min(2).max(200),
+        description: z.string().max(2000).nullish(),
+        location: z.string().max(200).nullish(),
+        startsAt: z.coerce.date(),
+        endsAt: z.coerce.date().nullish(),
+        allDay: z.boolean().optional(),
+        attendeeIds: z.array(z.string()).max(50).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => createCalendarEventService(actorMeta(ctx), input)),
+
+  removeCalendarEvent: protectedProcedure
+    .input(z.object({ eventId: z.string() }))
+    .mutation(({ ctx, input }) => deleteCalendarEventService(actorMeta(ctx), input)),
+
+  /** The subscription URL for a phone. Reading it creates one; rotating kills the old link. */
+  calendarFeed: protectedProcedure.query(({ ctx }) => calendarFeedService(ctx.user.id)),
+
+  rotateCalendarFeed: protectedProcedure.mutation(async ({ ctx }) => {
+    const result = await calendarFeedService(ctx.user.id, true);
+    await auditFeedRotation(actorMeta(ctx));
+    return result;
+  }),
+
+  // ---- §5's announcements -----------------------------------------------------------------------
+
+  announcements: protectedProcedure.query(({ ctx }) =>
+    announcementsService({ id: ctx.user.id, roleKeys: [...ctx.user.roleKeys] }),
+  ),
+
+  acknowledgeAnnouncement: protectedProcedure
+    .input(z.object({ announcementId: z.string() }))
+    .mutation(({ ctx, input }) => acknowledgeAnnouncementService(actorMeta(ctx), input)),
+
+  publishAnnouncement: p("announcement.publish")
+    .input(
+      z.object({
+        title: z.string().min(4).max(200),
+        body: z.string().min(20).max(20000),
+        audienceRoleKeys: z.array(z.string()).max(20).optional(),
+        requiresAck: z.boolean().optional(),
+        priority: z.enum(["low", "normal", "urgent"]).optional(),
+        expiresAt: z.coerce.date().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => publishAnnouncementService(actorMeta(ctx), input)),
+
+  /** §5's compliance list. Behind the publish grant: it is a list of colleagues who have not read
+   *  something, which is management information rather than everybody's business. */
+  acknowledgements: p("announcement.publish")
+    .input(z.object({ announcementId: z.string() }))
+    .query(({ input }) => acknowledgementListService(input)),
 });
 
 function requireAssign(permissions: ReadonlySet<string>) {

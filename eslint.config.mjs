@@ -89,6 +89,9 @@ const UI_SAFE_SERVER_MODULES = [
   // message list renders the same record links the server resolved; two copies of either would
   // disagree eventually, and the disagreement would be invisible.
   "@/server/core/collab/channel-rules",
+  // §4's calendar rules and §5's audience test. The calendar screen groups by day and labels each
+  // source with these; the iCal feed writes the same labels. Two copies would drift.
+  "@/server/core/collab/calendar-rules",
   "@/server/core/calendar/business-days",
   // Type-only: the router's inferred output types. Erased at compile time, so it carries no runtime
   // weight — but it is listed rather than assumed, because a value import from here would.

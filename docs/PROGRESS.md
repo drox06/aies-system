@@ -3518,6 +3518,38 @@ DMS, which does not exist yet.
 
 **Next concrete step — session 5:** §4's shared calendar and §5's announcements with acknowledgement.
 
+### Session 5 — the calendar and the acknowledgement list (2026-08-21)
+
+§4's shared calendar and §5's announcements.
+
+**Built:** `CalendarEvent`, `CalendarFeedToken`, `Announcement`, `AnnouncementAck` and their
+migration; `calendar-rules.ts` (day keys in Manila time, the month grid, the iCal serialiser, §5's
+audience test); `calendar-service.ts` and `announcement-service.ts`; **`/calendar`** with a month
+grid, mine/everybody, a diary entry and the phone subscription panel; **`/announcements`** with
+publishing, acknowledgement and the compliance list; **`/api/calendar/[token]`** serving iCal;
+`announcement.publish`, seeded.
+
+**The calendar derives every date it shows** (docs/DECISIONS.md #145). Ten sources, none of them
+copied — a duplicated due date is a second thing to keep in step, and the calendar's copy is the one
+nobody updates. Permissions are applied source by source, and a source the reader cannot see **says
+so**, because a quiet month and a filtered month look identical.
+
+**The iCal feed's token is a credential**, and the panel that reveals it says so in those words. A
+phone cannot log in, so the URL is the identity; it is rotatable, per-person, and the route answers
+404 rather than 401 so it cannot be used to test tokens.
+
+**§5's list is built from the audience now, not at publication** (docs/DECISIONS.md #146). Nobody is
+pre-loaded as "not read" — the absence of a row is the evidence — and somebody who joined after the
+bulletin went out is counted as outstanding, because they are. Expiry hides a notice and keeps its
+acknowledgements: clause 7.4 asks who was told, not who is still being told.
+
+**Suite:** 24 new tests, all passing. Collab: 0 of 40 procedures unreached.
+
+**Next concrete step — session 6, the last of module 06:** §6's meetings, whose action items are
+created as real tasks, and §7's notification preferences with quiet hours (18:00–07:00 Manila,
+`urgent` and emergency tickets passing through, suppressed notifications queued into the morning
+digest rather than dropped).
+
 ## Not started
 - [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is
       under way (session 1 in, sessions 2–6 to go).
