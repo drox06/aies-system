@@ -39,6 +39,23 @@ const NAMED = [
   "em@aieselectromech.com",
 ];
 
+/**
+ * What the practice grant does **not** hand over, at the company's instruction of 2026-08-21:
+ * *"all with added president role should not have any authority over other user or create and
+ * delete users."*
+ *
+ * Practising the platform means raising quotations, approving advances, closing projects — not
+ * administering colleagues. These two are the only permissions in the matrix that act on people
+ * rather than on work, and they are the two that could undo the arrangement itself: with
+ * `admin.manage_roles` any of the four could grant themselves whatever this script withholds.
+ *
+ * Applied as a **deny override** rather than by carving up the role. `computePermissionSet` unions
+ * the roles and then applies per-user overrides, so a `granted: false` row subtracts cleanly and
+ * leaves the president role — and everything else it carries — exactly as it is. Removing the grant
+ * removes the overrides with it.
+ */
+const WITHHELD = ["admin.manage_users", "admin.manage_roles"];
+
 async function main() {
   const grant = process.argv.includes("--grant");
   const revoke = process.argv.includes("--revoke");
@@ -64,22 +81,45 @@ async function main() {
   const missing = NAMED.filter((email) => !users.some((user) => user.email === email));
   for (const email of missing) console.log(`  not found: ${email}`);
 
+  const withheld = await db.permission.findMany({
+    where: { key: { in: WITHHELD } },
+    select: { id: true, key: true },
+  });
+  if (grant && withheld.length !== WITHHELD.length) {
+    // A withholding that silently did not apply would be the worst outcome here: the grant would
+    // look right and hand over exactly the authority it was told not to.
+    console.error(
+      `Expected ${WITHHELD.length} permissions to withhold and found ${withheld.length}. ` +
+        `Run \`npx prisma db seed\` and try again.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   for (const user of users) {
     const has = user.roles.some((role) => role.roleId === president.id);
 
     if (grant) {
-      if (has) {
-        console.log(`  ${user.name.padEnd(4)} already had it`);
-        continue;
-      }
-      await db.userRole.create({ data: { userId: user.id, roleId: president.id } });
-      console.log(`  ${user.name.padEnd(4)} granted president alongside their own role`);
-    } else {
       if (!has) {
-        console.log(`  ${user.name.padEnd(4)} did not have it`);
-        continue;
+        await db.userRole.create({ data: { userId: user.id, roleId: president.id } });
       }
+
+      for (const permission of withheld) {
+        await db.userPermissionOverride.upsert({
+          where: { userId_permissionId: { userId: user.id, permissionId: permission.id } },
+          update: { granted: false },
+          create: { userId: user.id, permissionId: permission.id, granted: false },
+        });
+      }
+
+      console.log(
+        `  ${user.name.padEnd(4)} president alongside their own role, without ${WITHHELD.join(" or ")}`,
+      );
+    } else {
       await db.userRole.deleteMany({ where: { userId: user.id, roleId: president.id } });
+      await db.userPermissionOverride.deleteMany({
+        where: { userId: user.id, permissionId: { in: withheld.map((p) => p.id) } },
+      });
       console.log(`  ${user.name.padEnd(4)} back to their own role only`);
     }
   }
@@ -97,14 +137,33 @@ async function main() {
       "\nsign out and back in — which matters most on a revoke.",
   );
 
+  /*
+    Reported from the resolver rather than from the rows just written.
+
+    The rows are what was intended; `resolveSessionUser` is what the platform will actually let
+    somebody do — it is the same call the session makes on every request. Printing the second is the
+    only version of this summary worth trusting.
+  */
+  const { resolveSessionUser } = await import("../src/server/core/rbac/permissions");
   const after = await db.user.findMany({
     where: { deletedAt: null },
-    select: { name: true, roles: { select: { role: { select: { key: true } } } } },
+    select: { id: true, name: true, roles: { select: { role: { select: { key: true } } } } },
     orderBy: { name: "asc" },
   });
-  console.log("\nRoles now:");
+
+  console.log("\nWhere that leaves everybody:");
   for (const user of after) {
-    console.log(`  ${user.name.padEnd(14)} ${user.roles.map((r) => r.role.key).join(", ")}`);
+    const resolved = await resolveSessionUser(user.id);
+    if (!resolved) continue;
+    const canAdmin = WITHHELD.filter((key) => resolved.permissions.has(key));
+    console.log(
+      `  ${user.name.padEnd(14)} ${user.roles
+        .map((r) => r.role.key)
+        .join(" + ")
+        .padEnd(34)} ` +
+        `${String(resolved.permissions.size).padStart(3)} permissions · ` +
+        (canAdmin.length > 0 ? "can administer users" : "cannot touch users or roles"),
+    );
   }
 }
 
