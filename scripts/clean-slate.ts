@@ -17,10 +17,12 @@ import { db } from "../src/lib/db";
  * workflows. None of that is a record of something that happened — it is the shape of the platform,
  * and re-seeding it would only put the same rows back.
  *
- * **The A4One account itself**, at the company's instruction, so there is a customer to quote
- * against on the first pass. Its *history* goes with everything else: it held `AIESINQ-260001`,
- * `AIESLQ260001` and `AIESSO-260001`, which are precisely the numbers a counter reset hands out
- * again — keeping them and resetting the counters would collide on the first document raised.
+ * **Nothing by default.** Between 21 and 25 August the A4One account was kept across three runs, at
+ * the company's instruction, so there would be a customer to quote against. On 2026-08-25 that was
+ * withdrawn: its contacts were `asdf asdf` and `juan dela cruz`, and leaving obvious test data in an
+ * otherwise empty system is worse than an empty customer list. Pass `--keep AIESACC-0001` to hold an
+ * account back; its *history* goes regardless, because a kept account's early document numbers are
+ * precisely the ones a counter reset hands out again.
  *
  * **Suppliers and stock items** stay as master data, with their movements cleared and quantities
  * zeroed: a supplier is somebody the company buys from, not a thing that happened.
@@ -34,7 +36,11 @@ import { db } from "../src/lib/db";
  * Pass `--apply`. Without it this only counts.
  */
 
-const KEEP_ACCOUNT_CODE = "AIESACC-0001";
+/** `--keep <code>` holds one customer account back. Nothing is kept unless it is named. */
+function keepCodeFromArgs(): string | null {
+  const at = process.argv.indexOf("--keep");
+  return at === -1 ? null : (process.argv[at + 1] ?? null);
+}
 
 interface Step {
   label: string;
@@ -44,15 +50,20 @@ interface Step {
 async function main() {
   const apply = process.argv.includes("--apply");
 
-  const keep = await db.customerAccount.findFirst({
-    where: { code: KEEP_ACCOUNT_CODE },
-    select: { id: true, name: true },
-  });
+  const keepCode = keepCodeFromArgs();
+  const keep = keepCode
+    ? await db.customerAccount.findFirst({
+        where: { code: keepCode },
+        select: { id: true, name: true },
+      })
+    : null;
 
   console.log(
     keep
-      ? `Keeping the account ${KEEP_ACCOUNT_CODE} (${keep.name}) and nothing that happened to it.`
-      : `No ${KEEP_ACCOUNT_CODE} found — every account will go.`,
+      ? `Keeping the account ${keepCode} (${keep.name}) and nothing that happened to it.`
+      : keepCode
+        ? `No ${keepCode} found — every account will go.`
+        : "Keeping no customer accounts.",
   );
 
   /*
