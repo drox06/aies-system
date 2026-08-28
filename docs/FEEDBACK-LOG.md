@@ -113,6 +113,75 @@ built on.
 
 ---
 
+## 2026-08-28 — KJ, vice president
+
+> All tasks assigned to DJ are not in DJ's app.
+
+**Two readings, and the data says both are true.**
+
+*The literal one:* nothing is assigned to DJ. Every one of the six tasks raised on 27–28 August is
+assigned to **KJ** or **EA** — four to KJ, raised by KJ, and two to EA, raised by KJ. DJ has zero.
+So either the assignee picker defaulted to the person raising the task and the choice did not take,
+or KJ raised them for himself believing otherwise. Worth watching him do it once.
+
+*The one that is probably meant:* KJ **did** assign DJ three things — the site inspections on all
+three inquiries, all scheduled, all naming DJ. Those are `InspectionRequest` records, not tasks, so
+**they cannot appear on My Work at all.** DJ has six notifications about them and nothing on the one
+screen that is supposed to answer "what am I supposed to be doing".
+
+That is the same fault DJ reported on the 25th from the other side, and together they make the
+strongest architectural finding of the fortnight: **work assigned to a person through an inspection
+request never reaches that person's work list.** The platform has at least three ways to give
+somebody something to do — a task, an inspection request, and a ticket — and only one of them shows
+up in My Work.
+
+> The task given to me did not have any notifications even though its timing is urgent.
+
+`AIESTSK-260005 — Process Payment to Hearken`, priority **urgent**, raised by KJ at 22:17 Manila and
+due the next day.
+
+The notification exists, was created at the right moment, and was **not held** by quiet hours —
+`heldUntil` is null on both of EA's task notifications. So the quiet-hours feature is not the cause,
+and the earlier suspicion that it might be is wrong.
+
+What is left is that the bell showed it and nobody looked, or that the bell did not surface it
+visibly enough at 22:17 on a phone. Confirms **finding #1 of 2026-08-21** from a different angle:
+`createTaskService` never passes `urgent: true` to `notify`, so an urgent task is delivered exactly
+like an ordinary one — same bell, same silence. Marking a task urgent currently changes how it
+**sorts** and nothing about how it **reaches** anybody.
+
+Five of the six tasks raised were marked urgent. If urgency does not change delivery, it will stop
+being used.
+
+---
+
+## 2026-08-28 — DJ, operations
+
+> He wants to remove most of the items in the ticket, such as mobilization readiness. For now he
+> only needs a template for site inspection report. The rest will follow the site inspection.
+
+Sharpens his comment of the 25th from "lessen the forms" to a specific instruction and a specific
+order of work: **start with the site inspection report template; everything else waits until that is
+in use.**
+
+Named for removal: mobilisation readiness, and "most of" the rest of the ticket panels.
+
+**The thing to settle before acting on it.** Mobilisation readiness is not only a form — it is the
+gate that refuses to send a crew out before the downpayment is in, the client has approved the method
+statement, and the materials are issued. Removing the panel is easy; removing the check is a decision
+about money. The likely resolution is the one already noted on the 25th: **a gate does not have to be
+a form.** Readiness could be three lines of text on the ticket that go red, with no screen of its own.
+
+Worth putting to DJ directly: *when you say remove mobilisation readiness, do you mean the form, or
+do you mean the crew should be able to go out regardless?* Those are very different requests and the
+answer decides how much of it can go.
+
+**And the sequencing is a gift.** "The rest will follow the site inspection" says the first thing to
+build is a document template, not a workflow — and that is exactly the family of finding that keeps
+recurring: the platform captures data and produces no paper.
+
+---
+
 ## Standing gap: refusals are invisible
 
 The audit log records what **succeeded**. A gate refusing somebody, a validation message, a 403, a
