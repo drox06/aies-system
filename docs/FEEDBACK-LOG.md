@@ -117,23 +117,28 @@ built on.
 
 > All tasks assigned to DJ are not in DJ's app.
 
-**Two readings, and the data says both are true.**
+**Confirmed by EA on 2026-08-28: KJ meant the inspection requests.** He assigned the three site
+inspections to DJ and was checking whether they landed on DJ's My Work. They did not, and cannot —
+an `InspectionRequest` is not a `Task`, and My Work reads tasks. DJ received six notifications about
+them and has an empty work list.
 
-*The literal one:* nothing is assigned to DJ. Every one of the six tasks raised on 27–28 August is
-assigned to **KJ** or **EA** — four to KJ, raised by KJ, and two to EA, raised by KJ. DJ has zero.
-So either the assignee picker defaulted to the person raising the task and the choice did not take,
-or KJ raised them for himself believing otherwise. Worth watching him do it once.
+There is no assignee-picker fault. The six tasks raised on 27–28 August are KJ's own four and EA's
+two, assigned exactly as intended; my first reading of this finding was wrong and is withdrawn.
 
-*The one that is probably meant:* KJ **did** assign DJ three things — the site inspections on all
-three inquiries, all scheduled, all naming DJ. Those are `InspectionRequest` records, not tasks, so
-**they cannot appear on My Work at all.** DJ has six notifications about them and nothing on the one
-screen that is supposed to answer "what am I supposed to be doing".
+**What is left is the sharper finding, and it is the most important one of the fortnight.** KJ's
+mental model is *"I gave DJ a job."* He did not distinguish between an inspection request, a task
+and a ticket, and had no reason to — from where he sits they are one act. The platform has at least
+three separate mechanisms for giving a person something to do, and **only one of them reaches the
+screen that answers "what am I supposed to be doing".**
 
-That is the same fault DJ reported on the 25th from the other side, and together they make the
-strongest architectural finding of the fortnight: **work assigned to a person through an inspection
-request never reaches that person's work list.** The platform has at least three ways to give
-somebody something to do — a task, an inspection request, and a ticket — and only one of them shows
-up in My Work.
+This is the same fault DJ reported from the other side on the 25th: his My Work is empty while he is
+the busiest person in the system. Two people, two directions, one cause.
+
+**For the simplification:** this is a strong argument that the inspection request, the ticket
+assignment and the task should collapse into one thing, or at minimum that everything assigned to a
+person must appear on their work list regardless of which record carries it. It also explains why
+KJ reached for tasks to track his quotations — a task is the only thing he can be sure somebody will
+see.
 
 > The task given to me did not have any notifications even though its timing is urgent.
 
