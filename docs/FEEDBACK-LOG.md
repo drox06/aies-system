@@ -237,6 +237,32 @@ it can be seen at all.
 
 ---
 
+## 2026-08-31 — EA
+
+> Tasks raised by KJ assigned to DJ has no notif to DJ.
+
+**Checked against the data before logging it.** No `Task` row exists from KJ to DJ at all — zero,
+literally. What does exist is four `InspectionRequest`s KJ raised and assigned to DJ between 27 and
+31 August, behind `AIESSIR-260001` through `260004`.
+
+Every one of those four generated a notification to DJ. Three were sent immediately, unheld. The
+fourth landed at 20:05 Manila on 31 August and was correctly held by quiet hours until 07:00 the
+next morning — not lost, held as designed. **All four are still unread.**
+
+So the pipeline did its job: nothing was dropped, nothing was silently withheld outside quiet hours.
+What the database cannot say is whether the bell ever displayed them to DJ, or whether he simply
+has not opened it — that distinction only DJ can settle.
+
+**This is the same confusion as 28 August, reported a second time by the same two people.** KJ calls
+an inspection assignment a "task." In the data model it is a different record, with its own
+notification type, and it does not appear on `My Work`. The words say "no notification"; the data
+says the notification exists and the visibility DJ actually wants — one place that shows him
+everything assigned to him — does not. Two reports of the identical seam is a strong argument for
+collapsing task / inspection request / ticket assignment into one thing in the rebuild, ahead of
+almost everything else on the list.
+
+---
+
 ## Standing gap: refusals are invisible
 
 The audit log records what **succeeded**. A gate refusing somebody, a validation message, a 403, a
