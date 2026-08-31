@@ -25,7 +25,12 @@ import { db } from "../src/lib/db";
  * precisely the ones a counter reset hands out again.
  *
  * **Suppliers and stock items** stay as master data, with their movements cleared and quantities
- * zeroed: a supplier is somebody the company buys from, not a thing that happened.
+ * zeroed: a supplier is somebody the company buys from, not a thing that happened. Pass
+ * `--wipe-suppliers` to remove them anyway — the company asked for exactly that on 2026-08-31,
+ * alongside a full reset, to close out this round of the walkthrough with nothing left standing.
+ * `Product.defaultSupplierId` is a plain string with no foreign key (same shape as `entityType`/
+ * `entityId` elsewhere), so a wiped supplier leaves it pointing at nothing rather than blocking
+ * the delete — a stale reference on surviving catalogue data, not a broken one.
  *
  * ## How it fails
  *
@@ -49,6 +54,7 @@ interface Step {
 
 async function main() {
   const apply = process.argv.includes("--apply");
+  const wipeSuppliers = process.argv.includes("--wipe-suppliers");
 
   const keepCode = keepCodeFromArgs();
   const keep = keepCode
@@ -151,6 +157,13 @@ async function main() {
     { label: "accreditation records", run: () => db.accreditationRecord.deleteMany({}) },
     { label: "principal prospects", run: () => db.principalProspect.deleteMany({}) },
 
+    // Master data by default (see the file header) — only runs with --wipe-suppliers. Placed here
+    // because every table that references a supplier (SupplierPO, SupplierQuoteRequest,
+    // SupplierInvoice, PrincipalProspect) is already empty by this point in the sequence.
+    ...(wipeSuppliers
+      ? [{ label: "suppliers", run: () => db.supplier.deleteMany({}) } satisfies Step]
+      : []),
+
     // ---- Customers -----------------------------------------------------------------------------
     {
       label: "contacts (other accounts)",
@@ -190,6 +203,10 @@ async function main() {
     console.log("\nCounting only. Re-run with --apply.\n");
     const counts: [string, number][] = [
       ["customer accounts", await db.customerAccount.count()],
+      [
+        "suppliers" + (wipeSuppliers ? "" : " (kept — no --wipe-suppliers)"),
+        await db.supplier.count(),
+      ],
       ["inquiries", await db.inquiry.count()],
       ["quotations", await db.quotation.count()],
       ["sales orders", await db.salesOrder.count()],
