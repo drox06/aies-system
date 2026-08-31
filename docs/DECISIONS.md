@@ -4989,3 +4989,46 @@ every time it is opened. An item closed on Tuesday is not on Thursday's agenda.
 Only the **immediately** previous meeting. Reaching further back would turn a standing agenda into an
 archive of everything anybody has ever failed to do, which is how a recurring meeting stops being
 read at all.
+
+---
+
+## #149 — Site photographs are converted and resized in the browser
+
+**2026-08-31. Decided, not yet built** — it belongs to the simplified rebuild rather than to
+`aies-system`, which is frozen for the walkthrough.
+
+DJ uploaded seven iPhone photographs to a site inspection at 12:55 Manila. All seven were HEIC, all
+seven stored with no web derivative, and he deleted them one at a time, converted them elsewhere and
+uploaded again three minutes later. He did not report it. The platform accepted files it could not
+display and said nothing — docs/FEEDBACK-LOG.md, 2026-08-31.
+
+**The decision: convert HEIC to JPEG in the browser, and resize while converting.** A WebAssembly
+decoder, loaded only when somebody picks a HEIC file, runs before the upload leaves the phone.
+
+**Why the browser rather than the server.** Server-side conversion needs an image library built with
+HEIF support, which the deployment does not have — a hosting dependency to carry forever. The browser
+needs nothing from the host, survives a change of platform, and fails visibly in front of the person
+who can do something about it.
+
+**Why resizing is the point, not a bonus.** A converted JPEG is *larger* than the HEIC it came from —
+measured, not assumed: `IMG_2041` was 2,546 KB as HEIC and 3,575 KB as JPEG. Converting alone would
+make uploads worse on exactly the plants where signal is worst. Capped at roughly 2,000 pixels on the
+long edge, this morning's seven photographs would have been about 3 MB in total rather than 19 MB, and
+would have uploaded faster than the originals.
+
+**The capture time must survive the conversion.** Re-encoding drops EXIF by default. For a holiday
+photograph that is nothing; for an image that ends up in an inspection report backing a warranty
+claim, **when it was taken is part of what makes it evidence**. The conversion carries the timestamp
+across deliberately, or the platform quietly weakens the record it exists to keep.
+
+**A refusal is the backstop, and silence never is.** If the decoder fails or JavaScript is blocked,
+the upload is refused with a reason a person can act on. What must not happen again is the file being
+accepted and nothing appearing.
+
+**Open, and worth one question to DJ:** iOS Safari usually converts HEIC to JPEG itself when a photo
+is chosen through a file input, which is why most web applications never see one. DJ's arrived as
+genuine HEIC, so he used a different route — the Files app, a Mac, or a share sheet. Which it was
+decides what the fix has to cover.
+
+**Meanwhile, and needing no code:** iPhone → Settings → Camera → Formats → **Most Compatible** makes
+the phone shoot JPEG.

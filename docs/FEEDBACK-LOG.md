@@ -15,7 +15,7 @@ a hypothesis about the cause it is labelled as one.
 
 ## 2026-08-21 — EA, first walkthrough
 
-Fifteen findings from the first end-to-end pass.
+Sixteen findings from the first end-to-end pass.
 
 | # | Verbatim | Reading |
 |---|---|---|
@@ -213,6 +213,9 @@ app cannot show.
 *Accepting the upload and then silently producing nothing* is a defect — it should either convert on
 receipt or refuse the file and say why. A technician on a plant roof should not be diagnosing image
 formats.
+
+**Decided 2026-08-31 — docs/DECISIONS.md #149:** convert and resize in the browser as the main path,
+with a clear refusal as the backstop. Not built; it belongs to the rebuild.
 
 **Also worth carrying into the simplification:** the seven JPEGs total about 19 MB for one inspection.
 Ten inspections a week is manageable; it will not stay that way, and site photographs are the one
