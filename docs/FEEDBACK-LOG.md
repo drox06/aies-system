@@ -263,6 +263,26 @@ almost everything else on the list.
 
 ---
 
+## 2026-08-31 — EA, walking AIESTKT-260001 to paid and back
+
+Not a comment — a live walkthrough of one delivery ticket, generated through to a collected payment,
+then undone and repeated. Five errors and blocked gates turned up doing it: two real bugs, one
+structural gap, and two gates working exactly as intended. Full detail with reasons in
+`docs/DECISIONS.md` #150, since none of these were said by a person — they came out of tracing what
+the data actually did. Short version:
+
+- A QA approval could be recorded against a delivery ticket, which should never reach that lane at
+  all, and silently overwrote a status the delivery flow had already set correctly. Bug.
+- The order had no payment term, so no billing schedule could exist — the gate that catches this
+  works, but nothing upstream stops an order being raised with no term at all.
+- Only the `on_order` billing trigger is caught up if it fires before a schedule exists. Every other
+  trigger, including the one this ticket needed, is silently lost if that happens. Bug.
+- Cancelling a statement with money against it was correctly refused. Working as designed.
+- A cleared payment cannot be deleted once invoiced — enforced by the schema, not a bug, but there is
+  no reversal path of any kind once that happens. Worth a decision for the rebuild.
+
+---
+
 ## Standing gap: refusals are invisible
 
 The audit log records what **succeeded**. A gate refusing somebody, a validation message, a 403, a

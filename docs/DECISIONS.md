@@ -5032,3 +5032,76 @@ decides what the fix has to cover.
 
 **Meanwhile, and needing no code:** iPhone → Settings → Camera → Formats → **Most Compatible** makes
 the phone shoot JPEG.
+
+---
+
+## #150 — Every error and blocked gate from walking AIESTKT-260001 to paid, and back
+
+**2026-08-31. Findings, nothing built.** EA asked to walk one delivery ticket from generated through
+to a collected payment, then asked to undo the billing step and repeat it. Five distinct errors and
+blocks turned up along the way — two are real bugs, one is a structural gap worth a decision, and two
+are gates that worked exactly as designed. Logged separately from docs/FEEDBACK-LOG.md because none
+of these were said by a person walking the app; they surfaced from tracing what the data actually did.
+
+### 1. A delivery ticket reached the QA/T&C lane, and a correct status was silently overwritten — bug
+
+`completeDeliveryService` signed AIESDR-260001 at 13:21:26 and, in the same transaction, correctly set
+`AIESTKT-260001.status = "completed"`. Five minutes later KJ recorded a QA approval
+(`AIESQA-260001`) against that same ticket, and the ticket's status moved backward to `"tc"`.
+
+**Reason:** specs/04-operations-projects.md §2 is explicit that a delivery ticket has no project and
+never enters QA/T&C — that lane belongs only to `new_project`, `installation` and `after_sales`
+tickets. Nothing in the QA-recording path checks the ticket's `type` before writing to it. The
+control that should have refused the action ("this ticket type cannot take a QA approval") does not
+exist, so a correct, already-final status was clobbered by an action that should never have been
+offered in the first place.
+
+**Corrected by hand** — restored `status: "completed"` with an audit entry explaining why, since the
+value the delivery flow had already produced was the honest one.
+
+### 2. The billing schedule never existed, because the order carried no payment term — gap, not a gate
+
+`billing_schedule.manage`'s real service (`generateScheduleService`) does refuse cleanly when a
+sales order has no payment term: *"has no payment term, so there is nothing to derive a billing plan
+from... Set the term on the order first."* That gate works. The problem sat one step earlier —
+**neither AIESSO-260001 nor the quotation it came from ever had a term set**, and nothing in the
+inquiry-to-order path requires one before the order can be raised. So the refusal a person would see
+is correct, but by the time anyone reaches billing the missing term reads as a mystery rather than a
+traceable cause. Worth a decision for the rebuild: should a sales order be raisable at all with no
+payment term, given nothing downstream can bill it either way?
+
+### 3. Any billing trigger but `on_order` is missed for good if it fires before the schedule exists — bug
+
+`generateScheduleService` special-cases exactly one trigger, `on_order`, by applying it at generation
+time — the code says why: *"the schedule did not exist when the order was created, so nothing was
+listening... without it, the most common term in the company (50/50) would silently never bill its
+first half."* Every other trigger (`on_dr_signed`, `on_delivery`, `on_installation`,
+`on_tc_accepted`, `on_project_close`) has no such catch-up. AIESSO-260001's delivery was signed —
+firing `delivery.dr_signed` — at 13:21:26, a full fourteen minutes before a schedule existed to hear
+it. The event fired into nothing and was gone. I re-applied it by hand, using the same
+`applyTriggerToSchedule` the subscribers call, once the schedule existed. **This is not specific to
+delivery** — a late payment term on any order lets the same silence happen to whichever trigger
+already fired, and nothing in the system would show that a milestone was quietly never going to bill.
+
+### 4. `cancelStatementService` correctly refused a cancel while money was against it — gate working as designed
+
+Undoing the walkthrough's completed payment, my first attempt to cancel the billing statement was
+refused: *"has money against it. Cancelling it would orphan a payment and the invoice already issued
+for it — raise a credit note instead."* Exactly right, and worth recording as a positive alongside
+the bugs above — this is the gate the module is supposed to have, and it stopped an action that would
+have left a payment pointing at nothing.
+
+### 5. A cleared payment cannot be deleted once an invoice has been issued against it — hard constraint, not a bug
+
+Reversing the walkthrough's test payment, `db.payment.delete()` failed outright:
+`Foreign key constraint violated: ServiceInvoice_paymentId_fkey`. **Reason, traced fully:** a
+`ServiceInvoice` can never be deleted — only cancelled-and-retained, because a BIR-sequenced invoice
+number must never disappear — and its `paymentId` column is a required foreign key. So the moment an
+invoice is issued against a payment, that payment is permanently anchored. There is no `voidPayment`
+function anywhere in the finance module; this is not a missing script, it is the schema refusing to
+let one exist. For AIESPMT-2600002 the only honest resolution was to cancel the invoice (retained,
+per its design) and leave the payment on record as received-but-unallocated — a real credit on the
+account, not an erased transaction. **Worth a decision for the rebuild:** is "a payment, once
+invoiced, is never undone — only offset by a credit note" the permanent stance? If so, the credit-note
+flow it depends on does not exist yet either, and nothing today tells finance an unallocated payment
+like this one is sitting there waiting to be matched.
