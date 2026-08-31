@@ -187,6 +187,53 @@ recurring: the platform captures data and produces no paper.
 
 ---
 
+## 2026-08-31 — found in the log, not reported by anybody
+
+Two faults nobody mentioned. Both matter because of that: DJ worked around the first and lost ten
+minutes to it without saying a word, which is a fair measure of how much friction never reaches us.
+
+### iPhone photos do not work
+
+At 12:55 Manila, DJ uploaded seven site photographs to the inspection on `AIESINQ-260003`, straight
+off a phone: `IMG_2041.HEIC` through `IMG_2047.HEIC`, 1.2–2.6 MB each. Every one stored with **no web
+derivative** — the image pipeline produced nothing for them.
+
+Two minutes later he deleted all seven, one at a time. Three minutes after that he uploaded the same
+seven as JPEG. Those processed correctly, web derivatives and all.
+
+So he photographed a site on his phone, found the pictures would not display, deleted them
+individually, converted them somewhere else, and started again — **on the single most important thing
+he does on site.** Then said nothing about it.
+
+**Cause:** `sharp` handles HEIC only when built against `libheif`, which the deployed build is not.
+The upload is accepted, the derivative step yields nothing, and the record ends up holding a file the
+app cannot show.
+
+**Two separate faults, and the second is worse than the first.** Not supporting HEIC is a limitation.
+*Accepting the upload and then silently producing nothing* is a defect — it should either convert on
+receipt or refuse the file and say why. A technician on a plant roof should not be diagnosing image
+formats.
+
+**Also worth carrying into the simplification:** the seven JPEGs total about 19 MB for one inspection.
+Ten inspections a week is manageable; it will not stay that way, and site photographs are the one
+thing this company will never agree to delete.
+
+### A document number was consumed and no record made
+
+The inquiry series reads `AIESINQ-260001, 260002, 260003, 260004, 260006`. Five inquiries, six
+numbers. **`260005` was allocated and never became anything.**
+
+Nothing in the audit log corresponds to it, so whatever failed happened between allocating the number
+and writing the row — the number is drawn first, deliberately, so that two people cannot be handed
+the same one.
+
+A gap in a document series is the correct outcome and not itself a bug: module 00 §3 does not reuse a
+number, and a gap is a true record that one was issued. What is *not* known is why the create failed,
+because a failed create writes nothing. This is the standing gap below, showing up in the one place
+it can be seen at all.
+
+---
+
 ## Standing gap: refusals are invisible
 
 The audit log records what **succeeded**. A gate refusing somebody, a validation message, a 403, a
