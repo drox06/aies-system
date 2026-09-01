@@ -120,6 +120,25 @@ describe("createTaskService", () => {
     expect(row.assignedAt).not.toBeNull();
   });
 
+  it("tells an urgent assignee straight through quiet hours", async () => {
+    // docs/DECISIONS.md and the 21 August walkthrough (finding #1): `tellAssignee` never told
+    // `notify()` a task was urgent, so `passesQuietHours()` — built for exactly this — never saw it.
+    // Deterministic regardless of when the suite runs: `passesQuietHours(type, true)` is true
+    // whatever the hour, so an urgent task's notification is never held, in or out of quiet hours.
+    const kj = await makeUser(`Urgent assignee ${suffix}`);
+
+    const task = await makeTask({
+      title: "Process payment to a supplier",
+      assigneeId: kj.id,
+      priority: "urgent",
+    });
+
+    const notification = await db.notification.findFirstOrThrow({
+      where: { recipientId: kj.id, type: TASK_ASSIGNED_NOTIFICATION_TYPE, entityId: task.id },
+    });
+    expect(notification.heldUntil).toBeNull();
+  });
+
   it("does not notify somebody about a task they gave themselves", async () => {
     const task = await makeTask({ title: "Tidy the store room", assigneeId: actor.actorId });
 
@@ -161,6 +180,25 @@ describe("assignTaskService", () => {
     expect(dropped.assigneeId).toBeNull();
     // Nobody owes it, so nothing has been owed since any particular moment.
     expect(dropped.assignedAt).toBeNull();
+  });
+
+  it("tells a reassigned urgent task's new owner straight through quiet hours", async () => {
+    // Same fix, the other call site: `tellAssignee` is shared by create and reassignment, and the
+    // reassignment path needed `priority` added to its own `select` before it had anything to pass.
+    const first = await makeUser(`Handoff first ${suffix}`);
+    const second = await makeUser(`Handoff second ${suffix}`);
+    const task = await makeTask({
+      title: "Chase the overdue supplier bill",
+      assigneeId: first.id,
+      priority: "urgent",
+    });
+
+    await assignTaskService(actor, { taskId: task.id, assigneeId: second.id });
+
+    const notification = await db.notification.findFirstOrThrow({
+      where: { recipientId: second.id, type: TASK_ASSIGNED_NOTIFICATION_TYPE, entityId: task.id },
+    });
+    expect(notification.heldUntil).toBeNull();
   });
 
   it("leaves the clock alone when the assignee is unchanged", async () => {

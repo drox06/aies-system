@@ -5254,3 +5254,41 @@ created and deleted during verification consumed `AIESACC-0002`, so the counter 
 now has a one-number gap before any named user has raised a real account. Consistent with this
 platform's own standing rule that a consumed number is never reused, and not itself a defect — but
 worth knowing rather than discovering later and wondering what `0002` was.
+
+---
+
+## #153 — Urgent tasks now bypass quiet hours, as §7 always meant them to
+
+**2026-09-01. Fixed.** EA raised two tasks tonight, one plain and one marked urgent, to test the
+notification path directly. Both landed on KJ's My Work correctly; neither reached his bell — the
+urgent one exactly as held as the plain one. Checked against the data: `heldUntil` on both
+notifications was set to 07:00 Manila tomorrow, regardless of priority. EA's instruction once that
+was confirmed: **"all urgent should bypass quiet hours."**
+
+**The mechanism already existed — it was just never wired to this caller.** §7 says so in as many
+words: *"Quiet hours by default... except for `urgent` priority and emergency tickets."*
+`quiet-hours-rules.ts` has carried `passesQuietHours(type, urgent)` since the module was built, and
+`notify()` has always checked it. What was missing was one boolean: `task-service.ts`'s
+`tellAssignee()` — the function every task notification runs through, both on creation and on
+reassignment — never read the task's own `priority` field, so it always called `notify()` with
+`urgent` unset. This is finding #1 of the 21 August walkthrough, still open, now reproduced twice
+more tonight against EA's own test tasks.
+
+**The fix is the one line the plumbing was always waiting for.** `tellAssignee()` now takes the
+task's `priority` and passes `urgent: priority === "urgent"` through to `notify()`. Both call sites
+— `createTaskService` and `assignTaskService` (reassignment) — needed `priority` added to what they
+already had in hand; `assignTaskService`'s own `select` didn't carry it before. Task-template-
+generated tasks (`task-template-service.ts`) go through `createTaskService` already, so a template
+that assigns urgent work is fixed by the same change without touching that file.
+
+**Two regression tests added** (`tests/server/core/collab/task.test.ts`), one per call site — an
+urgent task's notification and a reassigned urgent task's notification are both asserted to have
+`heldUntil === null`. Deterministic regardless of when the suite runs: `passesQuietHours(type, true)`
+is `true` whatever the hour, so this doesn't depend on the real clock being inside or outside quiet
+hours at test time, unlike an assertion about a *normal*-priority task would.
+
+**What this does not change:** everything else about quiet hours stays exactly as designed — a
+normal-priority task raised at 22:00 is still held until 07:00, never dropped. Marking a task urgent
+is now a real promise rather than a label; it should stay something raised deliberately, for exactly
+the reason §7 gives — a system that wakes people at midnight gets muted, and the message that
+actually mattered gets muted with it.

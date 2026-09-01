@@ -131,7 +131,14 @@ export async function createTaskService(actor: ActorMeta, input: CreateTaskInput
   });
 
   if (created.assigneeId)
-    await tellAssignee(actor, created.id, created.assigneeId, created.number, created.title);
+    await tellAssignee(
+      actor,
+      created.id,
+      created.assigneeId,
+      created.number,
+      created.title,
+      created.priority as TaskPriority,
+    );
 
   return { id: created.id, number: created.number };
 }
@@ -142,6 +149,11 @@ export async function createTaskService(actor: ActorMeta, input: CreateTaskInput
  * Outside the transaction and swallowed on failure, as every other notify in this platform is: the
  * task is recorded whatever the bell does. A missing notification is an annoyance; a rolled-back
  * assignment is work nobody owns.
+ *
+ * `urgent` is passed through to `notify()`, which is what `passesQuietHours()` has always checked —
+ * the plumbing existed since §7 was built. This was the one caller that never told it: an urgent
+ * task was held through quiet hours exactly like a normal one, reported and confirmed twice on
+ * 2026-09-01, and matching finding #1 of the 21 August walkthrough (docs/FEEDBACK-LOG.md).
  */
 async function tellAssignee(
   actor: ActorMeta,
@@ -149,6 +161,7 @@ async function tellAssignee(
   assigneeId: string,
   number: string,
   title: string,
+  priority: TaskPriority,
 ) {
   if (assigneeId === actor.actorId) return; // Nobody needs telling about a task they gave themselves.
   try {
@@ -159,6 +172,7 @@ async function tellAssignee(
       body: title,
       entityType: TASK_ENTITY_TYPE,
       entityId: taskId,
+      urgent: priority === "urgent",
     });
   } catch {
     // Deliberately swallowed. See above.
@@ -171,7 +185,7 @@ export async function assignTaskService(
 ) {
   const task = await db.task.findFirst({
     where: { id: input.taskId, deletedAt: null },
-    select: { id: true, number: true, title: true, assigneeId: true, status: true },
+    select: { id: true, number: true, title: true, assigneeId: true, status: true, priority: true },
   });
   if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "That task no longer exists." });
 
@@ -236,7 +250,14 @@ export async function assignTaskService(
   });
 
   if (input.assigneeId && input.assigneeId !== task.assigneeId) {
-    await tellAssignee(actor, task.id, input.assigneeId, task.number, task.title);
+    await tellAssignee(
+      actor,
+      task.id,
+      input.assigneeId,
+      task.number,
+      task.title,
+      task.priority as TaskPriority,
+    );
   }
 
   return { assigneeId: input.assigneeId };
