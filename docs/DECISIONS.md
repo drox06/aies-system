@@ -5105,3 +5105,91 @@ account, not an erased transaction. **Worth a decision for the rebuild:** is "a 
 invoiced, is never undone — only offset by a credit note" the permanent stance? If so, the credit-note
 flow it depends on does not exist yet either, and nothing today tells finance an unallocated payment
 like this one is sitting there waiting to be matched.
+
+---
+
+## #151 — New duties and responsibilities for the rebuild, by role
+
+**2026-08-31. Decided by EA, not yet built** — belongs to the rebuild, on a role structure that
+otherwise still names the same five people (Spec.md §4.1). Given after the round of findings in #150
+and the full reset that closed out this round of the walkthrough (docs/FEEDBACK-LOG.md, same date).
+
+This is EA's own duties table, recorded verbatim rather than summarized, because the exact wording —
+what each person can and cannot do — is the thing a rebuild has to match.
+
+### KJ — Vice President
+
+Roughly everything except administering people. Full CRM (create, edit, view all, delete, merge
+duplicates, appoint principal suppliers); full quotation lifecycle including approving his own
+module's output, as standing approver; full finance (cost and margin, AR, billing statements, P&L,
+accountant exports, records payments, cancels invoices); approves cash advances, liquidation
+extensions, quotations, supplier POs; full operations (dispatch, methodology approval, QA, T&C
+signoff, warranty determination, project close); all four gate overrides; assigns tasks to
+personnel; full task/board/channel/announcement authority.
+
+**Cannot:** `admin.manage_users`, `admin.manage_roles` — no user or role administration, ever.
+Nothing else is withheld.
+
+### PD — Admin Manager **and Purchaser**
+
+Title changes to reflect the added scope. Add and edit customers, process customer accreditation,
+supplier directory, supplier RFQ, product catalogue, **and now supplier accreditation**; record
+customer POs, raise sales orders, book and inspect goods receipts, raise/edit/delete supplier POs;
+**full quotation lifecycle — create, edit, revise, send, delete, view archive — but not approve**;
+operations support (raise and process material requests and cash advances, execute tickets);
+**partial finance — AR, billing statements, P&L, accountant exports, records payments, cancels
+invoices, processes paying suppliers, processes receiving customer payment**; release an approved
+cash advance and view the register; full task/board/channel/announcement authority.
+
+**Cannot:** approve a material request, cash advance, or supplier PO (raises and releases, not
+approves); see cost or margin; any gate override; delete or merge CRM records.
+
+**What this changes against the live system documented earlier today:** PD currently holds no
+quotation permission at all, and no finance permission beyond `cash_advance.release` and
+`cash_advance.view_register` — `payables.manage` and `payment.record` sit with the vice-president
+only. Both are new grants, not a rewording of what PD already had.
+
+### DJ — Operations Manager
+
+Nearly everything operational: generate and dispatch tickets, execute field work, approve material
+requests, approve method statements internally, record QA outcomes, sign off T&C, determine warranty
+coverage, approve service reports, close projects, run deliveries, manage checklists; **full
+quotation lifecycle — create, edit, revise, send, delete, view archive — but not approve**; views all
+tickets and all sales orders; raises cash advances and material requests, approves timesheets; full
+task/board/channel/announcement authority.
+
+**Cannot:** see cost, margin or project P&L; record a goods receipt, raise a supplier PO, or view
+sales orders/quotations beyond his own; approve cash advances; any gate override; record or remove a
+customer PO, or touch supplier approval.
+
+**What this changes:** DJ currently holds no `quotation.*` permission whatsoever — this is the
+largest single grant in the table, an operations manager gaining full authorship of the document
+that starts the sales side, still short of approving it.
+
+### EM — Sales and Marketing Manager
+
+Create/edit/view CRM records, assign inquiries, request site inspections, manage principal-supplier
+prospects; **full quotation lifecycle — create, edit, revise, send, delete, view archive — but not
+approve**; record customer POs, raise sales orders, manage the supplier directory and product
+catalogue; manage maintenance contracts; full task/board/channel/announcement authority.
+
+**Cannot:** approve his own quotations — every one still goes to KJ or EA regardless of author;
+anything in operations beyond viewing tickets; anything in finance at all; record a goods receipt,
+raise a supplier PO, or view sales orders/quotations beyond his own; publish announcements or manage
+channels he doesn't own.
+
+**What this changes:** adds `quotation.delete` and `quotation.view_archive` to what EM already had —
+smaller than PD's or DJ's change, since he already held the rest of the quotation lifecycle.
+
+### The pattern across all four changes
+
+**Quoting stops being gated by role.** In the live system only KJ and EM can create a quotation at
+all; the rebuild gives it to all four, DJ and PD included, withholding only `quotation.approve` —
+which stays with KJ and EA everywhere. Approval is now the one gate on quoting, not authorship.
+
+**PD's scope widens into money.** Paying suppliers and recording customer payments move from
+VP-only to PD as well — the first time anyone but KJ or EA has touched that side of finance.
+
+**Nothing here touches the four gate overrides, or the two administration permissions.** Both stay
+exactly as narrow as Spec.md §4 already made them: KJ and EA only, no exceptions, unchanged by any
+of the widening above.
