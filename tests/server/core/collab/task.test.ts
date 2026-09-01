@@ -3,11 +3,13 @@ import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import {
   TASK_ASSIGNED_NOTIFICATION_TYPE,
+  TASK_EDITED_NOTIFICATION_TYPE,
   assignTaskService,
   createTaskService,
   myWorkService,
   setTaskStatusService,
   tasksForRecordService,
+  updateTaskService,
 } from "@/server/core/collab/task-service";
 
 /**
@@ -33,6 +35,17 @@ const suffix = randomUUID().slice(0, 8);
 const actor = {
   actorId: `task-${suffix}`,
   actorLabel: "Task fixture",
+  ip: null,
+  userAgent: null,
+  requestId: null,
+};
+
+/** `admin.manage_users` is the permission `updateTaskService` reads as "this is EA" — see its own
+ *  comment for why that one specifically, not the `president` role by name. */
+const eaActor = {
+  actorId: `ea-${suffix}`,
+  actorLabel: "EA fixture",
+  permissions: new Set(["admin.manage_users"]),
   ip: null,
   userAgent: null,
   requestId: null,
@@ -229,6 +242,86 @@ describe("assignTaskService", () => {
 
     await expect(
       assignTaskService(actor, { taskId: task.id, assigneeId: actor.actorId }),
+    ).rejects.toThrow(/done/);
+  });
+});
+
+describe("updateTaskService", () => {
+  it("lets the task's own creator edit it, and tells the assignee it changed", async () => {
+    const assignee = await makeUser(`Edit assignee ${suffix}`);
+    const task = await makeTask({
+      title: "Chase the supplier for the revised date",
+      assigneeId: assignee.id,
+      priority: "urgent", // deterministic — see notify.test.ts's own fix, same reasoning here.
+    });
+
+    const result = await updateTaskService(actor, {
+      taskId: task.id,
+      title: "Chase the supplier for the revised delivery date",
+      description: "They quoted three weeks; push for two.",
+    });
+    expect(result.id).toBe(task.id);
+
+    const row = await db.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(row.title).toBe("Chase the supplier for the revised delivery date");
+    expect(row.description).toBe("They quoted three weeks; push for two.");
+
+    const notification = await db.notification.findFirstOrThrow({
+      where: { recipientId: assignee.id, type: TASK_EDITED_NOTIFICATION_TYPE, entityId: task.id },
+    });
+    expect(notification.heldUntil).toBeNull();
+    expect(notification.title).toContain(task.number);
+  });
+
+  it("lets EA edit a task raised by somebody else", async () => {
+    const task = await makeTask({ title: "Reconcile the petty cash" });
+
+    await updateTaskService(eaActor, { taskId: task.id, title: "Reconcile petty cash for August" });
+
+    const row = await db.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(row.title).toBe("Reconcile petty cash for August");
+  });
+
+  it("refuses anybody who is neither the creator nor EA", async () => {
+    const task = await makeTask({ title: "Draft the RFQ" });
+    const stranger = {
+      actorId: `stranger-${suffix}`,
+      actorLabel: "Stranger fixture",
+      permissions: new Set<string>(),
+      ip: null,
+      userAgent: null,
+      requestId: null,
+    };
+
+    await expect(
+      updateTaskService(stranger, { taskId: task.id, title: "Draft the RFQ for the pumps" }),
+    ).rejects.toThrow(/Only whoever raised/);
+
+    const row = await db.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(row.title).toBe("Draft the RFQ"); // untouched
+  });
+
+  it("does not notify somebody editing their own assigned task", async () => {
+    const task = await makeTask({
+      title: "Tidy the parts bin",
+      assigneeId: actor.actorId,
+      priority: "urgent",
+    });
+
+    await updateTaskService(actor, { taskId: task.id, title: "Tidy and label the parts bin" });
+
+    const count = await db.notification.count({
+      where: { recipientId: actor.actorId, type: TASK_EDITED_NOTIFICATION_TYPE, entityId: task.id },
+    });
+    expect(count).toBe(0);
+  });
+
+  it("refuses to edit finished work", async () => {
+    const task = await makeTask({ title: "Close the vendor file" });
+    await setTaskStatusService(actor, { taskId: task.id, status: "done" });
+
+    await expect(
+      updateTaskService(actor, { taskId: task.id, title: "Close the vendor file properly" }),
     ).rejects.toThrow(/done/);
   });
 });

@@ -21,6 +21,7 @@ export const TASK_ENTITY_TYPE = "Task";
 export const TASK_DOCUMENT_TYPE = "task";
 
 export const TASK_ASSIGNED_NOTIFICATION_TYPE = "task.assigned";
+export const TASK_EDITED_NOTIFICATION_TYPE = "task.edited";
 
 /**
  * §2's tasks — the record an assignment leaves behind.
@@ -46,6 +47,14 @@ registerNotificationType({
     a template the moment a sales order is raised, when the point is that finance learns about the
     downpayment invoice without being told in a meeting.
   */
+  defaultChannels: { inApp: true, email: false, digest: true },
+});
+
+registerNotificationType({
+  key: TASK_EDITED_NOTIFICATION_TYPE,
+  label: "A task assigned to you was edited",
+  // Same shape as the assignment notice and for the same reason — an edit that changes what the
+  // work actually is should reach the person doing it as directly as being handed it did.
   defaultChannels: { inApp: true, email: false, digest: true },
 });
 
@@ -263,6 +272,165 @@ export async function assignTaskService(
   return { assigneeId: input.assigneeId };
 }
 
+/**
+ * Telling the assignee a task they already have was changed under them.
+ *
+ * A near-duplicate of `tellAssignee` rather than a shared parameter on it: the two are different
+ * facts ("this is now yours" versus "this changed"), the assignment one is pinned by
+ * `tests/server/core/collab/task.test.ts`, and a shared function taking a type and a message string
+ * would mostly exist to save six lines neither caller would then read as clearly.
+ */
+async function tellAssigneeOfEdit(
+  actor: ActorMeta,
+  taskId: string,
+  assigneeId: string,
+  number: string,
+  title: string,
+  priority: TaskPriority,
+) {
+  if (assigneeId === actor.actorId) return; // Nobody needs telling about their own edit.
+  try {
+    await notify({
+      recipientId: assigneeId,
+      type: TASK_EDITED_NOTIFICATION_TYPE,
+      title: `${actor.actorLabel} edited ${number}`,
+      body: title,
+      entityType: TASK_ENTITY_TYPE,
+      entityId: taskId,
+      urgent: priority === "urgent",
+    });
+  } catch {
+    // Deliberately swallowed, same reasoning as tellAssignee.
+  }
+}
+
+export interface UpdateTaskInput {
+  taskId: string;
+  title?: string;
+  description?: string | null;
+  priority?: TaskPriority;
+  dueAt?: Date | null;
+  startAt?: Date | null;
+  estimateHours?: number | null;
+  labels?: string[];
+}
+
+/**
+ * Editing a task's own content — the gap PD hit directly: *"he was making a task and when he needed
+ * to edit the note part in the task he cannot perform the edit."* `createTaskService` could write a
+ * task down; nothing could change one afterward. Title, description, priority, dates and labels are
+ * editable here; the assignee has its own procedure (`assignTaskService`) because handing work to
+ * somebody else is its own act with its own notice, and the entity a task is attached to is not
+ * editable at all — re-pointing a task at a different record after the fact is a different task
+ * wearing the old one's number, not an edit.
+ *
+ * **Who may edit, at the company's explicit instruction (2026-09-01): the task's own creator, or
+ * EA.** Checked as `admin.manage_users` rather than the `president` role by name — the practice
+ * grant (`scripts/practice-authority.ts`) gives every named user the president role for the
+ * walkthrough but deliberately withholds that one permission along with `admin.manage_roles`, so it
+ * is the one thing in the permission matrix that still means "actually EA" during practice and
+ * "whoever holds president" once it ends, without this file needing to change either way.
+ */
+export async function updateTaskService(actor: ActorMeta, input: UpdateTaskInput) {
+  const task = await db.task.findFirst({
+    where: { id: input.taskId, deletedAt: null },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      description: true,
+      priority: true,
+      dueAt: true,
+      startAt: true,
+      estimateHours: true,
+      labels: true,
+      entityType: true,
+      entityId: true,
+      status: true,
+      assigneeId: true,
+      createdById: true,
+    },
+  });
+  if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "That task no longer exists." });
+
+  const isCreator = actor.actorId === task.createdById;
+  const isEa = actor.permissions?.has("admin.manage_users") ?? false;
+  if (!isCreator && !isEa) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Only whoever raised ${task.number}, or EA, can edit it.`,
+    });
+  }
+
+  if (CLOSED_STATUSES.includes(task.status as TaskStatus)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${task.number} is ${task.status}. Editing finished work changes the record of what was actually done.`,
+    });
+  }
+
+  const merged = {
+    title: input.title !== undefined ? input.title : task.title,
+    entityType: task.entityType,
+    entityId: task.entityId,
+    dueAt: input.dueAt !== undefined ? input.dueAt : task.dueAt,
+    startAt: input.startAt !== undefined ? input.startAt : task.startAt,
+    estimateHours:
+      input.estimateHours !== undefined
+        ? input.estimateHours
+        : task.estimateHours === null
+          ? null
+          : Number(task.estimateHours),
+  };
+  const check = checkTask(merged);
+  if (!check.ok) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: check.errors.join(" ") });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.task.update({
+      where: { id: task.id },
+      data: {
+        title: merged.title.trim(),
+        description:
+          input.description !== undefined ? input.description?.trim() || null : undefined,
+        priority: input.priority ?? undefined,
+        dueAt: input.dueAt !== undefined ? input.dueAt : undefined,
+        startAt: input.startAt !== undefined ? input.startAt : undefined,
+        estimateHours:
+          input.estimateHours !== undefined ? (input.estimateHours?.toFixed(2) ?? null) : undefined,
+        labels: input.labels ?? undefined,
+        version: { increment: 1 },
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "update",
+      entityType: TASK_ENTITY_TYPE,
+      entityId: task.id,
+      summary: `Edited ${task.number} — ${merged.title}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  if (task.assigneeId) {
+    await tellAssigneeOfEdit(
+      actor,
+      task.id,
+      task.assigneeId,
+      task.number,
+      merged.title,
+      (input.priority ?? task.priority) as TaskPriority,
+    );
+  }
+
+  return { id: task.id };
+}
+
 export async function setTaskStatusService(
   actor: ActorMeta,
   input: { taskId: string; status: TaskStatus; actualHours?: number | null },
@@ -326,7 +494,8 @@ export async function setTaskStatusService(
   return { status: input.status };
 }
 
-/** The shape every task list on a screen reads. */
+/** The shape every task list on a screen reads. `createdById` is here so a screen can decide
+ *  whether to offer editing — only the task's creator, or EA, may (`updateTaskService`). */
 function decorate(task: {
   id: string;
   number: string;
@@ -340,6 +509,7 @@ function decorate(task: {
   entityId: string | null;
   labels: string[];
   createdAt: Date;
+  createdById: string;
 }) {
   return {
     ...task,
@@ -378,6 +548,7 @@ export async function myWorkService(userId: string) {
       entityId: true,
       labels: true,
       createdAt: true,
+      createdById: true,
     },
     take: 300,
   });
@@ -416,6 +587,7 @@ export async function tasksForRecordService(input: { entityType: string; entityI
       entityId: true,
       labels: true,
       createdAt: true,
+      createdById: true,
     },
     orderBy: { createdAt: "asc" },
     take: 100,
@@ -465,6 +637,7 @@ export async function listTasksService(
       entityId: true,
       labels: true,
       createdAt: true,
+      createdById: true,
     },
     take: 300,
   });

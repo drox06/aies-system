@@ -5351,3 +5351,51 @@ surfaced a real, pre-existing flakiness bug — four of its assertions read back
 that window. Fixed the same deterministic way as #153's own new tests — `urgent: true` on every call
 that reads back through `listNotifications`, since these tests are about coalescing and read-state,
 not about quiet hours, and should not care what time it is when the suite runs.
+
+---
+
+## #155 — A task can be edited after it's raised, and its assignee is told when it is
+
+**2026-09-01. Built**, closing the gap PD hit directly on 25 August: *"he was making a task and when
+he needed to edit the note part in the task he cannot perform the edit."* `createTaskService` could
+write a task down; nothing could change one afterward — title, description, priority and dates were
+fixed the moment they were typed.
+
+**Scope.** `updateTaskService` edits title, description, priority, due/start dates, estimate hours
+and labels. Deliberately excluded: the assignee (its own procedure, `assignTaskService`, because
+handing work to somebody else is its own act with its own notice) and the entity a task is attached
+to (re-pointing a task at a different record after the fact is a different task wearing the old
+one's number, not an edit). Refused on closed work, same reasoning `assignTaskService` already uses
+for reassignment — changing what finished work said it was is a different problem than editing an
+open task.
+
+**Who may edit, at the company's explicit instruction given mid-build: "editing should only be EA
+and the person who raised the task."** Implemented as the task's `createdById`, or `admin.manage_users`
+— not the `president` role by name. The reason is the practice grant already running
+(`scripts/practice-authority.ts`): every named user currently holds `president` for the walkthrough,
+but that script deliberately withholds `admin.manage_users` and `admin.manage_roles` from all four of
+them, at the company's own earlier instruction ("should not have any authority over other user").
+That withholding is already exactly the boundary this needed — `admin.manage_users` is the one
+permission in the matrix that means "actually EA" during practice and "whoever holds president" once
+it ends, without this code needing to change either way. Worth flagging plainly: this is my reading
+of "EA" as a role rather than a literal person, matching how the rest of the platform is built
+(approval fallback, gate overrides — never a hardcoded user id); if EA meant the literal account and
+not the president role going forward, that is a one-line change to swap for an explicit email check.
+
+**The notification is a new type, not a reuse of `task.assigned`.** "This is now yours" and "this
+changed" are different facts, and reusing the assignment notice would have shown a misleading
+message — reads as a new assignment when it's the same job, changed. `task.edited`, same channel
+defaults as the assignment notice, same `urgent` passthrough from #153's fix. Skipped when the editor
+is also the assignee, same as `tellAssignee` already skips self-notification.
+
+**UI:** an **Edit** button on `/tasks`, visible only when `session.user.id === task.createdById` or
+the session holds `admin.manage_users` — the same rule the service enforces regardless, offering the
+button to someone it will refuse is its own kind of confusion. Opens an inline form (title, note,
+priority, due date) matching the style already established for plants and contacts. The row now also
+shows the task's description in the list, previously written on create and then never shown again
+anywhere.
+
+**Five regression tests** in `tests/server/core/collab/task.test.ts`: creator can edit and the
+assignee is told; EA can edit a task raised by someone else; anyone else is refused; editing your own
+assigned task notifies nobody; editing closed work is refused. Confirmed passing, confirmed no test
+residue left in the database afterward.

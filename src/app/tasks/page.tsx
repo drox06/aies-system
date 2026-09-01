@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
-import { Label, Select } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Card, EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -12,6 +13,8 @@ import { trpc } from "@/lib/trpc/client";
 import {
   TASK_ENTITY_HREF,
   TASK_ENTITY_TYPES,
+  TASK_PRIORITIES,
+  TASK_PRIORITY_LABELS,
   TASK_STATUSES,
   TASK_STATUS_LABELS,
   isTaskEntityType,
@@ -47,6 +50,7 @@ const STATUS_TONE: Record<TaskStatus, StatusTone> = {
 
 export default function AllTasksPage() {
   const utils = trpc.useUtils();
+  const { data: session } = useSession();
   const [status, setStatus] = useState<string>("open");
   const [assigneeId, setAssigneeId] = useState<string>("");
   const [entityType, setEntityType] = useState<string>("");
@@ -66,6 +70,25 @@ export default function AllTasksPage() {
     },
     onError: toastError,
   });
+
+  const update = trpc.collab.update.useMutation({
+    onSuccess: () => {
+      toastSuccess("Saved.");
+      void utils.collab.list.invalidate();
+      void utils.collab.myWork.invalidate();
+    },
+    onError: toastError,
+  });
+
+  /*
+    §2's editing gap, closed at the company's instruction (2026-09-01): only whoever raised a task,
+    or EA, may change what it says. `admin.manage_users` is the permission that still means "EA"
+    specifically during the practice period — see `updateTaskService`'s own comment for why.
+  */
+  const canEdit = (task: { createdById: string }) =>
+    !!session?.user &&
+    (session.user.id === task.createdById ||
+      session.user.permissions.includes("admin.manage_users"));
 
   const rows = tasks.data ?? [];
   // "Open" is not a status — it is the question this screen is usually asked. Filtering it here
@@ -174,6 +197,9 @@ export default function AllTasksPage() {
                 people={people.data ?? []}
                 onAssign={(id) => assign.mutate({ taskId: task.id, assigneeId: id })}
                 busy={assign.isPending}
+                canEdit={canEdit(task)}
+                onEdit={(values) => update.mutateAsync({ taskId: task.id, ...values })}
+                editBusy={update.isPending}
               />
             ))}
           </div>
@@ -191,6 +217,9 @@ export default function AllTasksPage() {
                 people={people.data ?? []}
                 onAssign={(id) => assign.mutate({ taskId: task.id, assigneeId: id })}
                 busy={assign.isPending}
+                canEdit={canEdit(task)}
+                onEdit={(values) => update.mutateAsync({ taskId: task.id, ...values })}
+                editBusy={update.isPending}
               />
             ))}
           </div>
@@ -204,6 +233,7 @@ interface RowTask {
   id: string;
   number: string;
   title: string;
+  description: string | null;
   status: string;
   priority: string;
   dueAt: Date | null;
@@ -213,6 +243,14 @@ interface RowTask {
   assigneeName: string | null;
   entityType: string | null;
   entityId: string | null;
+  createdById: string;
+}
+
+interface EditableFields {
+  title: string;
+  description: string | null;
+  priority: (typeof TASK_PRIORITIES)[number];
+  dueAt: Date | null;
 }
 
 function Row({
@@ -220,12 +258,34 @@ function Row({
   people,
   onAssign,
   busy,
+  canEdit,
+  onEdit,
+  editBusy,
 }: {
   task: RowTask;
   people: { id: string; name: string }[];
   onAssign: (assigneeId: string | null) => void;
   busy: boolean;
+  canEdit: boolean;
+  onEdit: (values: EditableFields) => Promise<unknown>;
+  editBusy: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <TaskEditForm
+        task={task}
+        busy={editBusy}
+        onCancel={() => setEditing(false)}
+        onSave={async (values) => {
+          await onEdit(values);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+
   return (
     <Card className="flex flex-wrap items-start gap-3">
       <div className="min-w-0 flex-1">
@@ -242,6 +302,9 @@ function Row({
           {task.priority === "urgent" && <StatusBadge tone="failed">Urgent</StatusBadge>}
         </div>
         <p className="mt-1 font-medium">{task.title}</p>
+        {task.description && (
+          <p className="mt-0.5 text-sm whitespace-pre-wrap text-text-muted">{task.description}</p>
+        )}
         <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-muted">
           {task.dueAt ? <DateCell value={task.dueAt} /> : <span>no date agreed</span>}
           {task.entityType && task.entityId && isTaskEntityType(task.entityType) && (
@@ -255,7 +318,7 @@ function Row({
         </p>
       </div>
 
-      <div className="shrink-0">
+      <div className="flex shrink-0 items-start gap-2">
         <Select
           aria-label={`Who owns ${task.number}`}
           value={task.assigneeId ?? ""}
@@ -269,6 +332,99 @@ function Row({
             </option>
           ))}
         </Select>
+        {/* Only whoever raised this task, or EA, sees this — updateTaskService enforces the same
+            rule regardless, but offering the button to someone it will refuse is its own confusion. */}
+        {canEdit && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/** Title, note, priority and due date — the content PD could not get at: *"he was making a task and
+ *  when he needed to edit the note part in the task he cannot perform the edit."* Assignee and
+ *  status keep their own controls; this is everything else a task says about itself. */
+function TaskEditForm({
+  task,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  task: RowTask;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (values: EditableFields) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? "");
+  const [priority, setPriority] = useState(task.priority as (typeof TASK_PRIORITIES)[number]);
+  const [dueAt, setDueAt] = useState(task.dueAt ? task.dueAt.toISOString().slice(0, 10) : "");
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <Label htmlFor={`edit-title-${task.id}`}>What needs doing</Label>
+        <Input
+          id={`edit-title-${task.id}`}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
+      <div>
+        <Label htmlFor={`edit-desc-${task.id}`}>Any detail</Label>
+        <Textarea
+          id={`edit-desc-${task.id}`}
+          rows={2}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`edit-priority-${task.id}`}>Priority</Label>
+          <Select
+            id={`edit-priority-${task.id}`}
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as (typeof TASK_PRIORITIES)[number])}
+          >
+            {TASK_PRIORITIES.map((value) => (
+              <option key={value} value={value}>
+                {TASK_PRIORITY_LABELS[value]}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor={`edit-due-${task.id}`}>Due</Label>
+          <Input
+            id={`edit-due-${task.id}`}
+            type="date"
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          disabled={busy || title.trim().length < 3}
+          onClick={() =>
+            void onSave({
+              title,
+              description: description.trim() || null,
+              priority,
+              dueAt: dueAt ? new Date(dueAt) : null,
+            })
+          }
+        >
+          {busy ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </Card>
   );

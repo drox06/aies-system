@@ -10,6 +10,7 @@ import {
   myWorkService,
   setTaskStatusService,
   tasksForRecordService,
+  updateTaskService,
 } from "@/server/core/collab/task-service";
 import { TASK_ENTITY_TYPES, TASK_PRIORITIES, TASK_STATUSES } from "@/server/core/collab/task-rules";
 import { ASSIGN_MODES } from "@/server/core/collab/task-template-rules";
@@ -88,10 +89,16 @@ import {
  * in somebody else's queue — see the manifest for why those are separate acts.
  */
 
-function actorMeta(ctx: Context & { user: { id: string; name: string } }): ActorMeta {
+function actorMeta(
+  ctx: Context & { user: { id: string; name: string; permissions: ReadonlySet<string> } },
+): ActorMeta {
   return {
     actorId: ctx.user.id,
     actorLabel: ctx.user.name,
+    // `updateTaskService` is the one caller here that needs it — checking whether an editor is EA
+    // rather than just the task's own creator. Harmless for every other service in this file, which
+    // never reads it.
+    permissions: ctx.user.permissions,
     ip: ctx.ip,
     userAgent: ctx.userAgent,
     requestId: ctx.requestId,
@@ -175,6 +182,27 @@ export const collabRouter = router({
   assign: p("task.assign")
     .input(z.object({ taskId: z.string(), assigneeId: z.string().nullable() }))
     .mutation(({ ctx, input }) => assignTaskService(actorMeta(ctx), input)),
+
+  /**
+   * Editing a task's own content — title, description, priority, dates, labels. Gated on
+   * `task.create` at the door, the same baseline `setStatus` uses: the real authorisation decision
+   * (only the task's creator, or EA) depends on which task this is, not on a blanket permission, so
+   * it is made inside `updateTaskService` rather than here.
+   */
+  update: p("task.create")
+    .input(
+      z.object({
+        taskId: z.string(),
+        title: z.string().min(3).max(300).optional(),
+        description: z.string().max(5000).nullish(),
+        priority: z.enum(TASK_PRIORITIES).optional(),
+        dueAt: z.coerce.date().nullish(),
+        startAt: z.coerce.date().nullish(),
+        estimateHours: z.number().positive().max(500).nullish(),
+        labels: z.array(z.string().min(1).max(40)).max(10).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => updateTaskService(actorMeta(ctx), input)),
 
   /**
    * Moving a task along. `task.create` rather than `task.assign`, because the person doing the work
