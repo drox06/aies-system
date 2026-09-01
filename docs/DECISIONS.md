@@ -5292,3 +5292,62 @@ normal-priority task raised at 22:00 is still held until 07:00, never dropped. M
 is now a real promise rather than a label; it should stay something raised deliberately, for exactly
 the reason §7 gives — a system that wakes people at midnight gets muted, and the message that
 actually mattered gets muted with it.
+
+---
+
+## #154 — Web Push, so an urgent notification actually reaches a device
+
+**2026-09-01. Built**, at EA's direct instruction after confirming #153: the bell only ever alerts
+somebody who has the app open, which defeats the point of an urgent task bypassing quiet hours if
+nothing then makes the phone do anything. EA chose the wider of two options offered: every
+notification tries to push, following the same rules already governing the bell — a held one pushes
+once released, an urgent one pushes immediately regardless of the hour.
+
+**The one constraint that isn't a build decision.** iOS Safari only accepts a push subscription from
+a page running as an installed Home Screen app (Share → Add to Home Screen, iOS 16.4+). A bookmark or
+an open Safari tab is never offered the permission prompt — `pushManager` exists on the page but
+`subscribe()` silently rejects. This is Apple's rule and nothing in this build works around it; it is
+stated plainly on the settings screen and repeated here because it decides whether the feature works
+at all on whichever of DJ/PD/KJ/EM are on iPhones.
+
+**Shape of the build:**
+
+- `PushSubscription` (`prisma/schema/notify.prisma`) — one row per device, keyed on `endpoint`
+  (unique across the table, not just per user, since the push service hands one out per install and
+  it belongs to exactly one person). A person can hold several — phone and desktop are two rows, and
+  neither is lost when the other is added.
+- `src/server/core/notify/push.ts` — `sendPushToUser()`, best-effort per device: one dead
+  subscription (410/404 from the push service, meaning the browser dropped it) is deleted and does
+  not stop the others. Configured or not is read from three `VAPID_*` env vars at call time; unset,
+  every call is a silent no-op, so a missing key can never take the in-app bell down with it.
+- Wired into `notify()` at exactly two points: right after creating an unheld `Notification` (fires
+  immediately — the urgent case), and inside `releaseHeldNotifications()` for every row the drain
+  releases (the held-overnight case, pushed the moment quiet hours end rather than only showing up if
+  somebody happens to open the app at 07:00).
+- `public/sw.js` gained `push` and `notificationclick` handlers — the first genuine use of the
+  service worker beyond offline asset caching. A malformed payload still shows a fallback title
+  rather than nothing, because a push that arrives and displays nothing is indistinguishable from one
+  that never arrived, which is the exact failure this whole feature exists to close.
+- `/settings/notifications` gained a **This device** card — "Enable notifications on this device" per
+  browser, a list of every device on the account with its own **Remove**, and the browser-support and
+  iOS messages stated directly rather than left to be discovered as silent failure.
+- `src/lib/push.ts`, client-only, is the one place `PushManager.subscribe()` is called — caught one
+  real bug before it shipped: the settings screen lists every device on the account, and the first
+  draft of "Remove" called the browser-local unsubscribe unconditionally regardless of which row was
+  clicked, which would have silently unsubscribed *this* browser's own device when someone removed a
+  colleague's from the list. Fixed by comparing endpoints before touching the local subscription.
+
+**Deployment step this cannot do itself:** the three `VAPID_*` keys (generated via
+`npx web-push generate-vapid-keys`, in `.env` locally) must be added to Vercel's environment
+variables before this works in production — no CLI access from here. Until then the code deploys and
+runs, `pushPublicKey` returns null, and the settings screen says plainly that push isn't set up yet
+rather than offering a button that would fail.
+
+**Found and fixed in passing, unrelated to the build itself:** running `notify.test.ts` tonight
+surfaced a real, pre-existing flakiness bug — four of its assertions read back through
+`listNotifications()`, which filters out held notifications by design, and none of the test's
+`notify()` calls passed `urgent: true`. The suite has been silently dependent on running outside
+18:00–07:00 Manila since the file was written; it happened to fail tonight because tonight is inside
+that window. Fixed the same deterministic way as #153's own new tests — `urgent: true` on every call
+that reads back through `listNotifications`, since these tests are about coalescing and read-state,
+not about quiet hours, and should not care what time it is when the suite runs.

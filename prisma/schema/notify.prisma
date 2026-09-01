@@ -67,3 +67,33 @@ model NotificationSchedule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/// One subscribed device (browser + install), §7's actual answer to "make the phone ring".
+///
+/// A user can hold several — a phone and a desktop are two different push endpoints, and neither
+/// should be lost when the other is added. `endpoint` is unique across the whole table, not just
+/// per user, because the push service hands out one endpoint per install and it can never belong
+/// to two people at once.
+model PushSubscription {
+  id     String @id @default(cuid())
+  userId String
+
+  /// The push service's URL for this device. Opaque, and the thing `web-push` actually posts to.
+  endpoint String @unique
+
+  /// The two keys `PushManager.subscribe()` returns alongside the endpoint — together they let the
+  /// server encrypt a payload only this device's browser can decrypt. Both required; a subscription
+  /// missing either is not one the browser ever actually produced.
+  p256dh String
+  auth   String
+
+  /// What device this was, for the settings screen — "iPhone — Safari" reads better than an id.
+  userAgent String?
+
+  createdAt  DateTime @default(now())
+  /// Bumped on every successful send. A subscription that stops updating is one worth asking the
+  /// push service about before it silently goes stale.
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+}

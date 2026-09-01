@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { enqueue } from "@/server/core/jobs/queue";
 import { getNotificationType, type NotificationChannels } from "./registry";
+import { sendPushToUser } from "./push";
 import {
   DEFAULT_QUIET_HOURS,
   isQuiet,
@@ -124,6 +125,23 @@ export async function notify(input: NotifyInput): Promise<void> {
       heldUntil: held,
     },
   });
+
+  /*
+    A device push, not just the in-app row. Held notifications are not pushed here — the whole
+    point of holding is that nobody should be woken for them — they push instead when
+    `releaseHeldNotifications` lets them go. `urgent` bypassing quiet hours (§7) means `held` is
+    null and this fires immediately, which is the one case this exists for.
+
+    Best-effort and outside any transaction, same as every other notify side-effect in this file: a
+    push failing must never be why the in-app notification did not get written.
+  */
+  if (!held) {
+    await sendPushToUser(input.recipientId, {
+      title: input.title,
+      body: input.body,
+      url: "/notifications",
+    }).catch(() => {});
+  }
 }
 
 /**
@@ -131,13 +149,33 @@ export async function notify(input: NotifyInput): Promise<void> {
  *
  * Called by the drain, which runs every minute — so "the morning digest" is accurate to the minute
  * without a second schedule to keep. Returns the count so the cron's log says what it did.
+ *
+ * Pushes each one it releases — the device notification a held row never got at creation, arriving
+ * now instead of only ever showing up if somebody happens to open the app.
  */
 export async function releaseHeldNotifications(now: Date = new Date()): Promise<number> {
-  const { count } = await db.notification.updateMany({
+  const releasing = await db.notification.findMany({
     where: { heldUntil: { not: null, lte: now } },
+    select: { id: true, recipientId: true, title: true, body: true },
+  });
+  if (releasing.length === 0) return 0;
+
+  await db.notification.updateMany({
+    where: { id: { in: releasing.map((n) => n.id) } },
     data: { heldUntil: null },
   });
-  return count;
+
+  await Promise.all(
+    releasing.map((n) =>
+      sendPushToUser(n.recipientId, {
+        title: n.title,
+        body: n.body ?? undefined,
+        url: "/notifications",
+      }).catch(() => {}),
+    ),
+  );
+
+  return releasing.length;
 }
 
 export function listNotifications(recipientId: string, options: { unreadOnly?: boolean } = {}) {

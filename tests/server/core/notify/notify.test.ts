@@ -52,7 +52,13 @@ describe("notify", () => {
   }, 30_000);
 
   it("creates an in-app notification for a registered type", async () => {
-    await notify({ recipientId, type: "test.no_coalesce", title: "Hello" });
+    // `urgent: true` throughout this file, on every call that then reads back through
+    // `listNotifications` — that function filters `heldUntil: null`, and these tests are about
+    // coalescing and read-state, not about quiet hours. Without it, every one of them silently
+    // depended on the suite happening to run outside 18:00-07:00 Manila; run inside that window
+    // and a held notification is invisible to `listNotifications` by design, and every assertion
+    // here saw zero rows instead of what it meant to test.
+    await notify({ recipientId, type: "test.no_coalesce", title: "Hello", urgent: true });
 
     const rows = await listNotifications(recipientId);
     expect(rows).toHaveLength(1);
@@ -68,6 +74,7 @@ describe("notify", () => {
         title: `Comment ${i}`,
         entityType: "quotation",
         entityId: "q1",
+        urgent: true,
       });
     }
 
@@ -83,6 +90,7 @@ describe("notify", () => {
       title: "On Q1",
       entityType: "quotation",
       entityId: "q1",
+      urgent: true,
     });
     await notify({
       recipientId,
@@ -90,6 +98,7 @@ describe("notify", () => {
       title: "On Q2",
       entityType: "quotation",
       entityId: "q2",
+      urgent: true,
     });
 
     const rows = await listNotifications(recipientId);
@@ -112,13 +121,14 @@ describe("notify", () => {
   }, 30_000);
 
   it("markNotificationRead and markAllNotificationsRead update readAt and the unread count", async () => {
-    await notify({ recipientId, type: "test.no_coalesce", title: "One" });
+    await notify({ recipientId, type: "test.no_coalesce", title: "One", urgent: true });
     await notify({
       recipientId,
       type: "test.mentioned",
       title: "Two",
       entityType: "quotation",
       entityId: "q3",
+      urgent: true,
     });
 
     expect(await unreadNotificationCount(recipientId)).toBe(2);

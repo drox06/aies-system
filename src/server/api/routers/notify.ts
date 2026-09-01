@@ -7,6 +7,12 @@ import {
   unreadNotificationCount,
 } from "@/server/core/notify/notify";
 import { listNotificationTypes } from "@/server/core/notify/registry";
+import {
+  listDevicesForUser,
+  publicVapidKey,
+  subscribeDevice,
+  unsubscribeDevice,
+} from "@/server/core/notify/push";
 import { protectedProcedure, router } from "@/server/api/trpc";
 
 export const notifyRouter = router({
@@ -34,4 +40,25 @@ export const notifyRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setNotificationPreference(ctx.user.id, input.type, input)),
+
+  // ---- device push — §7's actual "make the phone ring" ------------------------------------------
+
+  pushPublicKey: protectedProcedure.query(() => ({ key: publicVapidKey() })),
+
+  listDevices: protectedProcedure.query(({ ctx }) => listDevicesForUser(ctx.user.id)),
+
+  subscribeDevice: protectedProcedure
+    .input(
+      z.object({
+        endpoint: z.string(),
+        p256dh: z.string(),
+        auth: z.string(),
+        userAgent: z.string().nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => subscribeDevice(ctx.user.id, input)),
+
+  unsubscribeDevice: protectedProcedure
+    .input(z.object({ endpoint: z.string() }))
+    .mutation(({ ctx, input }) => unsubscribeDevice(ctx.user.id, input.endpoint)),
 });

@@ -37,6 +37,57 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/*
+ * §7's actual device alert. `notify()` (src/server/core/notify/push.ts) sends the raw JSON this
+ * parses — title, an optional body, and a url to land on. Kept to those three: anything richer
+ * (actions, images) is a UI decision for later, not something this needs to work at all.
+ *
+ * Never throws past `event.waitUntil` — a malformed or missing payload still shows *something*
+ * rather than silently doing nothing, because a push that arrives and shows nothing is
+ * indistinguishable from a push that never arrived, and that is the exact failure this exists to
+ * rule out.
+ */
+self.addEventListener("push", (event) => {
+  let payload = { title: "AIES" };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch {
+    // Malformed payload. Still show the fallback title rather than nothing.
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/brand/icon-192.png",
+      badge: "/brand/icon-192.png",
+      data: { url: payload.url || "/" },
+    }),
+  );
+});
+
+/*
+ * Focuses an already-open AIES tab rather than piling up a new one — a technician with the app
+ * already open on site should land back where they were with the target page loaded, not get a
+ * second copy of the app.
+ */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url =
+    event.notification.data && event.notification.data.url ? event.notification.data.url : "/";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
