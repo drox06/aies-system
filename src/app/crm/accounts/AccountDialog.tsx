@@ -319,7 +319,7 @@ export function AccountDialog({
                   id="acc-address"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="930 Doña Basilisa Yangco Street, Mandaluyong City"
+                  placeholder="88 Kalayaan Avenue, Quezon City"
                 />
               </div>
             </fieldset>
