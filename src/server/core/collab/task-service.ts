@@ -653,6 +653,97 @@ export async function listTasksService(
     .sort((a, b) => compareForMyWork(a, b, now));
 }
 
+const ARCHIVE_SORTABLE = new Set(["completedAt", "number", "title"]);
+
+export interface ArchivedTasksParams {
+  search?: string;
+  assigneeId?: string;
+  entityType?: string;
+  page?: number;
+  pageSize?: number;
+  sortKey?: string | null;
+  sortDir?: "asc" | "desc";
+}
+
+/**
+ * Finished work, kept and searchable — the company's request in one line: *"an archive of tasks
+ * where all completed tasks are saved for later viewing and traceability."*
+ *
+ * Nothing new is stored to build this. A completed task was never deleted — `myWorkService` and
+ * `listTasksService`'s default "open" filter simply stop showing it, because a list of what's owed
+ * is not the place for what's already done. This reads the exact same rows from the other side:
+ * `status: "done"` specifically, not every closed status — a cancelled task was abandoned, not
+ * completed, and stays reachable through `/tasks`' own status filter rather than being folded in
+ * here and blurring the two.
+ *
+ * Paginated and searchable on purpose, unlike the working lists: an open-work list stays small by
+ * definition — it is what's outstanding — but an archive only grows, and "traceability" means being
+ * able to find one task in a thousand months later, not just look at the most recent fifty.
+ */
+export async function archivedTasksService(params: ArchivedTasksParams = {}) {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25));
+  const search = params.search?.trim();
+
+  const where = {
+    deletedAt: null,
+    status: "done",
+    ...(params.assigneeId ? { assigneeId: params.assigneeId } : {}),
+    ...(params.entityType ? { entityType: params.entityType } : {}),
+    ...(search
+      ? {
+          OR: [
+            { title: { contains: search, mode: "insensitive" as const } },
+            { number: { contains: search, mode: "insensitive" as const } },
+            { description: { contains: search, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  const sortKey =
+    params.sortKey && ARCHIVE_SORTABLE.has(params.sortKey) ? params.sortKey : "completedAt";
+  const sortDir = params.sortDir === "asc" ? "asc" : "desc";
+
+  const [tasks, total] = await Promise.all([
+    db.task.findMany({
+      where,
+      orderBy: { [sortKey]: sortDir },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        number: true,
+        title: true,
+        description: true,
+        priority: true,
+        assigneeId: true,
+        entityType: true,
+        entityId: true,
+        labels: true,
+        createdById: true,
+        createdAt: true,
+        completedAt: true,
+      },
+    }),
+    db.task.count({ where }),
+  ]);
+
+  const names = await namesFor([
+    ...tasks.map((task) => task.assigneeId),
+    ...tasks.map((task) => task.createdById),
+  ]);
+
+  return {
+    rows: tasks.map((task) => ({
+      ...task,
+      assigneeName: task.assigneeId ? (names.get(task.assigneeId) ?? "somebody") : null,
+      createdByName: names.get(task.createdById) ?? "somebody",
+    })),
+    total,
+  };
+}
+
 /** Who a task can be given to. Active users only — an inactive one owes nothing. */
 export async function assignableUsersService() {
   return db.user.findMany({

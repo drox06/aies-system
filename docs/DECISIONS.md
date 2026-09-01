@@ -5399,3 +5399,50 @@ anywhere.
 assignee is told; EA can edit a task raised by someone else; anyone else is refused; editing your own
 assigned task notifies nobody; editing closed work is refused. Confirmed passing, confirmed no test
 residue left in the database afterward.
+
+---
+
+## #156 — A task archive: finished work, kept and searchable
+
+**2026-09-01. Built**, at EA's instruction: *"an archive of tasks where all completed tasks are
+saved for later viewing and traceability."*
+
+**Nothing new needed storing.** A completed task was never deleted — `myWorkService` and
+`listTasksService`'s default "open" filter simply stop showing it, because a list of what's owed is
+the wrong place for what's already done. The gap wasn't the data, it was that finding it meant
+knowing to open `/tasks` and pick "Done" from a status dropdown among ten others — not what "an
+archive... for traceability" means. `archivedTasksService` reads the exact same rows from the other
+side, scoped specifically to `status: "done"` — a cancelled task was abandoned, not completed, and
+stays reachable through `/tasks`' own filter rather than folded in here and blurring the two.
+
+**A new screen, `/tasks/archive`, rather than a toggle on `/tasks` itself.** The quotations archive
+(`archive-service.ts`) flips the same `DataTable` between two states, because its working list
+already runs through one. This module's working list is a plain row list built tonight for quick
+inline editing (#155) — a different job from bulk historical search. Rather than retrofit
+`DataTable`'s machinery onto a screen that doesn't need most of it, the archive gets its own screen
+built on `DataTable` properly: search, sort, pagination and CSV export, none of which the working
+list needs and all of which "traceability" does. Linked from `/tasks` via an **Archive** button.
+
+**Gated on `task.view`, not `task.assign`.** `/tasks` itself needs `task.assign` because reading
+everybody's open queue is the load-check a manager makes before routing work — a real authority.
+Reading what has already finished is a different question, and restricting a historical record to
+the same narrow group would make traceability something only managers have, which is the opposite of
+what the word means. `task.view` is the broadest grant in the module, held by every role including
+`viewer`.
+
+**Read-only, deliberately.** A completed task is the record of what happened; changing it after the
+fact through the archive would be rewriting history rather than tracing it. `updateTaskService` (#155)
+already refuses to edit closed work for the identical reason.
+
+**Shows who raised it and who completed it**, both by name — `createdByName` and `assigneeName`,
+resolved the same way every other screen in this module already resolves a name from an id. Filterable
+by "Done by" for the obvious traceability question — *what did this person actually finish* — the
+same shape the working list's own assignee filter already has.
+
+**Four regression tests**, all deliberately scoped with a `search` term unique to the test run: this
+reads the real, shared database (docs/DECISIONS.md #1), so an unscoped query would also count
+whatever the company has genuinely finished. Confirmed: only `done` tasks appear, not open or
+cancelled ones; search matches by number as well as title; the assignee filter works and names both
+people correctly; newest completion sorts first. Verified live in the browser end to end — raised a
+task, marked it done, confirmed it left the working list and appeared in the archive with the right
+names and timestamp.

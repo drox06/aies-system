@@ -107,9 +107,14 @@ export default function AllTasksPage() {
         title="All tasks"
         description="Everything the company owes, whoever owes it — including what nobody owes yet."
         actions={
-          <Button variant="secondary" asChild>
-            <Link href="/tasks/templates">Templates</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" asChild>
+              <Link href="/tasks/archive">Archive</Link>
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href="/tasks/templates">Templates</Link>
+            </Button>
+          </div>
         }
       />
 

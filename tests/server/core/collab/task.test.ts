@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   TASK_ASSIGNED_NOTIFICATION_TYPE,
   TASK_EDITED_NOTIFICATION_TYPE,
+  archivedTasksService,
   assignTaskService,
   createTaskService,
   myWorkService,
@@ -419,5 +420,71 @@ describe("tasksForRecordService", () => {
     expect(rows.map((row) => row.id)).toEqual([onRecord.id]);
     // A panel showing cuids is a panel nobody can work from.
     expect(rows[0]!.assigneeName).toBe(owner.name);
+  });
+});
+
+describe("archivedTasksService", () => {
+  /*
+    This reads the real, shared database — not an isolated test schema (docs/DECISIONS.md #1) — so
+    every query here is scoped with `search` to a title fragment unique to this run. Without it,
+    "how many done tasks exist" would also count whatever the company has actually finished.
+  */
+  const marker = `Archive-${suffix}`;
+
+  it("shows only what's marked done — not open or cancelled work", async () => {
+    const doneTask = await makeTask({ title: `${marker} finished` });
+    const openTask = await makeTask({ title: `${marker} still open` });
+    const cancelledTask = await makeTask({ title: `${marker} abandoned` });
+
+    await setTaskStatusService(actor, { taskId: doneTask.id, status: "done" });
+    await setTaskStatusService(actor, { taskId: cancelledTask.id, status: "cancelled" });
+    void openTask; // left as todo, on purpose — the point of this test
+
+    const result = await archivedTasksService({ search: marker });
+
+    expect(result.rows.map((row) => row.id)).toEqual([doneTask.id]);
+    expect(result.total).toBe(1);
+  });
+
+  it("finds a completed task by its number as well as its title", async () => {
+    const task = await makeTask({ title: `${marker} number lookup` });
+    await setTaskStatusService(actor, { taskId: task.id, status: "done" });
+
+    const byNumber = await archivedTasksService({ search: task.number });
+    expect(byNumber.rows.map((row) => row.id)).toEqual([task.id]);
+  });
+
+  it("names who completed it and who raised it, and filters by who completed it", async () => {
+    const assignee = await makeUser(`Archive doer ${suffix}`);
+    const task = await makeTask({
+      title: `${marker} named people`,
+      assigneeId: assignee.id,
+    });
+    await setTaskStatusService(actor, { taskId: task.id, status: "done" });
+
+    const filtered = await archivedTasksService({ search: marker, assigneeId: assignee.id });
+    expect(filtered.rows).toHaveLength(1);
+    expect(filtered.rows[0]!.assigneeName).toBe(assignee.name);
+    // "somebody", not `actor.actorLabel` — `namesFor` looks a real `User` row up by id, and this
+    // file's own `actor` fixture is a bare id with no row behind it. `assignee`, made through
+    // `makeUser`, is the one with a real row, which is why its name resolves above.
+    expect(filtered.rows[0]!.createdByName).toBe("somebody");
+
+    const wrongAssignee = await archivedTasksService({
+      search: marker,
+      assigneeId: `nobody-${suffix}`,
+    });
+    expect(wrongAssignee.rows.find((row) => row.id === task.id)).toBeUndefined();
+  });
+
+  it("stamps completedAt on the way in, and sorts the newest completion first", async () => {
+    const first = await makeTask({ title: `${marker} sorts first done` });
+    await setTaskStatusService(actor, { taskId: first.id, status: "done" });
+    const second = await makeTask({ title: `${marker} sorts second done` });
+    await setTaskStatusService(actor, { taskId: second.id, status: "done" });
+
+    const result = await archivedTasksService({ search: marker });
+    expect(result.rows[0]!.id).toBe(second.id); // completed later, listed first
+    expect(result.rows[0]!.completedAt).not.toBeNull();
   });
 });

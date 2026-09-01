@@ -8,6 +8,7 @@ import {
   createTaskService,
   listTasksService,
   myWorkService,
+  archivedTasksService,
   setTaskStatusService,
   tasksForRecordService,
   updateTaskService,
@@ -126,6 +127,29 @@ export const collabRouter = router({
         .optional(),
     )
     .query(({ input }) => listTasksService(input ?? {})),
+
+  /**
+   * Finished work, kept and searchable — *"an archive of tasks where all completed tasks are saved
+   * for later viewing and traceability."* Gated on `task.view`, the same broad grant everyone
+   * holds to see a task at all, not the narrower `task.assign` `list` needs — a historical record
+   * of what was done is not the load-check `list` exists for, and restricting it the same way
+   * would make traceability something only managers have.
+   */
+  archive: p("task.view")
+    .input(
+      z
+        .object({
+          search: z.string().optional(),
+          assigneeId: z.string().optional(),
+          entityType: z.enum(TASK_ENTITY_TYPES).optional(),
+          page: z.number().int().positive().optional(),
+          pageSize: z.number().int().positive().max(100).optional(),
+          sortKey: z.string().nullish(),
+          sortDir: z.enum(["asc", "desc"]).optional(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => archivedTasksService(input ?? {})),
 
   /** The task panel a record's own screen shows. */
   forRecord: p("task.view")
