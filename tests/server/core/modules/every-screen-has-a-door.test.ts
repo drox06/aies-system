@@ -46,6 +46,13 @@ const REACHED_ANOTHER_WAY: Record<string, string> = {
   "/crm/inquiries/archive":
     "Reached from 'See archives' beside 'Log inquiry' on the live inquiries list. Deliberately not " +
     "in the nav: a second Inquiries entry would compete with the one people actually work from.",
+  "/tasks/archive":
+    "Reached from 'Archive' beside the heading on /tasks. Deliberately not in the nav, the same " +
+    "reasoning as the inquiries archive above: a second Tasks entry would compete with 'All tasks'.",
+  "/crm/principals":
+    "A redirect stub, not a screen (#158) — it sends straight to /suppliers, which holds the " +
+    "combined Principals & Suppliers screen and its own nav entry. Kept only so an old bookmark or " +
+    "typed link still lands somewhere real rather than 404ing.",
 };
 
 /** Every .tsx under a directory, with its contents, for link checking. */
