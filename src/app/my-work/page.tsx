@@ -365,7 +365,7 @@ function RaiseTask({ onDone }: { onDone: () => void }) {
           </Select>
         </div>
         <div>
-          <Label htmlFor="task-entity-id">Its id</Label>
+          <Label htmlFor="task-entity-id">Where is this related to?</Label>
           <Input
             id="task-entity-id"
             value={entityId}
