@@ -5193,3 +5193,64 @@ VP-only to PD as well — the first time anyone but KJ or EA has touched that si
 **Nothing here touches the four gate overrides, or the two administration permissions.** Both stay
 exactly as narrow as Spec.md §4 already made them: KJ and EA only, no exceptions, unchanged by any
 of the widening above.
+
+---
+
+## #152 — Customer and plant addresses, and a plant's contact built inline
+
+**2026-09-01. Built**, at EA's direct instruction — three requests taken together because the second
+and third only make sense once the first exists.
+
+**Customer address and plant address were already fully wired everywhere except the one place a
+person types one in.** `CustomerAccount.billingAddress` and `Site.address` have existed as JSON
+columns since module 01 was built, `createAccount`/`updateAccount`/`upsertSite` already accept them,
+and three PDF renderers (quotation, finance, supplier PO) already read them — the supplier PO
+document specifically falls back to a site's address as the "deliver to" block. None of that was
+reachable, because no form had a field for it. Added one text input to each: `AccountDialog.tsx`
+and `SitesPanel.tsx`'s `SiteForm`.
+
+**The JSON shape was my call, not spec's.** The finance PDF renderer's `addressLines()` specifically
+looks for a `line1` key; the quotation and order renderers' `addressLine()` flatten whichever keys
+are present. Writing `{ line1: value }` from both new fields satisfies the specific one and the
+permissive ones at once — a single free-text line, not the barangay/city/province breakdown the
+finance renderer could in principle also read, because EA asked for "an address line", singular.
+
+**The plant's main contact stopped being a dropdown over the existing contact list and became an
+inline "add a contact for this plant" form** — first name, last name, position, mobile, email,
+matching the pattern `AccountDialog.tsx` already uses for a new account's primary contact. This is
+the more disruptive of the three changes, so it is worth being explicit about the trade-off:
+
+- Removed entirely, rather than kept alongside the new field: a plant with a dropdown *and* an
+  inline form both able to set the same one contact would have needed a rule for what happens when
+  both are used at once, for no real benefit — the company's own instruction was "rather than", not
+  "in addition to".
+- A brand-new plant has no id for a contact to belong to before it exists, so saving one with a
+  contact now takes three calls in sequence (create plant → create contact against it → attach the
+  contact back as the plant's main one) instead of one. Accepted rather than engineered around,
+  because the alternative was either a database transaction spanning two tRPC procedures or a
+  purpose-built third endpoint for a case this narrow.
+- Editing a plant that already has a main contact prefills all five fields from that contact, so the
+  common case — touching the access notes, not the contact — round-trips the existing person
+  untouched rather than requiring them to be re-entered.
+
+**Calling card upload on `Contact`.** New `callingCardFileId String?` column, migrated
+(`20260901104625_contact_calling_card_file`), same shape every other single-file reference in the
+platform already uses (`AccreditationRecord.certificateFileId` and its siblings) — a `FileObject`
+id, not a foreign key, because `FileObject` belongs to module 00. Uses the existing `FileDropzone`
+component and `/api/files` endpoint unchanged. The one genuine wrinkle: `FileDropzone` tags every
+upload with an `entityId`, and a contact being created for the first time has none yet — tagged with
+the account's id in that case, `Contact.callingCardFileId` on save. The tag is metadata only (no
+foreign key checks it, same as `entityType`/`entityId` everywhere else in the platform), so nothing
+functional depends on it being exact.
+
+**Verified in the browser, not just against the test suite.** Signed in as the seeded end-to-end
+account (`scripts/seed-e2e-user.ts`, TOTP included), created a plant with an inline contact, confirmed
+the three-call sequence produced one plant, one contact grouped under it in the Contacts panel, and
+`Site.contactId` pointing at that contact; confirmed a synthetic file upload attached, persisted
+through `contactId` and survived a full page reload. All verification data removed afterward,
+including the end-to-end account itself — it carries a publicly-known second factor and has no
+business staying on a database anyone is walking through. One byproduct worth naming: the account
+created and deleted during verification consumed `AIESACC-0002`, so the counter EA reset yesterday
+now has a one-number gap before any named user has raised a real account. Consistent with this
+platform's own standing rule that a consumed number is never reused, and not itself a defect — but
+worth knowing rather than discovering later and wondering what `0002` was.

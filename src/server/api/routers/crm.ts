@@ -206,6 +206,7 @@ export const crmRouter = router({
         isPrimary: z.boolean().optional(),
         isDecisionMaker: z.boolean().optional(),
         notes: z.string().nullish(),
+        callingCardFileId: z.string().nullish(),
       }),
     )
     .mutation(({ ctx, input }) => upsertContactService(actorMeta(ctx), input)),

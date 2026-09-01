@@ -228,7 +228,7 @@ export default function AccountPage({ params }: { params: Promise<{ id: string }
 
           {/* Plants before contacts, because a contact form asks which plant somebody runs and the
               answer has to exist first. */}
-          <SitesPanel accountId={id} contacts={data.contacts} />
+          <SitesPanel accountId={id} />
 
           <ContactsPanel accountId={id} sites={data.sites} />
 

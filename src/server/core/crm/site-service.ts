@@ -180,7 +180,14 @@ export async function listSitesService(accountId: string) {
     include: {
       contacts: {
         where: { deletedAt: null },
-        select: { id: true, firstName: true, lastName: true, mobile: true },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          email: true,
+          position: true,
+        },
       },
       _count: { select: { inquiries: true, quotations: true, inspections: true } },
     },

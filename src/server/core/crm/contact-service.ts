@@ -32,6 +32,7 @@ export interface UpsertContactInput {
   isPrimary?: boolean;
   isDecisionMaker?: boolean;
   notes?: string | null;
+  callingCardFileId?: string | null;
 }
 
 /**
@@ -78,6 +79,7 @@ export async function upsertContactService(actor: ActorMeta, input: UpsertContac
     phone: input.phone ?? null,
     isDecisionMaker: input.isDecisionMaker ?? false,
     notes: input.notes ?? null,
+    callingCardFileId: input.callingCardFileId ?? null,
   };
 
   return db.$transaction(async (tx) => {

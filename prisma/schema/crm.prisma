@@ -163,6 +163,12 @@ model Contact {
   isDecisionMaker Boolean @default(false)
   notes           String?
 
+  /// A photo of the business card handed over on site. A `FileObject` id, same shape as every
+  /// other single-file reference in the platform (`AccreditationRecord.certificateFileId` and
+  /// friends) — not a foreign key, because `FileObject` is owned by module 00 and a plain id is
+  /// how every module already points at one.
+  callingCardFileId String?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?

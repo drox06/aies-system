@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Card } from "@/components/ui/layout";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
+
+export const CONTACT_ENTITY_TYPE = "Contact";
 
 /**
  * Everyone at this customer, and the form to add another.
@@ -61,6 +64,7 @@ export function ContactsPanel({
       {adding && (
         <ContactForm
           sites={sites}
+          accountId={accountId}
           busy={upsert.isPending}
           onCancel={() => setAdding(false)}
           onSave={async (values) => {
@@ -96,6 +100,8 @@ export function ContactsPanel({
                 <li key={contact.id} className="py-2">
                   <ContactForm
                     sites={sites}
+                    accountId={accountId}
+                    contactId={contact.id}
                     busy={upsert.isPending}
                     initial={{
                       siteId: contact.siteId ?? "",
@@ -109,6 +115,7 @@ export function ContactsPanel({
                       isPrimary: contact.isPrimary,
                       isDecisionMaker: contact.isDecisionMaker,
                       notes: contact.notes ?? "",
+                      callingCardFileId: contact.callingCardFileId ?? null,
                     }}
                     onCancel={() => setEditing(null)}
                     onSave={async (values) => {
@@ -200,6 +207,7 @@ interface ContactValues {
   isPrimary: boolean;
   isDecisionMaker: boolean;
   notes: string;
+  callingCardFileId: string | null;
 }
 
 const EMPTY: ContactValues = {
@@ -214,16 +222,23 @@ const EMPTY: ContactValues = {
   isPrimary: false,
   isDecisionMaker: false,
   notes: "",
+  callingCardFileId: null,
 };
 
 function ContactForm({
   sites,
+  accountId,
+  contactId,
   initial,
   busy,
   onCancel,
   onSave,
 }: {
   sites: { id: string; name: string }[];
+  /** For a brand-new contact there is no id yet to tag the upload with — the account is the
+   *  nearest thing that already exists. */
+  accountId: string;
+  contactId?: string;
   initial?: ContactValues;
   busy: boolean;
   onCancel: () => void;
@@ -239,6 +254,7 @@ function ContactForm({
     isPrimary: boolean;
     isDecisionMaker: boolean;
     notes: string | null;
+    callingCardFileId: string | null;
   }) => Promise<void>;
 }) {
   const [values, setValues] = useState<ContactValues>(initial ?? EMPTY);
@@ -349,6 +365,41 @@ function ContactForm({
         />
       </div>
 
+      <div>
+        <Label>Calling card</Label>
+        {values.callingCardFileId ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <a
+              href={`/api/files/${values.callingCardFileId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-blue-600 hover:underline"
+            >
+              View calling card
+            </a>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-danger"
+              onClick={() => set("callingCardFileId", null)}
+            >
+              Replace
+            </Button>
+          </div>
+        ) : (
+          <FileDropzone
+            entityType={CONTACT_ENTITY_TYPE}
+            entityId={contactId ?? accountId}
+            accept="image/*"
+            multiple={false}
+            onUploaded={(files) => {
+              const uploaded = files[0];
+              if (uploaded) set("callingCardFileId", uploaded.id);
+            }}
+          />
+        )}
+      </div>
+
       <div className="flex gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
@@ -371,6 +422,7 @@ function ContactForm({
               isPrimary: values.isPrimary,
               isDecisionMaker: values.isDecisionMaker,
               notes: values.notes || null,
+              callingCardFileId: values.callingCardFileId,
             })
           }
         >

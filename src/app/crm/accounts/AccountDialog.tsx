@@ -47,6 +47,7 @@ export function AccountDialog({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [website, setWebsite] = useState("");
+  const [address, setAddress] = useState("");
 
   // §1: "knowing who can actually say yes is load-bearing". Stored as a Contact with isPrimary,
   // not as columns on the account.
@@ -71,6 +72,8 @@ export function AccountDialog({
     setPhone(a.phone ?? "");
     setEmail(a.email ?? "");
     setWebsite(a.website ?? "");
+    const billing = a.billingAddress as { line1?: string } | null;
+    setAddress(billing?.line1 ?? "");
     const primary = a.contacts.find((c) => c.isPrimary) ?? a.contacts[0];
     setContactFirst(primary?.firstName ?? "");
     setContactLast(primary?.lastName ?? "");
@@ -104,6 +107,7 @@ export function AccountDialog({
       setPhone,
       setEmail,
       setWebsite,
+      setAddress,
       setContactFirst,
       setContactLast,
       setContactPosition,
@@ -154,6 +158,9 @@ export function AccountDialog({
       phone: phone || null,
       email: email || null,
       website: website || null,
+      // Same JSON block the billing statement and quotation PDFs already read (`line1` is the key
+      // the finance PDF specifically looks for) — this form only ever writes one line into it.
+      billingAddress: address.trim() ? { line1: address.trim() } : {},
     };
     try {
       if (isEdit && accountId) {
@@ -304,6 +311,16 @@ export function AccountDialog({
                     placeholder="company.com.ph"
                   />
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="acc-address">Address</Label>
+                <Input
+                  id="acc-address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="930 Doña Basilisa Yangco Street, Mandaluyong City"
+                />
               </div>
             </fieldset>
 
