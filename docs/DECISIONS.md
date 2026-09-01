@@ -5446,3 +5446,48 @@ cancelled ones; search matches by number as well as title; the assignee filter w
 people correctly; newest completion sorts first. Verified live in the browser end to end — raised a
 task, marked it done, confirmed it left the working list and appeared in the archive with the right
 names and timestamp.
+
+---
+
+## #157 — The task archive is scoped: assignee, creator, EA, KJ — nobody else
+
+**2026-09-01. Built**, at EA's instruction right after #156 shipped: *"archived tasks should be
+viewed only by the assigned person, the person that created that task, EA, and KJ."*
+
+**Enforced in the query, not just at the door.** `/tasks/archive` stays gated on `task.view` —
+everyone can still open the screen — but `archivedTasksService` now takes the viewer and filters the
+*rows*: unless they raised the task, were assigned it, or are EA or KJ, it doesn't come back. An
+empty result for someone else's finished work reads as "nothing here," not a 403 explaining whose
+work it actually was — the same reasoning `myWorkService` already uses for scope.
+
+**"EA and KJ" is checked by email, not by the `president`/`vice_president` roles those two names
+would otherwise map to — and this is the one place in tonight's work where that choice was forced
+rather than convenient.** For #155's "only EA may edit," `admin.manage_users` happened to already be
+withheld from the practice grant (`scripts/practice-authority.ts`), so it meant "actually EA" for
+free. No such permission exists here — nothing distinguishes KJ's real `vice_president` role from
+DJ/PD/EM's practice-granted `president` role at the permission level, because the practice grant
+gives all four of them the full bundle alike, short of the two admin permissions. A role check
+today would let all five people see everyone's archive, which is exactly what EA just asked to stop.
+So `ARCHIVE_FULL_ACCESS_EMAILS` in `task-rules.ts` names the two accounts directly — the one
+deliberate exception to this evening's own stated preference for roles over hardcoded identity,
+made because no role currently means what "EA and KJ" means. Once practice ends, a role check and
+this email check become equivalent, and the comment on it says so — nothing needs revisiting then,
+only optionally simplifying.
+
+**Query built as `AND: [searchOr, scopeOr]`, not two `OR` keys spread into one object** — a real bug
+caught before it shipped: `{...searchClause, ...scopeClause}` where both contain top-level `OR`
+would have the second silently overwrite the first, and search would quietly stop filtering for
+anyone the scope also applied to. Prisma's `AND` array holds both independently.
+
+**The screen says which mode it's in, plainly.** EA and KJ read "Every completed task in the
+company"; everyone else reads "Completed tasks you raised or were assigned. EA and KJ can see
+everyone's" — computed client-side from the same `canSeeEveryArchivedTask` the server enforces, so
+the message and the actual access can't disagree.
+
+**Verified live against the one account this could most plausibly get wrong:** the seeded
+end-to-end test account holds full `president` permissions (same bundle every practice grantee has)
+but is not `ea@aieselectromech.com` or `kj@aieselectromech.com`. Signed in as it: the archive
+correctly showed the restricted message, not the full-access one, and correctly showed only a task
+it had itself raised and completed — proving the check reads identity, not the permission bundle
+that would have made every practice account look like EA. One new regression test covers the same
+four cases (assignee, creator, EA, KJ) plus a stranger who is refused, alongside the four from #156.

@@ -249,3 +249,21 @@ export function checkStatusChange(from: string, to: string): TaskCheck {
 
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * Who sees every archived task, not just the ones they raised or were assigned — the company's own
+ * instruction (2026-09-01): *"archived tasks should be viewed only by the assigned person, the
+ * person that created that task, EA, and KJ."*
+ *
+ * Checked by email rather than by the `president`/`vice_president` roles those two names would
+ * otherwise map to. The practice grant running for the walkthrough (`scripts/practice-authority.ts`)
+ * currently gives all five named users the `president` role, so a role check would not actually
+ * restrict anything until practice ends — the two emails are the only thing that means "EA and KJ
+ * specifically" right now. Once practice ends this and a role check become equivalent; this stays
+ * correct either way and needs no revisiting when that happens.
+ */
+export const ARCHIVE_FULL_ACCESS_EMAILS = ["ea@aieselectromech.com", "kj@aieselectromech.com"];
+
+export function canSeeEveryArchivedTask(email: string): boolean {
+  return ARCHIVE_FULL_ACCESS_EMAILS.includes(email.trim().toLowerCase());
+}

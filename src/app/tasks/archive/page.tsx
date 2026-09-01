@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useMemo, useState } from "react";
 import {
   DataTable,
@@ -14,7 +15,11 @@ import { Label, Select } from "@/components/ui/input";
 import { EmptyState, PageHeader } from "@/components/ui/layout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { trpc } from "@/lib/trpc/client";
-import { TASK_ENTITY_HREF, isTaskEntityType } from "@/server/core/collab/task-rules";
+import {
+  TASK_ENTITY_HREF,
+  canSeeEveryArchivedTask,
+  isTaskEntityType,
+} from "@/server/core/collab/task-rules";
 
 /**
  * §2's finished work, kept and searchable — the company's own words: *"an archive of tasks where
@@ -47,6 +52,8 @@ type ArchivedTaskRow = {
 };
 
 export default function TaskArchivePage() {
+  const { data: session } = useSession();
+  const seesEverything = !!session?.user && canSeeEveryArchivedTask(session.user.email ?? "");
   const [state, setState] = useState<DataTableState>(DEFAULT_TABLE_STATE);
   const [assigneeId, setAssigneeId] = useState("");
 
@@ -143,7 +150,11 @@ export default function TaskArchivePage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Task archive"
-        description="Every completed task, kept for later viewing and traceability."
+        description={
+          seesEverything
+            ? "Every completed task in the company, kept for later viewing and traceability."
+            : "Completed tasks you raised or were assigned. EA and KJ can see everyone's."
+        }
         actions={
           <Button variant="secondary" asChild>
             <Link href="/tasks">Back to all tasks</Link>

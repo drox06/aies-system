@@ -430,6 +430,9 @@ describe("archivedTasksService", () => {
     "how many done tasks exist" would also count whatever the company has actually finished.
   */
   const marker = `Archive-${suffix}`;
+  // `actor` is the creator of every task `makeTask` raises in this file, so viewing as `actor`
+  // exercises the ordinary "you see what you raised" path without needing EA/KJ's full access.
+  const viewer = { id: actor.actorId, email: `task-fixture-${suffix}@test.local` };
 
   it("shows only what's marked done — not open or cancelled work", async () => {
     const doneTask = await makeTask({ title: `${marker} finished` });
@@ -440,7 +443,7 @@ describe("archivedTasksService", () => {
     await setTaskStatusService(actor, { taskId: cancelledTask.id, status: "cancelled" });
     void openTask; // left as todo, on purpose — the point of this test
 
-    const result = await archivedTasksService({ search: marker });
+    const result = await archivedTasksService(viewer, { search: marker });
 
     expect(result.rows.map((row) => row.id)).toEqual([doneTask.id]);
     expect(result.total).toBe(1);
@@ -450,7 +453,7 @@ describe("archivedTasksService", () => {
     const task = await makeTask({ title: `${marker} number lookup` });
     await setTaskStatusService(actor, { taskId: task.id, status: "done" });
 
-    const byNumber = await archivedTasksService({ search: task.number });
+    const byNumber = await archivedTasksService(viewer, { search: task.number });
     expect(byNumber.rows.map((row) => row.id)).toEqual([task.id]);
   });
 
@@ -462,7 +465,10 @@ describe("archivedTasksService", () => {
     });
     await setTaskStatusService(actor, { taskId: task.id, status: "done" });
 
-    const filtered = await archivedTasksService({ search: marker, assigneeId: assignee.id });
+    const filtered = await archivedTasksService(viewer, {
+      search: marker,
+      assigneeId: assignee.id,
+    });
     expect(filtered.rows).toHaveLength(1);
     expect(filtered.rows[0]!.assigneeName).toBe(assignee.name);
     // "somebody", not `actor.actorLabel` — `namesFor` looks a real `User` row up by id, and this
@@ -470,7 +476,7 @@ describe("archivedTasksService", () => {
     // `makeUser`, is the one with a real row, which is why its name resolves above.
     expect(filtered.rows[0]!.createdByName).toBe("somebody");
 
-    const wrongAssignee = await archivedTasksService({
+    const wrongAssignee = await archivedTasksService(viewer, {
       search: marker,
       assigneeId: `nobody-${suffix}`,
     });
@@ -483,8 +489,49 @@ describe("archivedTasksService", () => {
     const second = await makeTask({ title: `${marker} sorts second done` });
     await setTaskStatusService(actor, { taskId: second.id, status: "done" });
 
-    const result = await archivedTasksService({ search: marker });
+    const result = await archivedTasksService(viewer, { search: marker });
     expect(result.rows[0]!.id).toBe(second.id); // completed later, listed first
     expect(result.rows[0]!.completedAt).not.toBeNull();
+  });
+
+  it("shows a task only to its assignee, its creator, EA or KJ — nobody else", async () => {
+    const creator = { actorId: `archive-creator-${suffix}`, actorLabel: "Creator fixture" };
+    const assignee = await makeUser(`Archive scoped assignee ${suffix}`);
+    const task = await createTaskService(creator, {
+      title: `${marker} scoped`,
+      assigneeId: assignee.id,
+    });
+    taskIds.push(task.id);
+    await setTaskStatusService(creator, { taskId: task.id, status: "done" });
+
+    const asAssignee = await archivedTasksService(
+      { id: assignee.id, email: "irrelevant@test.local" },
+      { search: marker },
+    );
+    expect(asAssignee.rows.map((r) => r.id)).toContain(task.id);
+
+    const asCreator = await archivedTasksService(
+      { id: creator.actorId, email: "irrelevant@test.local" },
+      { search: marker },
+    );
+    expect(asCreator.rows.map((r) => r.id)).toContain(task.id);
+
+    const asEa = await archivedTasksService(
+      { id: `somebody-else-${suffix}`, email: "ea@aieselectromech.com" },
+      { search: marker },
+    );
+    expect(asEa.rows.map((r) => r.id)).toContain(task.id);
+
+    const asKj = await archivedTasksService(
+      { id: `somebody-else-${suffix}`, email: "kj@aieselectromech.com" },
+      { search: marker },
+    );
+    expect(asKj.rows.map((r) => r.id)).toContain(task.id);
+
+    const asStranger = await archivedTasksService(
+      { id: `stranger-${suffix}`, email: `stranger-${suffix}@test.local` },
+      { search: marker },
+    );
+    expect(asStranger.rows.map((r) => r.id)).not.toContain(task.id);
   });
 });

@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/server/core/audit/audit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
@@ -8,6 +9,7 @@ import { registerNotificationType } from "@/server/core/notify/registry";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
   CLOSED_STATUSES,
+  canSeeEveryArchivedTask,
   checkStatusChange,
   checkTask,
   compareForMyWork,
@@ -679,26 +681,49 @@ export interface ArchivedTasksParams {
  * Paginated and searchable on purpose, unlike the working lists: an open-work list stays small by
  * definition — it is what's outstanding — but an archive only grows, and "traceability" means being
  * able to find one task in a thousand months later, not just look at the most recent fifty.
+ *
+ * **Scoped per person, at the company's later instruction (2026-09-01):** *"archived tasks should
+ * be viewed only by the assigned person, the person that created that task, EA, and KJ."* Enforced
+ * here rather than only in the router, because the restriction is about which *rows* a query
+ * returns, not whether the screen may be opened at all — everyone can still open `/tasks/archive`
+ * (`task.view`), and a query with no matches for them looks the same as an empty archive rather
+ * than a 403 explaining why they cannot see somebody else's finished work.
  */
-export async function archivedTasksService(params: ArchivedTasksParams = {}) {
+export async function archivedTasksService(
+  viewer: { id: string; email: string },
+  params: ArchivedTasksParams = {},
+) {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25));
   const search = params.search?.trim();
 
-  const where = {
+  const where: Prisma.TaskWhereInput = {
     deletedAt: null,
     status: "done",
     ...(params.assigneeId ? { assigneeId: params.assigneeId } : {}),
     ...(params.entityType ? { entityType: params.entityType } : {}),
-    ...(search
-      ? {
-          OR: [
-            { title: { contains: search, mode: "insensitive" as const } },
-            { number: { contains: search, mode: "insensitive" as const } },
-            { description: { contains: search, mode: "insensitive" as const } },
-          ],
-        }
-      : {}),
+    /*
+      Search's own OR and the visibility scope's own OR are combined through AND rather than
+      spread into the same object — two top-level `OR` keys on one Prisma where-input would not
+      merge, the second would silently overwrite the first, and "search" would stop working for
+      anybody it was scoping at the same time.
+    */
+    AND: [
+      ...(search
+        ? [
+            {
+              OR: [
+                { title: { contains: search, mode: "insensitive" as const } },
+                { number: { contains: search, mode: "insensitive" as const } },
+                { description: { contains: search, mode: "insensitive" as const } },
+              ],
+            },
+          ]
+        : []),
+      ...(canSeeEveryArchivedTask(viewer.email)
+        ? []
+        : [{ OR: [{ assigneeId: viewer.id }, { createdById: viewer.id }] }]),
+    ],
   };
 
   const sortKey =

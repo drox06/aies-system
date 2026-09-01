@@ -130,10 +130,10 @@ export const collabRouter = router({
 
   /**
    * Finished work, kept and searchable — *"an archive of tasks where all completed tasks are saved
-   * for later viewing and traceability."* Gated on `task.view`, the same broad grant everyone
-   * holds to see a task at all, not the narrower `task.assign` `list` needs — a historical record
-   * of what was done is not the load-check `list` exists for, and restricting it the same way
-   * would make traceability something only managers have.
+   * for later viewing and traceability."* Gated on `task.view` at the door — everyone who can see a
+   * task at all may open the screen — but `archivedTasksService` itself narrows the *rows* to the
+   * assignee, the creator, EA and KJ, per the company's later instruction. Passing `ctx.user` lets
+   * it make that call.
    */
   archive: p("task.view")
     .input(
@@ -149,7 +149,9 @@ export const collabRouter = router({
         })
         .optional(),
     )
-    .query(({ input }) => archivedTasksService(input ?? {})),
+    .query(({ ctx, input }) =>
+      archivedTasksService({ id: ctx.user.id, email: ctx.user.email }, input ?? {}),
+    ),
 
   /** The task panel a record's own screen shows. */
   forRecord: p("task.view")
