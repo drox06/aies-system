@@ -64,25 +64,36 @@ export async function calendarService(
       id: true,
       number: true,
       title: true,
+      type: true,
       scheduledStart: true,
       assignedLeadId: true,
       assignedUserIds: true,
     },
   });
+  const ticketAssigneeNames = await namesFor(
+    tickets
+      .flatMap((ticket) => [ticket.assignedLeadId, ...ticket.assignedUserIds])
+      .filter((id): id is string => !!id),
+  );
   for (const ticket of tickets) {
+    const userIds = [ticket.assignedLeadId, ...ticket.assignedUserIds].filter(
+      (id): id is string => !!id,
+    );
     entries.push({
       id: ticket.id,
-      source: "ticket",
+      // §3's four ticket types share one scheduled date; a delivery is not "a job" to the person
+      // reading the calendar, and lumping it under the generic label is why `delivery` was declared
+      // in CALENDAR_SOURCE_LABELS but never once produced — this is that fixed.
+      source: ticket.type === "delivery" ? "delivery" : "ticket",
       title: ticket.title,
       startsAt: ticket.scheduledStart!,
       endsAt: null,
       allDay: false,
-      userIds: [ticket.assignedLeadId, ...ticket.assignedUserIds].filter(
-        (id): id is string => !!id,
-      ),
+      userIds,
       entityType: "Ticket",
       entityId: ticket.id,
       reference: ticket.number,
+      people: userIds.map((id) => ticketAssigneeNames.get(id) ?? "somebody"),
     });
   }
 
@@ -246,6 +257,79 @@ export async function calendarService(
     }
   }
 
+  // ---- §2's tasks ---------------------------------------------------------------------------------
+
+  const dueTasks = await db.task.findMany({
+    where: {
+      deletedAt: null,
+      dueAt: { gte: from, lt: to },
+      status: { notIn: ["done", "cancelled"] },
+    },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      dueAt: true,
+      assigneeId: true,
+      entityType: true,
+      entityId: true,
+    },
+  });
+  const taskAssigneeNames = await namesFor(
+    dueTasks.map((task) => task.assigneeId).filter((id): id is string => !!id),
+  );
+  for (const task of dueTasks) {
+    entries.push({
+      id: task.id,
+      source: "task_due",
+      title: task.title,
+      startsAt: task.dueAt!,
+      endsAt: null,
+      // A due date is a day, not a time slot — the same call `quotation_expiry` and the others
+      // below make.
+      allDay: true,
+      userIds: task.assigneeId ? [task.assigneeId] : [],
+      entityType: task.entityType,
+      entityId: task.entityId,
+      reference: task.number,
+      people: task.assigneeId ? [taskAssigneeNames.get(task.assigneeId) ?? "somebody"] : [],
+    });
+  }
+
+  // ---- §6.1's site inspections --------------------------------------------------------------------
+
+  const inspections = await db.siteInspection.findMany({
+    where: { deletedAt: null, scheduledFor: { gte: from, lt: to } },
+    select: {
+      id: true,
+      number: true,
+      siteId: true,
+      inspectedByIds: true,
+      scheduledFor: true,
+    },
+  });
+  const inspectionSites = await sitesFor(
+    inspections.map((row) => row.siteId).filter((id): id is string => !!id),
+  );
+  const inspectorNames = await namesFor(inspections.flatMap((row) => row.inspectedByIds));
+  for (const inspection of inspections) {
+    const site = inspection.siteId ? inspectionSites.get(inspection.siteId) : undefined;
+    entries.push({
+      id: inspection.id,
+      source: "site_inspection",
+      title: site ? `Site inspection — ${site}` : "Site inspection",
+      startsAt: inspection.scheduledFor!,
+      endsAt: null,
+      allDay: false,
+      userIds: inspection.inspectedByIds,
+      entityType: "SiteInspection",
+      entityId: inspection.id,
+      reference: inspection.number,
+      location: site ?? null,
+      people: inspection.inspectedByIds.map((id) => inspectorNames.get(id) ?? "somebody"),
+    });
+  }
+
   // ---- The diary --------------------------------------------------------------------------------
 
   const manual = await db.calendarEvent.findMany({
@@ -253,6 +337,7 @@ export async function calendarService(
     select: {
       id: true,
       title: true,
+      location: true,
       startsAt: true,
       endsAt: true,
       allDay: true,
@@ -274,6 +359,9 @@ export async function calendarService(
       entityType: event.entityType,
       entityId: event.entityId,
       reference: null,
+      // Collected on the "Add an entry" form since the diary existed and never once read back —
+      // found putting a `location` field on `CalendarEntry` for the two sources above.
+      location: event.location,
     };
     // Looked back thirty days so a long event that began before the window still shows inside it.
     if (overlaps(entry, from, to)) entries.push(entry);
@@ -304,6 +392,23 @@ async function namesFor(ids: string[]) {
     select: { id: true, name: true },
   });
   return new Map(users.map((user) => [user.id, user.name]));
+}
+
+/** A site inspection's `siteId` is a plain field, not a relation — see Site's own schema comment on
+ *  why — so its name is resolved the same way an account's or a user's is. */
+async function sitesFor(ids: string[]) {
+  const wanted = [...new Set(ids)];
+  if (wanted.length === 0) return new Map<string, string>();
+  const sites = await db.site.findMany({
+    where: { id: { in: wanted } },
+    select: { id: true, name: true, address: true },
+  });
+  return new Map(
+    sites.map((site) => {
+      const line1 = (site.address as { line1?: string } | null)?.line1;
+      return [site.id, line1 ? `${site.name} — ${line1}` : site.name];
+    }),
+  );
 }
 
 export async function createCalendarEventService(

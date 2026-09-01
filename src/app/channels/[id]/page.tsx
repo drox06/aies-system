@@ -93,10 +93,10 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
   if (view.isError) {
     return (
       <Card className="text-sm">
-        <p className="font-medium">This channel could not be opened.</p>
+        <p className="font-medium">This discussion could not be opened.</p>
         <p className="mt-1 text-text-muted">{view.error.message}</p>
         <Button className="mt-3" variant="secondary" asChild>
-          <Link href="/channels">Back to channels</Link>
+          <Link href="/channels">Back to Discussion</Link>
         </Button>
       </Card>
     );
@@ -143,7 +143,7 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
               </Button>
             )}
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/channels">All channels</Link>
+              <Link href="/channels">All discussions</Link>
             </Button>
           </div>
         }
@@ -166,8 +166,8 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
         <Card className="mb-4 text-sm">
           <StatusBadge tone="cancelled">Archived</StatusBadge>
           <p className="mt-2">
-            This channel closed with its job and is kept as part of that record. It can be read and
-            not added to.
+            This discussion closed with its job and is kept as part of that record. It can be read
+            and not added to.
           </p>
         </Card>
       )}
@@ -176,7 +176,7 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
         <Card className="mb-4 flex items-center justify-between gap-3 text-sm">
           <span>Showing one thread.</span>
           <Button variant="secondary" size="sm" onClick={() => setThread(null)}>
-            Back to the channel
+            Back to the discussion
           </Button>
         </Card>
       )}
@@ -321,7 +321,7 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
       ) : (
         !channel.archivedAt && (
           <Card className="mt-4 text-sm text-text-muted">
-            You are reading a channel you are not in. Join it from the channel list to post.
+            You are reading a discussion you are not in. Join it from the Discussion list to post.
           </Card>
         )
       )}

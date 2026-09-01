@@ -5,6 +5,7 @@ import {
   boardViewService,
   createBoardService,
   deleteBoardService,
+  ensureDefaultBoardService,
   moveCardService,
   removeCardService,
 } from "@/server/core/collab/board-service";
@@ -192,5 +193,26 @@ describe("privacy", () => {
     await expect(boardViewService(stranger.actorId, { boardId: board.id })).rejects.toThrow(
       /private/,
     );
+  });
+});
+
+describe("ensureDefaultBoardService", () => {
+  // Not tracked in `boardIds` for cleanup: whichever board this resolves to is the one `/boards`
+  // shows in the running app, real or not — deleting it here would take a real, in-use board out
+  // from under whoever is looking at it right now, the same reason board.test.ts never deletes it
+  // either.
+  it("is idempotent, and the board it resolves to matches every open task", async () => {
+    const first = await ensureDefaultBoardService(owner);
+    const second = await ensureDefaultBoardService(owner);
+    expect(second.id).toBe(first.id);
+
+    const row = await db.board.findUniqueOrThrow({ where: { id: first.id } });
+    expect(row.isDefault).toBe(true);
+    expect(row.type).toBe("smart");
+    expect(row.isPrivate).toBe(false);
+
+    const task = await makeTask("Shows on the default board with nobody having made one");
+    const view = await boardViewService(owner.actorId, { boardId: first.id });
+    expect(view.cards.map((card) => card.id)).toContain(task.id);
   });
 });

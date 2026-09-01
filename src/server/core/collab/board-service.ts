@@ -38,6 +38,43 @@ import { daysLate, urgencyFor } from "@/server/core/collab/task-rules";
 
 export const BOARD_ENTITY_TYPE = "Board";
 
+/** The name shown for the one board `/boards` provisions on its own. Not how it is found — see
+ *  `Board.isDefault`'s comment — only what it is called until somebody renames it. */
+export const DEFAULT_BOARD_NAME = "Task board";
+
+/**
+ * The board `/boards` shows without anybody having to make one first (2026-09-02, the company's own
+ * instruction: *"repurpose the board to display the different states the raised tasks are in"*).
+ *
+ * A smart board with an empty filter — `matchesFilter({}, ...)` is true for every task — over the
+ * default five-status columns, so opening Boards is immediately the answer to "what state is
+ * everything in", the same view `checkBoard`'s comment on `DEFAULT_COLUMNS` already describes as
+ * "§2's status list read left to right." Lazily created and self-healing: if it is ever deleted,
+ * the next visit makes another one rather than the page breaking.
+ */
+export async function ensureDefaultBoardService(actor: ActorMeta): Promise<{ id: string }> {
+  const existing = await db.board.findFirst({
+    where: { isDefault: true, deletedAt: null },
+    select: { id: true },
+  });
+  if (existing) return existing;
+
+  const created = await db.board.create({
+    data: {
+      name: DEFAULT_BOARD_NAME,
+      type: "smart",
+      ownerId: actor.actorId,
+      isPrivate: false,
+      isDefault: true,
+      columns: DEFAULT_COLUMNS as unknown as Prisma.InputJsonValue,
+      filterRule: {} as Prisma.InputJsonValue,
+      swimlaneBy: "none",
+    },
+    select: { id: true },
+  });
+  return created;
+}
+
 const asColumns = (value: unknown): BoardColumn[] =>
   Array.isArray(value) ? (value as unknown as BoardColumn[]) : DEFAULT_COLUMNS;
 
@@ -178,6 +215,7 @@ export async function boardsService(viewerId: string) {
       type: true,
       ownerId: true,
       isPrivate: true,
+      isDefault: true,
       columns: true,
       swimlaneBy: true,
     },

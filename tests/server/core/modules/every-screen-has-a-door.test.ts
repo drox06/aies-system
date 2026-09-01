@@ -53,6 +53,10 @@ const REACHED_ANOTHER_WAY: Record<string, string> = {
     "A redirect stub, not a screen (#158) — it sends straight to /suppliers, which holds the " +
     "combined Principals & Suppliers screen and its own nav entry. Kept only so an old bookmark or " +
     "typed link still lands somewhere real rather than 404ing.",
+  "/boards/all":
+    "Reached from 'All boards' inside the board view (#160). The nav's 'Boards' entry now opens " +
+    "straight onto the default 'Task board' at /boards; this is where a custom board is made or " +
+    "opened, one click further in, the same reasoning as /tasks/templates above.",
 };
 
 /** Every .tsx under a directory, with its contents, for link checking. */

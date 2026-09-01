@@ -245,13 +245,13 @@ export async function postMessageService(
     where: { id: input.channelId, deletedAt: null },
     select: { id: true, name: true, isPrivate: true, memberIds: true, archivedAt: true },
   });
-  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That channel is gone." });
+  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That discussion is gone." });
   if (!canPost(channel, actor.actorId)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: channel.archivedAt
         ? `"${channel.name}" is archived. It is kept as a record of what was said, so nothing more can be added.`
-        : "That channel is private.",
+        : "That discussion is private.",
     });
   }
 
@@ -362,9 +362,9 @@ export async function messagesService(
       entityId: true,
     },
   });
-  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That channel is gone." });
+  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That discussion is gone." });
   if (!canRead(channel, viewerId)) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "That channel is private." });
+    throw new TRPCError({ code: "FORBIDDEN", message: "That discussion is private." });
   }
 
   const messages = await db.message.findMany({
@@ -447,11 +447,11 @@ export async function joinChannelService(actor: ActorMeta, input: { channelId: s
     where: { id: input.channelId, deletedAt: null },
     select: { id: true, name: true, isPrivate: true, memberIds: true, archivedAt: true },
   });
-  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That channel is gone." });
+  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That discussion is gone." });
   if (channel.isPrivate && !channel.memberIds.includes(actor.actorId)) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "That channel is private. Somebody already in it has to add you.",
+      message: "That discussion is private. Somebody already in it has to add you.",
     });
   }
   if (channel.memberIds.includes(actor.actorId)) return { channelId: channel.id };
@@ -472,7 +472,7 @@ export async function leaveChannelService(actor: ActorMeta, input: { channelId: 
     where: { id: input.channelId, deletedAt: null },
     select: { id: true, memberIds: true },
   });
-  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That channel is gone." });
+  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That discussion is gone." });
 
   await db.$transaction(async (tx) => {
     await tx.channel.update({
@@ -867,7 +867,7 @@ export async function updateChannelService(
       entityType: true,
     },
   });
-  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That channel is gone." });
+  if (!channel) throw new TRPCError({ code: "NOT_FOUND", message: "That discussion is gone." });
 
   const name = input.name?.trim() ?? channel.name;
   const check = checkChannel({
@@ -886,7 +886,7 @@ export async function updateChannelService(
     // Emptying a private channel would leave a conversation nobody on earth can open.
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "A private channel cannot be emptied of its last member.",
+      message: "A private discussion cannot be emptied of its last member.",
     });
   }
 

@@ -9,12 +9,12 @@ import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 import {
+  CALENDAR_ENTITY_HREF,
   CALENDAR_SOURCE_LABELS,
   manilaDayKey,
   monthGrid,
   type CalendarSource,
 } from "@/server/core/collab/calendar-rules";
-import { TASK_ENTITY_HREF, isTaskEntityType } from "@/server/core/collab/task-rules";
 
 /**
  * §4's unified calendar.
@@ -44,6 +44,8 @@ const SOURCE_TONE: Partial<Record<CalendarSource, StatusTone>> = {
   liquidation_due: "failed",
   calibration_due: "pending",
   leave: "cancelled",
+  task_due: "pending",
+  site_inspection: "active",
   manual: "draft",
 };
 
@@ -166,7 +168,7 @@ export default function CalendarPage() {
         <Card className="mb-4">
           <EmptyState
             title="Nothing dated in this month."
-            description="Scheduled jobs, mobilisations, expiries and due dates appear here on their own as records are created."
+            description="Scheduled jobs, deliveries, site inspections, task due dates, mobilisations and expiries appear here on their own as records are created."
           />
         </Card>
       )}
@@ -199,21 +201,24 @@ export default function CalendarPage() {
 
                 <div className="mt-1 flex flex-col gap-1">
                   {entries.slice(0, 3).map((entry) => {
+                    const detail = [entry.location, entry.people?.join(", ")]
+                      .filter(Boolean)
+                      .join(" · ");
                     const inner = (
                       <>
                         <StatusBadge tone={SOURCE_TONE[entry.source as CalendarSource] ?? "draft"}>
                           {CALENDAR_SOURCE_LABELS[entry.source as CalendarSource]}
                         </StatusBadge>
                         <span className="mt-0.5 block truncate">{entry.title}</span>
+                        {detail && <span className="block truncate text-text-muted">{detail}</span>}
                       </>
                     );
 
-                    return entry.entityType &&
-                      entry.entityId &&
-                      isTaskEntityType(entry.entityType) ? (
+                    const href = entry.entityType ? CALENDAR_ENTITY_HREF[entry.entityType] : null;
+                    return href && entry.entityId ? (
                       <Link
                         key={`${entry.source}-${entry.id}`}
-                        href={TASK_ENTITY_HREF[entry.entityType](entry.entityId)}
+                        href={href(entry.entityId)}
                         className="block text-xs hover:underline"
                       >
                         {inner}

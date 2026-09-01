@@ -72,6 +72,7 @@ import {
   boardsService,
   createBoardService,
   deleteBoardService,
+  ensureDefaultBoardService,
   moveCardService,
   placeableTasksService,
   removeCardService,
@@ -273,6 +274,9 @@ export const collabRouter = router({
   // ---- §2's boards ------------------------------------------------------------------------------
 
   boards: p("task.view").query(({ ctx }) => boardsService(ctx.user.id)),
+
+  /** The board `/boards` opens straight into, provisioning it on the first visit ever. */
+  defaultBoard: p("task.view").query(({ ctx }) => ensureDefaultBoardService(actorMeta(ctx))),
 
   /** One board, resolved. The viewer matters: a smart board's `assignee: "me"` means the reader. */
   board: p("task.view")

@@ -1,9 +1,26 @@
+import { TASK_ENTITY_HREF } from "@/server/core/collab/task-rules";
+
 /**
  * §4's calendar, as rules — no Prisma, no database.
  *
  * On `UI_SAFE_SERVER_MODULES`: the calendar screen groups by day, colours by source and reads the
  * same labels the iCal feed writes, and a second set of either on the client would drift.
  */
+
+/**
+ * Where a calendar entry's linked record lives.
+ *
+ * Spreads `TASK_ENTITY_HREF` rather than duplicating it: a task's `entityType` and a calendar
+ * entry's `entityType` already share the same vocabulary (Ticket, Quotation, CashAdvance, …) because
+ * both mean "the record this is about," so `task_due` entries — which carry the task's own
+ * `entityType`/`entityId` straight through — are linkable for free. `SiteInspection` is added on top:
+ * it is not a valid `Task.entityType` (a task cannot be raised *against* a site inspection, only
+ * about the same job the inspection is), so it does not belong in `TASK_ENTITY_HREF` itself.
+ */
+export const CALENDAR_ENTITY_HREF: Record<string, (id: string) => string> = {
+  ...TASK_ENTITY_HREF,
+  SiteInspection: (id) => `/inspections/${id}`,
+};
 
 /**
  * Where a calendar entry comes from.
@@ -23,6 +40,8 @@ export const CALENDAR_SOURCES = [
   "liquidation_due",
   "calibration_due",
   "leave",
+  "task_due",
+  "site_inspection",
   "manual",
 ] as const;
 export type CalendarSource = (typeof CALENDAR_SOURCES)[number];
@@ -38,6 +57,8 @@ export const CALENDAR_SOURCE_LABELS: Record<CalendarSource, string> = {
   liquidation_due: "Advance to liquidate",
   calibration_due: "Calibration due",
   leave: "Away",
+  task_due: "Task due",
+  site_inspection: "Site inspection",
   manual: "Diary",
 };
 
@@ -66,6 +87,14 @@ export interface CalendarEntry {
   entityId: string | null;
   /** A number or code to show beside the title. */
   reference: string | null;
+  /** Where it happens, when the record says. Optional so every existing source that never carried
+   *  a place stays a one-line object literal — see `location`'s use on `site_inspection` and the
+   *  diary's own `manual` entries. */
+  location?: string | null;
+  /** `userIds`, resolved to names for display — asked for by name on a site inspection's calendar
+   *  entry (2026-09-02: "the assigned person/s doing the site inspection"), where a bare id would
+   *  mean a second lookup just to read the day. */
+  people?: string[];
 }
 
 /** Half-open: `[from, to)`. A day-long event on the last day must still be included. */
@@ -179,6 +208,7 @@ export function toIcs(entries: CalendarEntry[], calendarName: string): string {
         : `DTEND:${icsStamp(end, false)}`,
       `SUMMARY:${icsEscape(entry.reference ? `${entry.title} (${entry.reference})` : entry.title)}`,
       `CATEGORIES:${icsEscape(CALENDAR_SOURCE_LABELS[entry.source])}`,
+      ...(entry.location ? [`LOCATION:${icsEscape(entry.location)}`] : []),
       "END:VEVENT",
     );
   }

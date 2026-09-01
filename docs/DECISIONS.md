@@ -5550,3 +5550,119 @@ current browser tooling, which has no way to hand a native file picker a file �
 same `FileDropzone` component and `entityType`/`entityId` convention already working in production
 for the agreement and price-list uploads, unchanged). All three records deleted afterward; typecheck
 and the full order/crm/module test suites pass.
+
+## #159 — A camera option on the calling card, and a brighter pipeline button
+
+**2026-09-01/02. Built** on EA's two follow-ups right after #158 shipped: *"can a feature be added to
+enable taking of photo then uploading rather than just uploading a photo?"* — for the principal
+prospect's calling card specifically — and *"make the 'Show prospect pipeline' more prominent same
+as other buttons in blue."*
+
+**`FileDropzone` gained an opt-in `enableCamera` prop** rather than the camera becoming the default
+for every upload in the app: a `<input type="file" capture="environment">` button, "Take a photo,"
+rendered above the existing "Or choose an existing photo" dropzone, so a phone opens straight to its
+camera without losing the ability to pick something already saved. Wired onto only the two calling
+card upload sites — `PrincipalDialog`'s quick-capture form and `PrincipalPanel`'s own upload — because
+`capture` means nothing for the five other `FileDropzone` call sites (agreements, price lists, site
+photos, contact photos, accreditation documents), all of which take a document, not a snapshot taken
+on the spot.
+
+**The pipeline button switched from `variant="ghost"` to the default primary blue**, matching "Add
+principal" and "Add supplier" beside it — a plain visibility fix, not a hierarchy change.
+
+Verified live: the "Add prospect" dialog renders "Take a photo" with a camera icon above the existing
+dropzone, and "Hide/Show prospect pipeline" now reads as a real action beside the other two buttons
+rather than fading into the row. The upload itself could not be exercised end-to-end — the browser
+tooling available in this session has no way to hand a native file picker a file — but the same
+`capture="environment"` attribute is what every phone browser already recognises to open its camera.
+
+## #160 — Boards, repurposed: `/boards` opens straight onto the states tasks are in
+
+**2026-09-02. Built** at EA's instruction: *"boards: repurpose the board to display the different
+states the raised tasks are in."*
+
+**The kanban already existed** — `DEFAULT_COLUMNS` has read "§2's status list left to right" since
+module 06 shipped, and a smart board with an empty filter already matches every task. What was
+missing was the zero-setup part: `/boards` opened onto a list of boards nobody had made yet, so "the
+board" as EA meant it — one thing, not a list of things to configure — did not exist until somebody
+clicked "New board" and built it by hand.
+
+**`Board.isDefault`, found by the flag rather than by name.** `ensureDefaultBoardService` looks for
+`isDefault: true` and creates one — a smart board, empty filter, the standard five-status columns,
+named "Task board" — only if none exists yet. Named a `DEFAULT_BOARD_NAME` constant rather than
+looked up by it: renaming the board in Settings must never orphan the lookup and spawn a second one.
+Not enforced as a database constraint — a partial unique index over one boolean column is more
+machinery than a rare, harmless race (a stray extra board, never corrupted data) is worth.
+
+**The kanban rendering was extracted into `BoardView`**, shared by `/boards` (resolves the default
+board's id, then renders it) and `/boards/[id]` (any board, unchanged). The old list screen moved to
+`/boards/all` — still where a custom board is made or opened, one click away via "All boards" inside
+`BoardView` — rather than deleted, since somebody's own filtered view or a manual board for one job
+is real, still-wanted functionality, not the thing EA asked to fix.
+
+**Is this the same thing "All tasks" already shows?** Asked mid-build, and worth recording why the
+answer is no: `/tasks` is a single-status list — one status at a time from a dropdown — built for
+reassigning and editing work inline. The repurposed `/boards` is every open status side by side as
+columns, read-only, built for seeing the whole distribution at a glance. A spreadsheet and a kanban
+board over the same rows, not a duplicate.
+
+**Verified live**: opening `/boards` now shows "Task board" immediately, grouping the company's real
+open tasks into To do / In progress / Blocked / For review / Done with no board ever having been
+created by hand. `/boards/all` still lists it, marked "Default," alongside any custom board. A new
+regression test (`ensureDefaultBoardService`, in `tests/server/core/collab/board.test.ts`) pins the
+idempotency and the "matches everything" shape — deliberately not tracked for test cleanup, since
+deleting whichever board it resolves to would take a real, in-use board out from under the running
+app.
+
+## #161 — The calendar reads task due dates, and two declared sources that never once fired
+
+**2026-09-02. Built** at EA's instruction: *"repurpose the calendar to display dates as stated in the
+raised tasks. the calendar should also display delivery dates and site inspection dates with the
+location of the site inspection and the assigned person/s doing the site inspection."*
+
+**`delivery` was declared and dead.** `CALENDAR_SOURCES` and `CALENDAR_SOURCE_LABELS` have named it
+since the calendar shipped, but nothing in `calendarService` ever produced one — every ticket, a
+delivery run or not, came out labelled the generic "Job scheduled." Found while tracing where EA's
+"delivery dates" would come from. The fix reads `Ticket.type`: a `delivery` ticket now reports its
+own `scheduledStart` under the `delivery` source instead of `ticket`. `demobilization` is declared
+and equally dead — left alone, since EA did not ask for it and it is a separate gap.
+
+**`task_due` and `site_inspection` are new sources.** Nothing before this read `Task.dueAt` at all.
+`SiteInspection.scheduledFor` — module 04 §6.1's already-fully-built record, not a new concept —
+supplies the inspection date; its `siteId` and `inspectedByIds` supply the two things EA asked for by
+name, "the location" and "the assigned person/s," which needed a place to live.
+
+**`CalendarEntry` gained `location` and `people`, both optional** so every existing source stays a
+one-line object literal. Populating `manual`'s `location` in the same pass closed a second dead field
+found alongside the first: the "Add an entry" diary form has collected a location since it was built,
+and nothing ever read it back — `calendarService`'s own `select` block never asked for it.
+
+**Linkability reuses `TASK_ENTITY_HREF` rather than a parallel map.** A calendar entry's `entityType`
+and a task's already share the same vocabulary — Ticket, Quotation, CashAdvance — because both mean
+"the record this is about." `CALENDAR_ENTITY_HREF` spreads it and adds `SiteInspection`, which is not
+a valid `Task.entityType` and does not belong in that map itself.
+
+**Verified live** against the company's real tasks: `/calendar` now shows "Task due" entries with the
+assignee's name on the day they fall due — 124 on one day alone. No real delivery ticket or site
+inspection exists yet in this database to confirm those two visually, so that half rests on three new
+regression tests in `tests/server/core/collab/calendar.test.ts` pinning exactly the three claims above
+against fixture data, plus the fact that `site_inspection`/`delivery` render through the identical,
+already-verified entry template `task_due` does.
+
+## #162 — "Channels" is now "Discussion"
+
+**2026-09-02. Built** at EA's instruction: *"replace 'channels' with 'discussion': the purpose of
+this is a place to discuss what is going on or other issues being tackled or faced by ongoing works,
+whether supply, installation, repair, pm, etc."*
+
+**A label change, the same shape as #158's "Suppliers" → "Principals & Suppliers."** The `Channel`
+model, `channel-service.ts`, `channel-rules.ts`, the router procedures and the `/channels` route are
+all untouched — renaming a database model and every procedure that names it, for a word EA never
+sees, would be a large, risky diff in service of nothing EA asked for. What changed is every string a
+person actually reads: the nav label, the page headings, "New channel" → "Start a discussion," "No
+channels yet" → "No discussions yet," and the handful of `TRPCError` messages a person sees as a
+toast — "That channel is gone" would have read strangely once the sidebar no longer says "Channels."
+
+**Verified live**: the sidebar reads "Discussion"; `/channels` renders the new heading and description
+built from EA's own framing of the purpose; a discussion was started, opened, and posted to
+successfully end to end, then deleted.

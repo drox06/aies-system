@@ -146,12 +146,12 @@ export function checkChannel(input: {
   const errors: string[] = [];
 
   const name = input.name.trim();
-  if (name.length < 2) errors.push("Give the channel a name.");
+  if (name.length < 2) errors.push("Give the discussion a name.");
   if (name.length > 60) errors.push("That name is too long to read in a list.");
 
   if (input.isPrivate && input.memberIds.length === 0) {
     // A private channel with no members is one nobody can open, including whoever made it.
-    errors.push("A private channel needs at least one member.");
+    errors.push("A private discussion needs at least one member.");
   }
 
   if (input.type === "direct" && input.memberIds.length !== 2) {

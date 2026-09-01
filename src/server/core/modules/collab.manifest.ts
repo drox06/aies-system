@@ -333,7 +333,13 @@ export const collabManifest = defineManifest({
       order: 54,
     },
     {
-      label: "Channels",
+      // Renamed from "Channels" (#162, 2026-09-02, the company's own instruction): "the purpose of this
+      // is a place to discuss what is going on or other issues being tackled or faced by ongoing
+      // works, whether supply, installation, repair, pm, etc." — a label change only. The model,
+      // the router procedures and the /channels route underneath are untouched; see channel-rules.ts
+      // and channel-service.ts, which still say "channel" throughout, same as #158 kept `/suppliers`
+      // as the URL under the renamed "Principals & Suppliers" nav entry.
+      label: "Discussion",
       href: "/channels",
       icon: "message-square",
       // Nothing narrower than "signed in". Reading a channel is not a privilege in a company of

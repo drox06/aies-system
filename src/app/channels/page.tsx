@@ -55,11 +55,11 @@ export default function ChannelsPage() {
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Channels"
-        description="Conversation that leaves a record, next to the records it is about."
+        title="Discussion"
+        description="What's going on with ongoing work — supply, installation, repair, PM, or anything else — talked through where it leaves a record, next to the records it is about."
         actions={
           <Button variant="secondary" onClick={() => setOpening((was) => !was)}>
-            {opening ? "Close" : "New channel"}
+            {opening ? "Close" : "Start a discussion"}
           </Button>
         }
       />
@@ -86,7 +86,7 @@ export default function ChannelsPage() {
             {search.isLoading && <p className="text-sm text-text-muted">Looking…</p>}
             {search.data?.length === 0 && (
               <p className="text-sm text-text-muted">
-                Nothing in any channel you can read. Private channels you are not in are not
+                Nothing in any discussion you can read. Private discussions you are not in are not
                 searched.
               </p>
             )}
@@ -117,7 +117,7 @@ export default function ChannelsPage() {
 
       {channels.isError && (
         <Card className="text-sm">
-          <p className="font-medium">The channels could not be read.</p>
+          <p className="font-medium">The discussions could not be read.</p>
           <p className="mt-1 text-text-muted">{channels.error.message}</p>
         </Card>
       )}
@@ -125,8 +125,8 @@ export default function ChannelsPage() {
       {channels.data?.length === 0 && (
         <Card>
           <EmptyState
-            title="No channels yet."
-            description="Project channels open on their own when work starts. Anything else, open one."
+            title="No discussions yet."
+            description="Project discussions open on their own when work starts. Anything else, start one."
           />
         </Card>
       )}
@@ -212,7 +212,7 @@ function NewChannel({ onDone }: { onDone: () => void }) {
   const people = trpc.collab.assignableUsers.useQuery();
   const create = trpc.collab.createChannel.useMutation({
     onSuccess: () => {
-      toastSuccess("Channel opened.");
+      toastSuccess("Discussion started.");
       onDone();
     },
     onError: toastError,
@@ -249,7 +249,7 @@ function NewChannel({ onDone }: { onDone: () => void }) {
       </div>
 
       <div>
-        <Label htmlFor="channel-description">What it is for (optional)</Label>
+        <Label htmlFor="channel-description">What it&rsquo;s about (optional)</Label>
         <Input
           id="channel-description"
           value={description}
@@ -285,7 +285,7 @@ function NewChannel({ onDone }: { onDone: () => void }) {
             ))}
           </Select>
           <p className="mt-1 text-xs text-text-muted">
-            You are always in a channel you open, whether or not you are on this list.
+            You are always in a discussion you start, whether or not you are on this list.
           </p>
         </div>
       )}
@@ -303,7 +303,7 @@ function NewChannel({ onDone }: { onDone: () => void }) {
             })
           }
         >
-          Open it
+          Start it
         </Button>
       </div>
     </Card>
