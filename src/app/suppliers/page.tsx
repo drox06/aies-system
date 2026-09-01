@@ -145,7 +145,7 @@ export default function PrincipalsAndSuppliersPage() {
         />
 
         <div className="mt-3">
-          <Button variant="ghost" size="sm" onClick={() => setPrincipalsPipelineOpen((v) => !v)}>
+          <Button size="sm" onClick={() => setPrincipalsPipelineOpen((v) => !v)}>
             {principalsPipelineOpen ? "Hide prospect pipeline" : "Show prospect pipeline"}
           </Button>
         </div>

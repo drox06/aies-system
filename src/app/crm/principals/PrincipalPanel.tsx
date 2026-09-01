@@ -315,11 +315,12 @@ export function PrincipalPanel({
                     </div>
                   ) : (
                     <FileDropzone
-                      className="mt-1 p-4"
+                      className="mt-1"
                       entityType={PRINCIPAL_ENTITY_TYPE}
                       entityId={prospectId}
                       multiple={false}
                       accept="image/*"
+                      enableCamera
                       onUploaded={async (files) => {
                         const file = files[0];
                         if (!file) return;

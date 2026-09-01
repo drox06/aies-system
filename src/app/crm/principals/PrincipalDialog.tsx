@@ -159,6 +159,7 @@ export function PrincipalDialog({
                   entityId={session?.user?.id ?? "unknown"}
                   accept="image/*"
                   multiple={false}
+                  enableCamera
                   onUploaded={(files) => {
                     const uploaded = files[0];
                     if (uploaded) setCallingCardFileId(uploaded.id);

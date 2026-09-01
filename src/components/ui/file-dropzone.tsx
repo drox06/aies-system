@@ -1,5 +1,6 @@
 "use client";
 
+import { Camera } from "lucide-react";
 import { useRef, useState } from "react";
 import { toastError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ export function FileDropzone({
   multiple = true,
   category,
   className,
+  enableCamera = false,
 }: {
   entityType: string;
   entityId: string;
@@ -43,8 +45,17 @@ export function FileDropzone({
    */
   category?: "default" | "operations";
   className?: string;
+  /**
+   * Adds a second "Take a photo" control next to the dropzone, wired to `capture="environment"` so
+   * a phone opens straight to its camera instead of the gallery picker — asked for on the calling
+   * card upload (#159), where the photo is usually taken on the spot rather than already sitting in
+   * a gallery. Only sensible alongside an image `accept`; the dropzone above it still takes an
+   * existing file either way, so this is additive, not a replacement.
+   */
+  enableCamera?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(0);
 
@@ -79,7 +90,7 @@ export function FileDropzone({
     }
   }
 
-  return (
+  const dropzone = (
     <label
       onDragOver={(e) => {
         e.preventDefault();
@@ -94,7 +105,7 @@ export function FileDropzone({
       className={cn(
         "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed p-6 text-center text-sm transition-colors",
         dragging ? "border-blue-400 bg-surface-2" : "border-border hover:bg-surface-2",
-        className,
+        enableCamera ? undefined : className,
       )}
     >
       <input
@@ -109,12 +120,40 @@ export function FileDropzone({
         <span>Uploading... ({busy} remaining)</span>
       ) : (
         <>
-          <span className="font-medium">Drop files here, or tap to choose</span>
+          <span className="font-medium">
+            {enableCamera ? "Or choose an existing photo" : "Drop files here, or tap to choose"}
+          </span>
           <span className="text-xs text-text-muted">
             Images are resized for the web automatically.
           </span>
         </>
       )}
     </label>
+  );
+
+  if (!enableCamera) return dropzone;
+
+  return (
+    <div className={cn("flex flex-col gap-2", className)}>
+      <button
+        type="button"
+        disabled={busy > 0}
+        onClick={() => cameraInputRef.current?.click()}
+        className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border p-6 text-center text-sm transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept={accept ?? "image/*"}
+          capture="environment"
+          className="sr-only"
+          onChange={(e) => void upload(e.target.files)}
+        />
+        <Camera className="size-5" aria-hidden />
+        <span className="font-medium">Take a photo</span>
+        <span className="text-xs text-text-muted">Opens the camera directly on a phone.</span>
+      </button>
+      {dropzone}
+    </div>
   );
 }
