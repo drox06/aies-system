@@ -45,7 +45,14 @@ export interface UpsertSupplierInput {
   contactName?: string | null;
   email?: string | null;
   phone?: string | null;
+  /** The head office address. */
   address?: unknown;
+  plantAddress?: unknown;
+  tin?: string | null;
+  bankName?: string | null;
+  swiftCode?: string | null;
+  bankAddress?: string | null;
+  bankAccountNumber?: string | null;
   paymentTerms?: string | null;
   leadTimeDaysTypical?: number | null;
   incoterm?: string | null;
@@ -68,6 +75,11 @@ export async function upsertSupplierService(actor: ActorMeta, input: UpsertSuppl
     contactName: input.contactName ?? null,
     email: input.email?.trim() || null,
     phone: input.phone ?? null,
+    tin: input.tin ?? null,
+    bankName: input.bankName ?? null,
+    swiftCode: input.swiftCode ?? null,
+    bankAddress: input.bankAddress ?? null,
+    bankAccountNumber: input.bankAccountNumber ?? null,
     paymentTerms: input.paymentTerms ?? null,
     leadTimeDaysTypical: input.leadTimeDaysTypical ?? null,
     incoterm: input.incoterm ?? null,
@@ -79,6 +91,9 @@ export async function upsertSupplierService(actor: ActorMeta, input: UpsertSuppl
     ...(input.address === undefined
       ? {}
       : { address: (input.address ?? {}) as Prisma.InputJsonValue }),
+    ...(input.plantAddress === undefined
+      ? {}
+      : { plantAddress: (input.plantAddress ?? {}) as Prisma.InputJsonValue }),
   };
 
   if (input.supplierId) {
@@ -173,6 +188,11 @@ export async function createSupplierFromPrincipalService(
       name: prospect.companyName,
       isPrincipal: true,
       country: prospect.country,
+      // "No re-keying" (§5c) — the addresses captured on the prospect carry straight across on
+      // appointment, the same as everything else here. `address` is the Supplier column's name for
+      // what the prospect calls `headOfficeAddress`; see order.prisma's comment on why.
+      address: prospect.headOfficeAddress as Prisma.InputJsonValue,
+      plantAddress: prospect.plantAddress as Prisma.InputJsonValue,
       contactName: prospect.contactName,
       email: prospect.email,
       phone: prospect.phone,

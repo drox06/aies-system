@@ -1,11 +1,14 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
+import { useSession } from "next-auth/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
+import { PRINCIPAL_ENTITY_TYPE } from "@/server/core/crm/principal-lifecycle";
 
 /**
  * Adding a principal prospect.
@@ -27,8 +30,11 @@ export function PrincipalDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
+  const { data: session } = useSession();
   const [companyName, setCompanyName] = useState("");
-  const [country, setCountry] = useState("");
+  const [headOfficeAddress, setHeadOfficeAddress] = useState("");
+  const [plantAddress, setPlantAddress] = useState("");
+  const [callingCardFileId, setCallingCardFileId] = useState<string | null>(null);
   const [website, setWebsite] = useState("");
   const [productLines, setProductLines] = useState("");
   const [targetIndustries, setTargetIndustries] = useState("");
@@ -44,7 +50,8 @@ export function PrincipalDialog({
   function reset() {
     for (const set of [
       setCompanyName,
-      setCountry,
+      setHeadOfficeAddress,
+      setPlantAddress,
       setWebsite,
       setProductLines,
       setTargetIndustries,
@@ -57,6 +64,7 @@ export function PrincipalDialog({
     ]) {
       set("");
     }
+    setCallingCardFileId(null);
   }
 
   /** Comma-separated in the UI, arrays on the wire. Blank entries dropped so a trailing comma does
@@ -72,7 +80,9 @@ export function PrincipalDialog({
     try {
       const prospect = await create.mutateAsync({
         companyName,
-        country: country || null,
+        headOfficeAddress: headOfficeAddress.trim() ? { line1: headOfficeAddress.trim() } : {},
+        plantAddress: plantAddress.trim() ? { line1: plantAddress.trim() } : {},
+        callingCardFileId,
         website: website || null,
         productLines: asList(productLines),
         targetIndustries: asList(targetIndustries),
@@ -120,15 +130,67 @@ export function PrincipalDialog({
               />
             </div>
 
+            <div>
+              <Label>Calling card</Label>
+              {callingCardFileId ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <a
+                    href={`/api/files/${callingCardFileId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    View calling card
+                  </a>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-danger"
+                    onClick={() => setCallingCardFileId(null)}
+                  >
+                    Replace
+                  </Button>
+                </div>
+              ) : (
+                <FileDropzone
+                  entityType={PRINCIPAL_ENTITY_TYPE}
+                  // No prospect exists yet at upload time — tagged with whoever is adding it, the
+                  // way `Contact.callingCardFileId` tags a stand-in id before its own record exists.
+                  entityId={session?.user?.id ?? "unknown"}
+                  accept="image/*"
+                  multiple={false}
+                  onUploaded={(files) => {
+                    const uploaded = files[0];
+                    if (uploaded) setCallingCardFileId(uploaded.id);
+                  }}
+                />
+              )}
+              <p className="mt-0.5 text-xs text-text-muted">
+                A photo of the business card is enough to save this and formalise the rest later.
+              </p>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label htmlFor="pp-country">Country</Label>
+                <Label htmlFor="pp-head-office">Head office address</Label>
                 <Input
-                  id="pp-country"
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
+                  id="pp-head-office"
+                  value={headOfficeAddress}
+                  onChange={(e) => setHeadOfficeAddress(e.target.value)}
                 />
               </div>
+              <div>
+                <Label htmlFor="pp-plant">Plant address</Label>
+                <Input
+                  id="pp-plant"
+                  value={plantAddress}
+                  onChange={(e) => setPlantAddress(e.target.value)}
+                  placeholder="If different from the head office"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label htmlFor="pp-website">Website</Label>
                 <Input

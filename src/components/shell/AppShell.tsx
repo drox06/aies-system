@@ -11,7 +11,6 @@ import {
   FolderKanban,
   Columns3,
   FileText,
-  Handshake,
   Inbox,
   Sunrise,
   Users,
@@ -363,7 +362,6 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   building: Building2,
   inbox: Inbox,
   "badge-check": BadgeCheck,
-  handshake: Handshake,
   "file-text": FileText,
   // Module 02 (specs/02-quotation.md).
   "check-circle": CircleCheck,

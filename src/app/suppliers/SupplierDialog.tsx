@@ -24,11 +24,15 @@ const CURRENCIES = ["PHP", "USD", "EUR", "JPY", "SGD", "CNY"] as const;
 
 export function SupplierDialog({
   supplierId,
+  defaultIsPrincipal = false,
   onClose,
   onSaved,
 }: {
   /** `null` to add a new one, an id to edit. */
   supplierId: string | null;
+  /** Which of the two tables' "Add" button opened this — only read on create; an existing
+   *  supplier's own `isPrincipal` always wins once `existing.data` arrives. */
+  defaultIsPrincipal?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -38,8 +42,15 @@ export function SupplierDialog({
   );
 
   const [name, setName] = useState("");
-  const [isPrincipal, setIsPrincipal] = useState(false);
+  const [isPrincipal, setIsPrincipal] = useState(defaultIsPrincipal);
   const [country, setCountry] = useState("");
+  const [headOfficeAddress, setHeadOfficeAddress] = useState("");
+  const [plantAddress, setPlantAddress] = useState("");
+  const [tin, setTin] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [swiftCode, setSwiftCode] = useState("");
+  const [bankAddress, setBankAddress] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [currency, setCurrency] = useState<string>("PHP");
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
@@ -57,6 +68,13 @@ export function SupplierDialog({
     setName(data.name);
     setIsPrincipal(data.isPrincipal);
     setCountry(data.country ?? "");
+    setHeadOfficeAddress((data.address as { line1?: string } | null)?.line1 ?? "");
+    setPlantAddress((data.plantAddress as { line1?: string } | null)?.line1 ?? "");
+    setTin(data.tin ?? "");
+    setBankName(data.bankName ?? "");
+    setSwiftCode(data.swiftCode ?? "");
+    setBankAddress(data.bankAddress ?? "");
+    setBankAccountNumber(data.bankAccountNumber ?? "");
     setCurrency(data.currency);
     setContactName(data.contactName ?? "");
     setEmail(data.email ?? "");
@@ -84,7 +102,16 @@ export function SupplierDialog({
         supplierId,
         name,
         isPrincipal,
-        country: country || null,
+        // Country stays off the wire entirely once a principal — the company's own instruction —
+        // rather than sending an empty string over whatever was there before.
+        country: isPrincipal ? null : country || null,
+        address: headOfficeAddress.trim() ? { line1: headOfficeAddress.trim() } : {},
+        plantAddress: plantAddress.trim() ? { line1: plantAddress.trim() } : {},
+        tin: isPrincipal ? null : tin || null,
+        bankName: bankName || null,
+        swiftCode: swiftCode || null,
+        bankAddress: bankAddress || null,
+        bankAccountNumber: bankAccountNumber || null,
         currency,
         contactName: contactName || null,
         email: email || null,
@@ -112,7 +139,11 @@ export function SupplierDialog({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-navy-900/40" />
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 max-h-[90dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-md border border-border bg-surface p-5 shadow-xl">
           <Dialog.Title className="text-base font-semibold">
-            {supplierId ? "Edit supplier" : "Add a supplier"}
+            {supplierId
+              ? "Edit supplier"
+              : defaultIsPrincipal
+                ? "Add a principal"
+                : "Add a supplier"}
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-muted">
             Only the name is required. Everything else can be filled in the first time it matters.
@@ -130,15 +161,34 @@ export function SupplierDialog({
               />
             </div>
 
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isPrincipal}
+                onChange={(e) => setIsPrincipal(e.target.checked)}
+                className="size-4 rounded border-border"
+              />
+              <span>
+                This is a principal — a manufacturer AIES represents
+                <span className="block text-xs text-text-muted">
+                  Appointed principals normally arrive here on their own, from the acquisition
+                  pipeline. Tick this only for one that predates it — checking it moves this
+                  supplier into the Principals table above.
+                </span>
+              </span>
+            </label>
+
             <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <Label htmlFor="sup-country">Country</Label>
-                <Input
-                  id="sup-country"
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                />
-              </div>
+              {!isPrincipal && (
+                <div>
+                  <Label htmlFor="sup-country">Country</Label>
+                  <Input
+                    id="sup-country"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                  />
+                </div>
+              )}
               <div>
                 <Label htmlFor="sup-currency">Quotes in</Label>
                 <Select
@@ -162,7 +212,71 @@ export function SupplierDialog({
                   inputMode="numeric"
                 />
               </div>
+              {!isPrincipal && (
+                <div>
+                  <Label htmlFor="sup-tin">TIN</Label>
+                  <Input id="sup-tin" value={tin} onChange={(e) => setTin(e.target.value)} />
+                </div>
+              )}
             </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="sup-head-office">Head office address</Label>
+                <Input
+                  id="sup-head-office"
+                  value={headOfficeAddress}
+                  onChange={(e) => setHeadOfficeAddress(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sup-plant">Plant address</Label>
+                <Input
+                  id="sup-plant"
+                  value={plantAddress}
+                  onChange={(e) => setPlantAddress(e.target.value)}
+                  placeholder="If different from the head office"
+                />
+              </div>
+            </div>
+
+            <fieldset className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2">
+              <legend className="px-1 text-sm font-medium">Banking details</legend>
+              <div>
+                <Label htmlFor="sup-bank-name">Bank name</Label>
+                <Input
+                  id="sup-bank-name"
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sup-swift">SWIFT code</Label>
+                <Input
+                  id="sup-swift"
+                  value={swiftCode}
+                  onChange={(e) => setSwiftCode(e.target.value)}
+                  className="tabular"
+                />
+              </div>
+              <div>
+                <Label htmlFor="sup-bank-address">Bank address</Label>
+                <Input
+                  id="sup-bank-address"
+                  value={bankAddress}
+                  onChange={(e) => setBankAddress(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sup-bank-account">Bank account number</Label>
+                <Input
+                  id="sup-bank-account"
+                  value={bankAccountNumber}
+                  onChange={(e) => setBankAccountNumber(e.target.value)}
+                  className="tabular"
+                />
+              </div>
+            </fieldset>
 
             <div>
               <Label htmlFor="sup-lines">Product lines</Label>
@@ -232,22 +346,6 @@ export function SupplierDialog({
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={isPrincipal}
-                onChange={(e) => setIsPrincipal(e.target.checked)}
-                className="size-4 rounded border-border"
-              />
-              <span>
-                This is a principal — a manufacturer AIES represents
-                <span className="block text-xs text-text-muted">
-                  Appointed principals normally arrive here on their own, from the acquisition
-                  pipeline. Tick this only for one that predates it.
-                </span>
-              </span>
-            </label>
-
             <div>
               <Label htmlFor="sup-notes">Notes</Label>
               <Textarea
@@ -263,7 +361,13 @@ export function SupplierDialog({
                 Cancel
               </Button>
               <Button type="submit" disabled={upsert.isPending || name.trim().length === 0}>
-                {upsert.isPending ? "Saving…" : supplierId ? "Save changes" : "Add supplier"}
+                {upsert.isPending
+                  ? "Saving…"
+                  : supplierId
+                    ? "Save changes"
+                    : isPrincipal
+                      ? "Add principal"
+                      : "Add supplier"}
               </Button>
             </div>
           </form>

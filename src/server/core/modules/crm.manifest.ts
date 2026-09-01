@@ -274,16 +274,12 @@ export const crmManifest = defineManifest({
       group: "Customers",
       order: 21,
     },
-    {
-      label: "Principals",
-      href: "/crm/principals",
-      icon: "handshake",
-      permission: "principal_prospect.manage",
-      group: "Orders",
-      // Moved out of Customers on 2026-08-17 at the company's request: a principal is who
-      // AIES buys from, so it belongs beside Suppliers rather than beside the customers it sells to.
-      order: 32,
-    },
+    // The nav entry that stood here (2026-08-17 – 2026-09-01) is gone, not just moved: the company
+    // asked for Principals and Suppliers to share one button, and that button is the order
+    // module's own "Principals & Suppliers" entry at /suppliers (order.manifest.ts). `/crm/principals`
+    // still works as a URL — it redirects rather than 404s — but no longer has its own place in the
+    // sidebar. `principal_prospect.manage` still gates every principal procedure; it just isn't a
+    // nav permission by itself anymore.
   ],
 });
 

@@ -5491,3 +5491,62 @@ correctly showed the restricted message, not the full-access one, and correctly 
 it had itself raised and completed — proving the check reads identity, not the permission bundle
 that would have made every practice account look like EA. One new regression test covers the same
 four cases (assignee, creator, EA, KJ) plus a stranger who is refused, alongside the four from #156.
+
+## #158 — Principals and Suppliers, one screen; a real bug closed; addresses and banking added
+
+**2026-09-01. Built at EA's instruction**, in one message covering five things at once: merge the
+Principals and Suppliers nav entries into one screen with Principals on top; fix "when adding
+suppliers, if it was tagged as principal then put it at the principal table — right now it doesn't
+do that... in previous test, all is placed in suppliers, nothing is on principals even though it was
+tagged as principal"; replace the principal form's country field with head office and plant address;
+add principal banking details (bank name, SWIFT code, bank address, account number); enable a
+calling-card photo upload on the prospect quick-capture form; and add address lines, TIN, and
+banking details to the supplier form.
+
+**The bug was structural, not a missed filter.** "Principals" (`/crm/principals`) and
+`Supplier.isPrincipal` were two disconnected concepts before tonight — the old Principals page read
+only the §5c courting pipeline (`PrincipalProspect`), never `Supplier` at all, so ticking "this is a
+principal" on the supplier form had nowhere to show up. The fix is definitional rather than a new
+join: the Principals table on the combined `/suppliers` screen simply **is**
+`Supplier.isPrincipal = true`, fetched once and split client-side alongside the Suppliers table below
+it. The prospect pipeline (still courting, not yet a `Supplier`) stays a separate, collapsed
+`PrincipalPipeline` block on the same screen — a real, different concept from either table, kept
+reachable without a second nav entry. `/crm/principals` now just redirects to `/suppliers`.
+
+**`Supplier.address` was already there, unused.** No form had ever exposed it. Rather than add a
+third address column, its doc comment now says what it holds — the head office address — and only
+`plantAddress` is new. `PrincipalProspect` gained matching `headOfficeAddress`/`plantAddress`
+columns and a `callingCardFileId`, reusing the same `FileDropzone` + `entityType`/`entityId` pattern
+already proven on the prospect's agreement and price-list uploads. `country` stays in both schemas
+even though neither form collects it on a principal anymore — appointment still copies it onto the
+new supplier from whatever a prospect that predates this change carried, and deleting the column
+would have thrown that away for no reason.
+
+**"No re-keying" (§5c) now covers two more fields.** `createSupplierFromPrincipalService` — the
+`principal.appointed` subscriber that turns an appointed prospect into a Supplier — was, until
+tonight, entirely untested at the call level; only its event wiring was asserted. A new test walks a
+prospect to `appointed` with both addresses set and asserts the created supplier carries them across
+unchanged, plus the existing idempotency guarantee (a redelivered event must not create a second
+supplier).
+
+**A live-tested stale-cache bug, not a save bug — caught by not trusting an empty field at face
+value.** Verifying the "Add principal" flow in the browser, a freshly saved head office address came
+back as "—" in the detail panel. Rather than accept that as the schema/form being wrong, the mutation's
+actual network response was checked directly: it held the address correctly
+(`{"line1":"45 Industriestrasse, Munich"}`) — the write had always succeeded. The real fault was in
+`/suppliers`' page-level wiring: `SupplierPanel` stays mounted underneath `SupplierDialog` while
+editing (`onEdit` opens the dialog without closing the panel), and the page's `onSaved` callback only
+called `list.refetch()` — it never invalidated the panel's own `getSupplier` query, so closing the
+dialog revealed the panel's pre-edit snapshot. Fixed by also invalidating `utils.order.getSupplier`
+in `onSaved`. Confirmed by reopening the same record after the fix: the address now reads correctly
+on the first load, no stale panel in between.
+
+**Verified live** as the seeded end-to-end account: added a principal (landed in the Principals table,
+not Suppliers — the reported bug, closed); added a local supplier with TIN, both addresses, and all
+four banking fields (all persisted correctly on the first save, once the panel refresh bug above was
+fixed); added a prospect with the new address fields and confirmed the calling-card dropzone renders
+in both the quick-capture dialog and the full panel (upload itself could not be driven through the
+current browser tooling, which has no way to hand a native file picker a file — the wiring reuses the
+same `FileDropzone` component and `entityType`/`entityId` convention already working in production
+for the agreement and price-list uploads, unchanged). All three records deleted afterward; typecheck
+and the full order/crm/module test suites pass.

@@ -45,6 +45,8 @@ export function PrincipalPanel({
   const utils = trpc.useUtils();
   const prospect = trpc.crm.getPrincipal.useQuery({ prospectId });
 
+  const [headOfficeAddress, setHeadOfficeAddress] = useState("");
+  const [plantAddress, setPlantAddress] = useState("");
   const [exclusivity, setExclusivity] = useState<(typeof EXCLUSIVITY_TERMS)[number]>("none");
   const [agreementSignedAt, setAgreementSignedAt] = useState("");
   const [agreementExpiresAt, setAgreementExpiresAt] = useState("");
@@ -69,6 +71,8 @@ export function PrincipalPanel({
   useEffect(() => {
     const data = prospect.data;
     if (!data) return;
+    setHeadOfficeAddress((data.headOfficeAddress as { line1?: string } | null)?.line1 ?? "");
+    setPlantAddress((data.plantAddress as { line1?: string } | null)?.line1 ?? "");
     setExclusivity(data.exclusivity as (typeof EXCLUSIVITY_TERMS)[number]);
     setAgreementSignedAt(asDateInput(data.agreementSignedAt));
     setAgreementExpiresAt(asDateInput(data.agreementExpiresAt));
@@ -255,6 +259,77 @@ export function PrincipalPanel({
                   )}
                 </p>
               )}
+
+              <section className="mt-4 rounded-md border border-border p-3">
+                <h3 className="text-sm font-semibold">Address and calling card</h3>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Formal logging of what the calling card captured quickly at first contact.
+                </p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="pp-head-office">Head office address</Label>
+                    <Input
+                      id="pp-head-office"
+                      value={headOfficeAddress}
+                      onChange={(e) => setHeadOfficeAddress(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="pp-plant">Plant address</Label>
+                    <Input
+                      id="pp-plant"
+                      value={plantAddress}
+                      onChange={(e) => setPlantAddress(e.target.value)}
+                      placeholder="If different from the head office"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <Label>Calling card</Label>
+                  {data.callingCardFileId ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <a
+                        href={`/api/files/${data.callingCardFileId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        View calling card
+                      </a>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-danger"
+                        disabled={update.isPending}
+                        onClick={async () => {
+                          try {
+                            await update.mutateAsync({ prospectId, callingCardFileId: null });
+                            toastSuccess("Removed.");
+                          } catch (error) {
+                            toastError(error);
+                          }
+                        }}
+                      >
+                        Replace
+                      </Button>
+                    </div>
+                  ) : (
+                    <FileDropzone
+                      className="mt-1 p-4"
+                      entityType={PRINCIPAL_ENTITY_TYPE}
+                      entityId={prospectId}
+                      multiple={false}
+                      accept="image/*"
+                      onUploaded={async (files) => {
+                        const file = files[0];
+                        if (!file) return;
+                        await update.mutateAsync({ prospectId, callingCardFileId: file.id });
+                        toastSuccess("Calling card attached.");
+                      }}
+                    />
+                  )}
+                </div>
+              </section>
 
               <section className="mt-4 rounded-md border border-border p-3">
                 <h3 className="text-sm font-semibold">Distributor agreement</h3>
@@ -502,6 +577,10 @@ export function PrincipalPanel({
                     try {
                       await update.mutateAsync({
                         prospectId,
+                        headOfficeAddress: headOfficeAddress.trim()
+                          ? { line1: headOfficeAddress.trim() }
+                          : {},
+                        plantAddress: plantAddress.trim() ? { line1: plantAddress.trim() } : {},
                         exclusivity,
                         agreementSignedAt: agreementSignedAt ? new Date(agreementSignedAt) : null,
                         agreementExpiresAt: agreementExpiresAt

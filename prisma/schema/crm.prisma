@@ -535,6 +535,19 @@ model PrincipalProspect {
   email       String?
   phone       String?
 
+  /// The company's instruction (2026-09-01): "rather than country, make the input line head
+  /// office address and plant address." Same Json-block shape `Site.address` and
+  /// `Supplier.address` already use. `country` above stays in the schema — it is what the
+  /// appointment conversion has always copied to `Supplier.country`, and dropping the column
+  /// would be a bigger change than dropping it from this one form.
+  headOfficeAddress Json @default("{}")
+  plantAddress      Json @default("{}")
+
+  /// A photo of the business card handed over at a trade show — the company's own words: "quick
+  /// storage of prospective principal, used later for formal logging of details." Same shape as
+  /// `Contact.callingCardFileId`: a `FileObject` id, not a foreign key.
+  callingCardFileId String?
+
   // identified | contacted | in_discussion | samples_pricing | agreement_draft | appointed |
   // declined | dormant. Enforced by principal-lifecycle.ts, not by this column.
   stage String @default("identified")

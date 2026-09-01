@@ -48,6 +48,9 @@ export interface CreatePrincipalInput {
   companyName: string;
   country?: string | null;
   website?: string | null;
+  headOfficeAddress?: unknown;
+  plantAddress?: unknown;
+  callingCardFileId?: string | null;
   productLines?: string[];
   contactName?: string | null;
   email?: string | null;
@@ -71,6 +74,9 @@ export async function createPrincipalService(actor: ActorMeta, input: CreatePrin
         companyName,
         country: input.country ?? null,
         website: input.website ?? null,
+        headOfficeAddress: (input.headOfficeAddress ?? {}) as Prisma.InputJsonValue,
+        plantAddress: (input.plantAddress ?? {}) as Prisma.InputJsonValue,
+        callingCardFileId: input.callingCardFileId ?? null,
         productLines: input.productLines ?? [],
         contactName: input.contactName ?? null,
         email: input.email ?? null,
@@ -107,6 +113,9 @@ export interface UpdatePrincipalInput {
   companyName?: string;
   country?: string | null;
   website?: string | null;
+  headOfficeAddress?: unknown;
+  plantAddress?: unknown;
+  callingCardFileId?: string | null;
   productLines?: string[];
   contactName?: string | null;
   email?: string | null;
@@ -180,6 +189,7 @@ export async function updatePrincipalService(actor: ActorMeta, input: UpdatePrin
     for (const field of [
       "country",
       "website",
+      "callingCardFileId",
       "productLines",
       "contactName",
       "email",
@@ -197,6 +207,15 @@ export async function updatePrincipalService(actor: ActorMeta, input: UpdatePrin
       "nextFollowUpAt",
     ] as const) {
       if (input[field] !== undefined) data[field] = input[field];
+    }
+
+    // Json, handled separately from the plain-field loop above: omitting the key is how "leave
+    // this address alone" is said to Prisma, same convention as Site.address and Supplier.address.
+    if (input.headOfficeAddress !== undefined) {
+      data.headOfficeAddress = (input.headOfficeAddress ?? {}) as Prisma.InputJsonValue;
+    }
+    if (input.plantAddress !== undefined) {
+      data.plantAddress = (input.plantAddress ?? {}) as Prisma.InputJsonValue;
     }
 
     const prospect = await tx.principalProspect.update({

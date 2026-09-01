@@ -94,9 +94,27 @@ model Supplier {
   contactName String?
   email       String?
   phone       String?
-  /// Json for the same reason as CustomerAccount.billingAddress: Philippine addresses do not
-  /// decompose cleanly, and every consumer wants the whole block.
-  address     Json    @default("{}")
+  /// The head office address. Json for the same reason as CustomerAccount.billingAddress:
+  /// Philippine addresses do not decompose cleanly, and every consumer wants the whole block.
+  /// Named `address` rather than `headOfficeAddress` because the column predates the distinction
+  /// from `plantAddress` below — it always meant "where the company is", which is the head office.
+  address      Json    @default("{}")
+  /// Where the goods actually come from, when that differs from the head office — the company's
+  /// own instruction (2026-09-01) for both principals and local suppliers. Same shape as `address`.
+  plantAddress Json    @default("{}")
+  /// Suppliers only in practice — a principal is appointed from abroad and rarely has a Philippine
+  /// TIN, so the field stays on every supplier rather than being conditional in the schema. The
+  /// form is what makes it supplier-specific.
+  tin          String?
+
+  /// The company's instruction (2026-09-01): "add banking details entry as well" for both
+  /// principals and local suppliers — how AIES actually pays them. Plain strings rather than the
+  /// Json-block pattern the addresses use: a bank name and a SWIFT code are each one fact, not a
+  /// block of lines the way a mailing address is.
+  bankName          String?
+  swiftCode         String?
+  bankAddress       String?
+  bankAccountNumber String?
 
   paymentTerms        String?
   leadTimeDaysTypical Int?

@@ -29,7 +29,6 @@ export const NAV_ICON_NAMES = [
   "building",
   "inbox",
   "badge-check",
-  "handshake",
   "file-text",
   // Module 02 — quotation.
   "check-circle",

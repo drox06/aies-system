@@ -110,7 +110,7 @@ export function SupplierPanel({
                 {state === "none" && <StatusBadge tone="draft">Not approved</StatusBadge>}
                 {data.principalProspect && (
                   <Link
-                    href="/crm/principals"
+                    href="/suppliers"
                     className="text-xs text-blue-600 underline underline-offset-2"
                   >
                     From the principal pipeline
@@ -123,6 +123,13 @@ export function SupplierPanel({
                   {[data.contactName, data.email, data.phone].filter(Boolean).join(" · ") || "—"}
                 </Detail>
                 <Detail label="Product lines">{data.productLines.join(", ") || "—"}</Detail>
+                {!data.isPrincipal && <Detail label="TIN">{data.tin ?? "—"}</Detail>}
+                <Detail label="Head office address">
+                  {(data.address as { line1?: string } | null)?.line1 ?? "—"}
+                </Detail>
+                <Detail label="Plant address">
+                  {(data.plantAddress as { line1?: string } | null)?.line1 ?? "—"}
+                </Detail>
                 <Detail label="Payment terms">{data.paymentTerms ?? "—"}</Detail>
                 <Detail label="Incoterm">{data.incoterm ?? "—"}</Detail>
                 <Detail label="Typical lead time">
@@ -140,6 +147,18 @@ export function SupplierPanel({
                   </Detail>
                 )}
               </dl>
+
+              {(data.bankName || data.swiftCode || data.bankAddress || data.bankAccountNumber) && (
+                <section className="mt-3 rounded-md border border-border p-3">
+                  <h3 className="text-sm font-semibold">Banking details</h3>
+                  <dl className="mt-2 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
+                    <Detail label="Bank name">{data.bankName ?? "—"}</Detail>
+                    <Detail label="SWIFT code">{data.swiftCode ?? "—"}</Detail>
+                    <Detail label="Bank address">{data.bankAddress ?? "—"}</Detail>
+                    <Detail label="Bank account number">{data.bankAccountNumber ?? "—"}</Detail>
+                  </dl>
+                </section>
+              )}
 
               {data.notes && (
                 <p className="mt-3 rounded-md border border-border bg-surface-muted p-2.5 text-sm whitespace-pre-wrap">

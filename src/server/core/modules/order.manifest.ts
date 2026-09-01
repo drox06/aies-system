@@ -269,7 +269,11 @@ export const orderManifest = defineManifest({
       order: 31,
     },
     {
-      label: "Suppliers",
+      // One button for what used to be two nav entries (2026-09-01, the company's own instruction).
+      // The screen behind it also holds the §5c prospect pipeline, previously module 01's own
+      // "Principals" entry — gated here on `supplier.manage` rather than a second permission a nav
+      // entry cannot carry two of; in practice the same people hold both.
+      label: "Principals & Suppliers",
       href: "/suppliers",
       icon: "truck",
       permission: "supplier.manage",
