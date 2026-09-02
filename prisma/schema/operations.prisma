@@ -545,6 +545,13 @@ model SiteInspection {
   approvedById  String?
   approvedAt    DateTime?
 
+  /// Individually granted viewers, on top of the default rule (whoever attended, whoever asked for
+  /// it, and EA/KJ/DJ by name — see `canOpenSiteInspection` in site-inspection-rules.ts). Asked for
+  /// by the company on 2026-09-03, right after that default rule shipped: a "Share report to"
+  /// picker on the record itself, so somebody who needs to see one particular survey does not need
+  /// a standing permission to see every survey.
+  sharedWithIds String[] @default([])
+
   version Int @default(0)
 
   createdAt DateTime  @default(now())

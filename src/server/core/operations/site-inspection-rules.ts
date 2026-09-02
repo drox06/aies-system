@@ -60,17 +60,24 @@ export function canSeeAnySiteInspection(email: string): boolean {
 
 /**
  * The actual per-record gate: the two people the survey is about — whoever asked for it, whoever
- * went — plus the three named above. Replaces a `ticket.view_all` check that, in a company where
- * "everyone does everything" (Spec.md §1.2), would have handed every survey to whoever happens to
- * hold that one broad permission for unrelated dispatch reasons.
+ * went — the three named above, plus whoever has been individually granted access via `sharedWithIds`
+ * (2026-09-03's "Share report to" picker: *"the user selected will have access to this site
+ * inspection report"*). Replaces a `ticket.view_all` check that, in a company where "everyone does
+ * everything" (Spec.md §1.2), would have handed every survey to whoever happens to hold that one
+ * broad permission for unrelated dispatch reasons.
  */
 export function canOpenSiteInspection(
-  inspection: { inspectedByIds: readonly string[]; requestedById: string | null },
+  inspection: {
+    inspectedByIds: readonly string[];
+    requestedById: string | null;
+    sharedWithIds?: readonly string[];
+  },
   user: { id: string; email: string },
 ): boolean {
   return (
     inspection.inspectedByIds.includes(user.id) ||
     inspection.requestedById === user.id ||
+    (inspection.sharedWithIds?.includes(user.id) ?? false) ||
     canSeeAnySiteInspection(user.email)
   );
 }

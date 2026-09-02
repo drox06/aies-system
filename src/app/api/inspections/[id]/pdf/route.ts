@@ -39,7 +39,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const inspection = await db.siteInspection.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, number: true, status: true, inspectedByIds: true, requestedById: true },
+    select: {
+      id: true,
+      number: true,
+      status: true,
+      inspectedByIds: true,
+      requestedById: true,
+      sharedWithIds: true,
+    },
   });
   if (!inspection) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });

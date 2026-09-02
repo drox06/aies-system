@@ -5839,3 +5839,42 @@ DJ, and (the point of naming three people rather than a permission) that PD and 
 same practice-period role EA does, are still refused. A new database-backed test proves the actual
 behaviour change: a user holding `ticket.view_all` but none of the three emails, uninvolved in the
 record, is now refused where the old code would have let them in.
+
+## #167 — "Share report to": granting one more person access, per record
+
+**2026-09-03. Built** at EA's instruction, immediately after #166's closed list shipped: *"make a
+'share report to' button with a dropdown list of all users. when this is clicked, the user selected
+will have access to this site inspection report."*
+
+**The closed list from #166 needed an escape hatch, and this is it.** Naming EA, KJ and DJ by name
+rather than a permission was deliberate, but a closed list with no way to widen it for one particular
+report would eventually mean asking a developer every time somebody legitimately needed to see one.
+`SiteInspection.sharedWithIds` (a new `String[]`, the same plain-id-array shape `inspectedByIds` and
+every other membership list in this codebase already uses) is that per-record widening.
+`canOpenSiteInspection` now checks it alongside attendance, the request, and the named three.
+
+**Anybody who can already open a report may extend that to somebody else** — there is no narrower
+gate than `canOpenSiteInspection` itself on the way in, checked again inside `shareInspectionService`
+before the grant is written. Nothing in the instruction asked for a second, stricter gate on who may
+share, and inventing one — "only EA may share" — would have been a rule the company did not ask for
+sitting next to one it did.
+
+**The picker lists every active user, not narrowed to field roles** the way module 01's inspection-
+assignment picker is (`listInspectionAssigneesService`) — sharing a finished report is not "who might
+go do the visit", it is "who needs to read this one," and there is no reason to assume that is only
+ever a technician. Already-shared people are left off the list, both because re-sharing is a wasted
+click and because `shareInspectionService` treats it as a genuine no-op (`alreadyShared: true`,
+nothing written, no duplicate notification) rather than an error — sharing with someone twice is not
+a mistake worth refusing, just nothing further to do.
+
+**One click, not two**, matching the instruction's own "when this is clicked, the user selected will
+have access" rather than a click nobody asked for: the "Share report to…" button reveals a plain
+`<select>`, and choosing a name is the whole action — `onChange` fires the mutation directly, no
+separate confirm.
+
+**Verified**: three new tests cover the grant (a bystander refused, then let in and named on the
+record), idempotency (sharing with someone who already has access via another route changes nothing
+and writes nothing), and the "cannot share what you cannot open" refusal. Verified live end to end: a
+report shared with PD showed "Also shared with: PD" on the record immediately, recorded a real audit
+row, and PD dropped out of the picker's own list on the next open — proof the exclusion reads the
+same state the grant just wrote, not a stale copy of it.

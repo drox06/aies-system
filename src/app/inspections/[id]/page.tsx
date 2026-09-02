@@ -9,6 +9,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { RequirementsPanel } from "./RequirementsPanel";
 import {
   ATTENDEE_PARTIES,
@@ -90,9 +91,19 @@ export default function InspectionPage({ params }: { params: Promise<{ id: strin
                 </a>
               </Button>
             )}
+            <ShareButton
+              inspectionId={data.id}
+              alreadyShared={data.sharedWith.map((person) => person.id)}
+            />
           </div>
         }
       />
+
+      {data.sharedWith.length > 0 && (
+        <p className="mt-2 text-xs text-text-muted">
+          Also shared with: {data.sharedWith.map((person) => person.name).join(", ")}
+        </p>
+      )}
 
       <RecordLayout
         aside={
@@ -198,6 +209,76 @@ export default function InspectionPage({ params }: { params: Promise<{ id: strin
         </div>
       </RecordLayout>
     </div>
+  );
+}
+
+/**
+ * §19's per-record extension, asked for the moment the default rule shipped (2026-09-03): "make a
+ * 'share report to' button with a dropdown list of all users. when this is clicked, the user
+ * selected will have access to this site inspection report."
+ *
+ * A click opens the picker; picking a name is the whole action — there is no second confirm step,
+ * matching the instruction's own "when this is clicked, the user selected will have access" rather
+ * than adding a click nobody asked for. Already-shared people are left out of the list: showing them
+ * again invites sharing the same report with the same person twice for no reason.
+ */
+function ShareButton({
+  inspectionId,
+  alreadyShared,
+}: {
+  inspectionId: string;
+  alreadyShared: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const utils = trpc.useUtils();
+  const people = trpc.operations.shareableUsers.useQuery(undefined, { enabled: open });
+
+  const share = trpc.operations.shareInspection.useMutation({
+    onSuccess: (_result, variables) => {
+      const name = people.data?.find((person) => person.id === variables.userId)?.name ?? "them";
+      toastSuccess(`Shared with ${name}.`);
+      setOpen(false);
+      void utils.operations.getInspection.invalidate({ inspectionId });
+    },
+    onError: toastError,
+  });
+
+  const options = (people.data ?? []).filter((person) => !alreadyShared.includes(person.id));
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Share report to…
+      </Button>
+    );
+  }
+
+  return (
+    <Select
+      aria-label="Share report to"
+      className="h-8 text-sm"
+      autoFocus
+      disabled={share.isPending}
+      defaultValue=""
+      onChange={(event) => {
+        const userId = event.target.value;
+        if (!userId) {
+          setOpen(false);
+          return;
+        }
+        share.mutate({ inspectionId, userId });
+      }}
+      onBlur={() => setOpen(false)}
+    >
+      <option value="" disabled>
+        {people.isLoading ? "Loading…" : "Choose someone…"}
+      </option>
+      {options.map((person) => (
+        <option key={person.id} value={person.id}>
+          {person.name}
+        </option>
+      ))}
+    </Select>
   );
 }
 

@@ -520,6 +520,14 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
     });
   }
 
+  const sharedWith =
+    inspection.sharedWithIds.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: inspection.sharedWithIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+
   return {
     ...inspection,
     /** Shaped, not raw Json — the screen and `inspectionCompleteness` read the same list. */
@@ -527,6 +535,8 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
     utilities: readUtilities(inspection.utilitiesAvailable),
     completeness: inspectionCompleteness(inspection),
     editable: isInspectionEditable(inspection.status),
+    /** Named, not just the raw ids — so "Shared with" reads as people rather than as cuids. */
+    sharedWith,
     /**
      * §6.1's sign-off, as the company redrew it on 2026-08-17: an officer *or* the person who asked
      * for the survey, because their quotation is what depends on what it says.
@@ -534,6 +544,102 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
     canApprove:
       user.permissions.has(INSPECTION_APPROVE_PERMISSION) || inspection.requestedById === user.id,
   };
+}
+
+/**
+ * Every active user, for the "Share report to" picker (2026-09-03) — deliberately not narrowed to
+ * field roles the way `listInspectionAssigneesService` (module 01's assignment picker) is, since
+ * sharing a finished report is not the same question as "who might go do the visit".
+ */
+export async function shareableUsersService(): Promise<{ id: string; name: string }[]> {
+  return db.user.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+registerNotificationType({
+  key: "site_inspection.shared",
+  label: "A site inspection report was shared with you",
+  defaultChannels: { inApp: true, email: false, digest: false },
+});
+
+/**
+ * Grants one more person standing access to this inspection — 2026-09-03's "Share report to"
+ * picker: *"when this is clicked, the user selected will have access to this site inspection
+ * report."* Anybody who can already open the record may extend that to somebody else; there is no
+ * narrower gate than the one `canOpenSiteInspection` already enforces on the way in, the same
+ * reasoning a channel's own membership works by.
+ */
+export async function shareInspectionService(
+  actor: ActorMeta & { id: string; email: string },
+  input: { inspectionId: string; userId: string },
+) {
+  const inspection = await db.siteInspection.findFirst({
+    where: { id: input.inspectionId, deletedAt: null },
+    select: {
+      id: true,
+      number: true,
+      inspectedByIds: true,
+      requestedById: true,
+      sharedWithIds: true,
+    },
+  });
+  if (!inspection) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That inspection no longer exists." });
+  }
+  if (!canOpenSiteInspection(inspection, actor)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You cannot share a report you cannot yourself open.",
+    });
+  }
+
+  const recipient = await db.user.findFirst({
+    where: { id: input.userId, isActive: true, deletedAt: null },
+    select: { id: true, name: true, email: true },
+  });
+  if (!recipient) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That user account is inactive or no longer exists.",
+    });
+  }
+
+  // Already has it, one way or another — not an error, just nothing further to do.
+  if (canOpenSiteInspection(inspection, recipient)) {
+    return { id: inspection.id, alreadyShared: true };
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.siteInspection.update({
+      where: { id: inspection.id },
+      data: { sharedWithIds: { push: recipient.id } },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "shared",
+      entityType: SITE_INSPECTION_ENTITY_TYPE,
+      entityId: inspection.id,
+      summary: `Shared site inspection ${inspection.number} with ${recipient.name}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  await safeNotify({
+    recipientId: recipient.id,
+    type: "site_inspection.shared",
+    title: `${inspection.number} — a site inspection report was shared with you`,
+    body: `${actor.actorLabel} gave you access to this report.`,
+    entityType: SITE_INSPECTION_ENTITY_TYPE,
+    entityId: inspection.id,
+  });
+
+  return { id: inspection.id, alreadyShared: false };
 }
 
 export async function listInspectionsService(
@@ -559,7 +665,13 @@ export async function listInspectionsService(
       ...(filter.scopeChangeOnly ? { scopeChangeIdentified: true } : {}),
       ...(seesAll
         ? {}
-        : { OR: [{ inspectedByIds: { has: user.id } }, { requestedById: user.id }] }),
+        : {
+            OR: [
+              { inspectedByIds: { has: user.id } },
+              { requestedById: user.id },
+              { sharedWithIds: { has: user.id } },
+            ],
+          }),
     },
     include: {
       ticket: { select: { id: true, number: true, title: true } },

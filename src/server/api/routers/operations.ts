@@ -196,6 +196,8 @@ import {
   setInspectionWaiverService,
   saveInspectionService,
   scheduleInspectionService,
+  shareInspectionService,
+  shareableUsersService,
 } from "@/server/core/operations/site-inspection-service";
 import {
   cashAdvanceGateForTicket,
@@ -591,6 +593,15 @@ export const operationsRouter = router({
   getInspection: p("ticket.view")
     .input(z.object({ inspectionId: z.string() }))
     .query(({ ctx, input }) => getInspectionService(ctx.user, input.inspectionId)),
+
+  /** Every active user, for the "Share report to" picker. */
+  shareableUsers: p("ticket.view").query(() => shareableUsersService()),
+
+  shareInspection: p("ticket.view")
+    .input(z.object({ inspectionId: z.string(), userId: z.string() }))
+    .mutation(({ ctx, input }) =>
+      shareInspectionService({ ...actorMeta(ctx), id: ctx.user.id, email: ctx.user.email }, input),
+    ),
 
   // ---- §6.2's method statement ------------------------------------------------------------------
 

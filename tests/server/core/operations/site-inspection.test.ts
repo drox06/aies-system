@@ -9,6 +9,7 @@ import {
   saveInspectionService,
   scheduleFromInspectionRequest,
   scheduleInspectionService,
+  shareInspectionService,
 } from "@/server/core/operations/site-inspection-service";
 import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
@@ -484,5 +485,66 @@ describe("§19 — who sees what", () => {
       },
     });
     expect(log).not.toBeNull();
+  });
+
+  /**
+   * "Share report to" (2026-09-03): "when this is clicked, the user selected will have access to
+   * this site inspection report." Built the moment the closed default list shipped, so somebody
+   * outside it can still be let in for one particular survey without a standing permission.
+   */
+  describe("sharing", () => {
+    it("lets in a bystander once shared, and names them on the record", async () => {
+      const tech = await makeUser("technician", ["ticket.execute"]);
+      const ticket = await makeTicket(tech);
+      const inspection = await scheduleFor(tech, ticket.id);
+
+      const bystander = await makeUser("technician", ["ticket.view"]);
+      await expect(getInspectionService(bystander, inspection.id)).rejects.toThrow(
+        /visible to the people who attended/,
+      );
+
+      const result = await shareInspectionService(
+        { ...actorFor(tech), id: tech.id, email: tech.email },
+        { inspectionId: inspection.id, userId: bystander.id },
+      );
+      expect(result.alreadyShared).toBe(false);
+
+      await expect(getInspectionService(bystander, inspection.id)).resolves.toBeTruthy();
+
+      const opened = await getInspectionService(tech, inspection.id);
+      expect(opened.sharedWith.map((person) => person.id)).toContain(bystander.id);
+    });
+
+    it("is idempotent — sharing with somebody who already has access changes nothing", async () => {
+      const tech = await makeUser("technician", ["ticket.execute"]);
+      const ticket = await makeTicket(tech);
+      const inspection = await scheduleFor(tech, ticket.id);
+
+      // tech is already the requester — already has access before any share.
+      const result = await shareInspectionService(
+        { ...actorFor(tech), id: tech.id, email: tech.email },
+        { inspectionId: inspection.id, userId: tech.id },
+      );
+      expect(result.alreadyShared).toBe(true);
+
+      const opened = await getInspectionService(tech, inspection.id);
+      expect(opened.sharedWith).toEqual([]);
+    });
+
+    it("refuses to let somebody share a report they cannot themselves open", async () => {
+      const tech = await makeUser("technician", ["ticket.execute"]);
+      const ticket = await makeTicket(tech);
+      const inspection = await scheduleFor(tech, ticket.id);
+
+      const bystander = await makeUser("technician", ["ticket.view"]);
+      const thirdParty = await makeUser("technician", ["ticket.view"]);
+
+      await expect(
+        shareInspectionService(
+          { ...actorFor(bystander), id: bystander.id, email: bystander.email },
+          { inspectionId: inspection.id, userId: thirdParty.id },
+        ),
+      ).rejects.toThrow(/cannot share a report you cannot yourself open/);
+    });
   });
 });
