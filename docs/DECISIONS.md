@@ -5878,3 +5878,12 @@ and writes nothing), and the "cannot share what you cannot open" refusal. Verifi
 report shared with PD showed "Also shared with: PD" on the record immediately, recorded a real audit
 row, and PD dropped out of the picker's own list on the next open — proof the exclusion reads the
 same state the grant just wrote, not a stale copy of it.
+
+**A second, older gap found and fixed while wiring this up**: the file-access checker for a survey's
+own photographs (`registerFileAccessChecker(SITE_INSPECTION_ENTITY_TYPE, ...)`) had its own inline
+copy of the old rule and had never been touched by #166 — meaning a bystander refused the record
+itself under the new closed list could still open every photo in it via `ticket.view_all`, and a
+freshly shared user had no way to see the pictures the report is actually about, since the checker
+never looked at `sharedWithIds` at all. Replaced the inline copy with a direct call to
+`canOpenSiteInspection` — one rule, not two that could drift — and pinned it with a test that shares
+access and checks `canAccessFile` moves from refused to allowed on the same fake file.

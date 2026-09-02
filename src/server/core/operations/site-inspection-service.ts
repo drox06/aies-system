@@ -61,7 +61,11 @@ registerNotificationType({
 });
 
 /**
- * Photographs on an inspection are visible to anyone who can read the inspection.
+ * Photographs on an inspection are visible to anyone who can read the inspection — exactly
+ * `canOpenSiteInspection`, not a second copy of it. Found out of step while building "Share report
+ * to" (#167): this had never been updated for #166's closed list, so a bystander merely holding
+ * `ticket.view_all` could still open every photo even after being refused the record itself, and
+ * somebody freshly shared with had no way to see the pictures the report is actually about.
  *
  * Registered here rather than in a shared file for the same reason module 01's is: the checker has
  * to be in the registry before anybody asks for a photograph, and the import that registers it is
@@ -70,14 +74,10 @@ registerNotificationType({
 registerFileAccessChecker(SITE_INSPECTION_ENTITY_TYPE, async (user, file) => {
   const inspection = await db.siteInspection.findFirst({
     where: { id: file.entityId, deletedAt: null },
-    select: { inspectedByIds: true, requestedById: true },
+    select: { inspectedByIds: true, requestedById: true, sharedWithIds: true },
   });
   if (!inspection) return false;
-  return (
-    user.permissions.has("ticket.view_all") ||
-    inspection.inspectedByIds.includes(user.id) ||
-    inspection.requestedById === user.id
-  );
+  return canOpenSiteInspection(inspection, user);
 });
 
 // ---- scheduling ---------------------------------------------------------------------------------

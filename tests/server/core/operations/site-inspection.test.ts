@@ -12,6 +12,7 @@ import {
   shareInspectionService,
 } from "@/server/core/operations/site-inspection-service";
 import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
+import { canAccessFile } from "@/server/core/storage/access";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
 import { promptRevisionOnScopeChange } from "@/server/core/quotation/scope-change-service";
 import { createQuotationService } from "@/server/core/quotation/quotation-service";
@@ -529,6 +530,43 @@ describe("§19 — who sees what", () => {
 
       const opened = await getInspectionService(tech, inspection.id);
       expect(opened.sharedWith).toEqual([]);
+    });
+
+    /**
+     * The gap found while building this feature: the file-access checker for a survey's own photos
+     * had never been updated for #166's closed list, so it still read `ticket.view_all` — meaning a
+     * bystander refused the record itself could still open every picture in it, and there was no way
+     * for the checker to see a fresh share at all.
+     */
+    it("shares access to the survey's own photographs, not only the record", async () => {
+      const tech = await makeUser("technician", ["ticket.execute"]);
+      const ticket = await makeTicket(tech);
+      const inspection = await scheduleFor(tech, ticket.id);
+
+      const dispatcher = await makeUser("operations_manager", ["ticket.view_all"]);
+      const fakeFile = {
+        id: "f1",
+        entityType: SITE_INSPECTION_ENTITY_TYPE,
+        entityId: inspection.id,
+        storageKey: "k",
+        webDerivativeKey: null,
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        size: 1,
+        sha256: "x",
+        uploaderId: tech.id,
+        createdAt: new Date(),
+        deletedAt: null,
+      };
+
+      expect(await canAccessFile(dispatcher, fakeFile)).toBe(false);
+
+      await shareInspectionService(
+        { ...actorFor(tech), id: tech.id, email: tech.email },
+        { inspectionId: inspection.id, userId: dispatcher.id },
+      );
+
+      expect(await canAccessFile(dispatcher, fakeFile)).toBe(true);
     });
 
     it("refuses to let somebody share a report they cannot themselves open", async () => {
