@@ -5666,3 +5666,43 @@ toast — "That channel is gone" would have read strangely once the sidebar no l
 **Verified live**: the sidebar reads "Discussion"; `/channels` renders the new heading and description
 built from EA's own framing of the purpose; a discussion was started, opened, and posted to
 successfully end to end, then deleted.
+
+## #163 — The Requirements checklist moved from the inquiry to the site inspection
+
+**2026-09-02. Built** at EA's instruction: *"In Inquiries: before acknowledgement: remove the
+'Requirements' table and display it in the site inspection. this should be filled up during site
+inspection."*
+
+**Still `Inquiry.requirements`, only where it is filled in changed.** §4's per-service-type
+checklist is what `evaluating → quoting`'s completeness gate reads, and rebuilding it as a field on
+`SiteInspection` would mean rewiring that gate too — a much larger, riskier change nothing in the
+request asked for. Instead `RequirementsPanel` moved, unchanged, from
+`src/app/crm/inquiries/[id]/` to `src/app/inspections/[id]/`: same component, same
+`crm.updateInquiry`/`crm.overrideRequirements` mutations, same data. The inquiry page no longer
+imports or renders it at all.
+
+**Rendered only on a pre-quotation survey — one raised from an inquiry.** `SiteInspection.inquiryId`
+is nullable; a ticket- or project-side inspection has no inquiry behind it and nothing quoting is
+gated on, so the panel simply doesn't appear there. The inspection page fetches the linked inquiry
+via the same `crm.getInquiry` the inquiry page always used, gated on `crm.view` — if a surveyor
+lacks that permission the fetch fails quietly and the section is omitted rather than erroring the
+whole page, since nothing about completing an inspection report should depend on it.
+
+**A consequence worth naming rather than hiding: an inquiry that never gets inspected still has
+requirements to answer before quoting, and now has nowhere to answer them.** `evaluating` can go
+straight to `quoting` without ever passing through `inspection_required` — §3's own lifecycle allows
+skipping the site visit. For that path, the existing "Override the checklist" mechanism (built for
+exactly this — proceeding with questions unanswered, a reason logged) is what carries the weight
+that used to fall to filling in the panel on the inquiry page itself. This is the honest reading of
+what EA asked for, not a gap found and quietly patched over.
+
+**Verified live** against a real pre-existing inquiry (AIESINQ-260140, walkthrough/demo data):
+confirmed "Requirements" no longer renders on the inquiry page; acknowledged it, moved it to
+evaluating, requested and (via the existing `inspection.requested` subscriber) got a real
+`SiteInspection` scheduled; opened `/inspections/{id}` and confirmed the panel renders there with
+both applicable templates (installation, supply — from the inquiry's two line items) and the correct
+"0 of 9 required answered" badge; answered one required field, saved, and confirmed the count moved
+to "1 of 9" — the same `crm.updateInquiry` write the completeness gate reads. All actions taken
+against that record (status changes, the inspection request, the site inspection, the saved answer,
+and every audit/event row they produced) were reverted afterward, restoring it to the state it was
+found in.

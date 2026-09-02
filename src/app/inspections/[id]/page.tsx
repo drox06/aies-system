@@ -9,6 +9,7 @@ import { DateCell } from "@/components/ui/cells";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { RequirementsPanel } from "./RequirementsPanel";
 import {
   ATTENDEE_PARTIES,
   ATTENDEE_PARTY_LABELS,
@@ -47,6 +48,15 @@ interface Measurement {
 export default function InspectionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const inspection = trpc.operations.getInspection.useQuery({ inspectionId: id });
+
+  // Only a pre-quotation survey — one raised from an inquiry — has requirements to answer. A
+  // ticket- or project-side inspection has no inquiry behind it and nothing quoting is gated on.
+  // Called unconditionally, ahead of the pending/error returns below, same as every other hook in
+  // this component — the enabled flag is what makes it a no-op until there is an inquiry to ask for.
+  const inquiry = trpc.crm.getInquiry.useQuery(
+    { inquiryId: inspection.data?.inquiryId ?? "" },
+    { enabled: !!inspection.data?.inquiryId },
+  );
 
   if (inspection.isPending) return <p className="text-sm text-text-muted">Loading…</p>;
   if (inspection.error) {
@@ -135,6 +145,11 @@ export default function InspectionPage({ params }: { params: Promise<{ id: strin
         }
       >
         <div className="space-y-4">
+          {/* What the customer needs, asked while somebody is standing in front of them to answer
+              it — moved here from the inquiry screen (2026-09-02). Only a survey raised from an
+              inquiry has one of these to fill in. */}
+          {inquiry.data && <RequirementsPanel inquiry={inquiry.data} />}
+
           {data.editable ? (
             <InspectionForm
               inspectionId={data.id}

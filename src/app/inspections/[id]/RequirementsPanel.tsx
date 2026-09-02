@@ -8,10 +8,17 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { answerKey, type RequirementField } from "@/server/core/crm/requirements";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
-import type { InquiryDetail } from "./types";
+import type { InquiryDetail } from "@/app/crm/inquiries/[id]/types";
 
 /**
- * §4's requirements capture and its completeness indicator.
+ * §4's requirements capture and its completeness indicator — moved here from the inquiry page
+ * (2026-09-02, the company's own instruction): *"before acknowledgement: remove the 'Requirements'
+ * table and display it in the site inspection. this should be filled up during site inspection."*
+ *
+ * Still the inquiry's own data — `Inquiry.requirements`, saved through `crm.updateInquiry` exactly
+ * as before, and still what `evaluating → quoting`'s completeness gate reads — only where it is
+ * filled in changed. The surveyor is the one standing in front of the customer asking these
+ * questions; the sales desk isn't.
  *
  * §4 states the purpose bluntly: "The single most valuable thing this module does is stop the 'what
  * exactly did they ask for?' round-trip that currently happens over chat." So the unanswered

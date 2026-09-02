@@ -13,7 +13,6 @@ import { InquiryStatusActions } from "./InquiryStatusActions";
 import { CustomerPoPanel } from "./CustomerPoPanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { ItemsPanel } from "./ItemsPanel";
-import { RequirementsPanel } from "./RequirementsPanel";
 
 export default function InquiryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -123,7 +122,9 @@ export default function InquiryPage({ params }: { params: Promise<{ id: string }
 
           <ItemsPanel inquiry={data} />
 
-          <RequirementsPanel inquiry={data} />
+          {/* The requirements checklist moved to the site inspection screen (2026-09-02) — filled
+              in by whoever is standing in front of the customer, not guessed at from the office.
+              See RequirementsPanel's own comment, now in src/app/inspections/[id]/. */}
           <InspectionPanel inquiry={data} />
           <CustomerPoPanel
             inquiryId={data.id}
