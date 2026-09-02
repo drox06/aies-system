@@ -5748,3 +5748,50 @@ pass again now that the loop is guarded. `inquiry-flow.test.ts` and `inspection-
 own cleanup was extended to delete the `SiteInspection` rows (and their audit rows, looked up first
 since `AuditLog` carries no foreign key) that every `createInspectionRequestService` call now leaves
 behind, where before only a `scheduleFromInspectionRequest` call would have.
+
+## #165 — A PDF site inspection report, photos and sketches embedded
+
+**2026-09-03. Built** at EA's instruction: *"once all details in the site inspection is accomplished,
+create a pdf site inspection report. include the pictures in the report."*
+
+**"Accomplished" is `inspectionCompleteness`'s own gate** — the same three things "Mark complete"
+already requires (when it happened, who went, what was found) before the button will let the status
+leave `scheduled`. So the report is offered, and the route generates one, only once `status` is
+`completed` or `approved`; asked for directly while still `scheduled`, the route refuses with a
+message rather than printing a page of blanks.
+
+**Generated on demand, never stored** — the same choice every PDF in this codebase already makes
+(`renderCustomerQuotationPdf`, `renderDailyProgressPdf`, and the rest, all under
+`src/server/core/operations/pdf/` and `src/server/core/quotation/pdf/`), and `SiteInspectionReportDocument.tsx`
+/ `buildSiteInspectionReportProps` / `renderSiteInspectionReportPdf` in `operations/pdf/render.tsx`
+follow that same three-piece shape exactly, reusing the shared `pdfStyles`/`PDF_COLORS` theme,
+`getCompanyDetails()`, and `logoDataUri()` rather than restating any of them.
+
+**Embedding an uploaded photo is new capability, not a reused pattern** — checked first, since it
+looked like it should already exist: every PDF in this codebase that renders an `<Image>` before this
+one embeds only the same cached brand logo, read once from `public/brand/` with `readFileSync`.
+Nothing had ever pulled a `FileObject`'s actual bytes back into a Node buffer — `getFileDownloadUrl()`
+has only ever produced a signed URL for the *browser* to fetch, via the redirect in
+`/api/files/[id]/route.ts`. The new `imageDataUri()` helper fetches that signed URL server-side and
+builds a data URI the same shape `logoDataUri()` already hands the document, so the document
+component itself needed no new capability — only the assembly step did.
+
+**The web derivative is used ahead of the original, on purpose.** `storage.ts`'s `uploadFile()`
+already resizes every `image/*` upload to a 1600px-wide JPEG for exactly this kind of use — smaller
+to fetch, and (unlike an original that could be nearly any camera format) a format `@react-pdf`'s
+`<Image>` is guaranteed to decode. A file whose derivative failed to generate (`sharp` couldn't
+decode the original — some camera formats it can't) falls back to the original's own `mimeType`, and
+is embedded only if that is JPEG or PNG; anything else — and any fetch that fails outright — is
+skipped rather than thrown, with the count of what was skipped printed on the report itself
+(`omittedImageCount`) so a reader is told a picture is missing rather than the whole document
+failing silently to produce one somebody knows exists.
+
+**Verified against the real upload pipeline, not fixture JSON.** `buildSiteInspectionReportProps` is
+the one PDF props builder in the suite that cannot be proved with a fixture object alone — the claim
+under test is that real bytes make the round trip through Supabase Storage and back. The new test
+uploads a real, decodable PNG via `uploadFile()` (the same integration-tested, unmocked path
+`storage.test.ts` already exercises) and asserts the resulting prop is a `data:image/jpeg;base64,...`
+string — proof the derivative was fetched and decoded, not merely that a filename reached the props.
+Verified live as well: a fixture inspection with an uploaded photo showed "Download PDF" only once
+marked `completed`, produced a real `200` PDF response server-side confirmed in the dev log, and the
+button correctly disappeared again when the same record's status was set back to `scheduled`.

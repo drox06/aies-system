@@ -80,6 +80,16 @@ export default function InspectionPage({ params }: { params: Promise<{ id: strin
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={STATUS_TONE[data.status] ?? "draft"}>{data.status}</StatusBadge>
             {data.scopeChangeIdentified && <StatusBadge tone="failed">Scope change</StatusBadge>}
+            {/* Only once the survey is genuinely finished — the route itself refuses while
+                `status` is still "scheduled", so this stays hidden rather than offering a report
+                that would come back empty. */}
+            {data.status !== "scheduled" && (
+              <Button variant="secondary" size="sm" asChild>
+                <a href={`/api/inspections/${data.id}/pdf`} target="_blank" rel="noreferrer">
+                  Download PDF
+                </a>
+              </Button>
+            )}
           </div>
         }
       />

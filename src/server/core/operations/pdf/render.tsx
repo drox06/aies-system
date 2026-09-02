@@ -3,11 +3,18 @@ import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
 import { fmtDate, logoDataUri } from "@/server/core/quotation/pdf/render";
+import { getFileDownloadUrl } from "@/server/core/storage/storage";
 import {
   CAUSE_ATTRIBUTION,
   STANDBY_CAUSE_LABELS,
   type StandbyCause,
 } from "../daily-progress-rules";
+import {
+  describeAttendees,
+  readAttendees,
+  readUtilities,
+  type MeasurementRow,
+} from "../site-inspection-rules";
 import {
   TC_RESULT_LABELS,
   describeCriterion,
@@ -34,6 +41,11 @@ import {
   type TcCertificateTest,
 } from "./TcCertificateDocument";
 import { MethodStatementDocument, type MethodStatementPdfProps } from "./MethodStatementDocument";
+import {
+  SiteInspectionReportDocument,
+  type SiteInspectionPhoto,
+  type SiteInspectionReportPdfProps,
+} from "./SiteInspectionReportDocument";
 
 /**
  * Module 04's documents (specs/04-operations-projects.md §8, §10 and §12).
@@ -517,5 +529,198 @@ export async function buildMethodStatementProps(
 export async function renderMethodStatementPdf(methodologyId: string): Promise<Buffer> {
   return renderToBuffer(
     <MethodStatementDocument {...await buildMethodStatementProps(methodologyId)} />,
+  );
+}
+
+// ---- §6.1's site inspection report ------------------------------------------------------------
+
+const readMeasurements = (raw: unknown): MeasurementRow[] =>
+  Array.isArray(raw)
+    ? raw.filter(
+        (entry): entry is MeasurementRow =>
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as MeasurementRow).label === "string",
+      )
+    : [];
+
+/** `@react-pdf`'s `<Image>` decodes JPEG and PNG; nothing else reliably. */
+const EMBEDDABLE_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
+
+/**
+ * Fetches one uploaded file's bytes and returns it as a data URI `<Image>` can embed directly —
+ * the same shape `logoDataUri()` above hands the document, just built from a signed URL instead of
+ * a file on disk, because a `FileObject`'s bytes live in Supabase Storage and nothing in this
+ * codebase has previously needed to pull them back into a Node buffer (`getFileDownloadUrl` has only
+ * ever produced a signed URL for the *browser* to fetch, via the redirect in
+ * `/api/files/[id]/route.ts`).
+ *
+ * The web derivative is preferred when one exists — always a JPEG, resized for exactly this kind of
+ * use, at `storage.ts`'s `uploadFile()` — so most photos are both smaller to fetch and guaranteed
+ * embeddable. Falls back to the original for a file whose derivative failed to generate (some camera
+ * formats `sharp` cannot decode), and returns `null` — never throws — for anything `@react-pdf`
+ * itself could not render either, so one bad photo does not fail the whole report.
+ */
+async function imageDataUri(file: {
+  storageKey: string;
+  webDerivativeKey: string | null;
+  filename: string;
+  mimeType: string;
+}): Promise<string | null> {
+  const usingDerivative = !!file.webDerivativeKey;
+  const mimeType = usingDerivative ? "image/jpeg" : file.mimeType;
+  if (!EMBEDDABLE_MIME_TYPES.has(mimeType)) return null;
+
+  try {
+    const url = await getFileDownloadUrl(file, "web", 60);
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return `data:${mimeType};base64,${bytes.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+export async function buildSiteInspectionReportProps(
+  inspectionId: string,
+): Promise<SiteInspectionReportPdfProps> {
+  const inspection = await db.siteInspection.findFirst({
+    where: { id: inspectionId, deletedAt: null },
+    include: {
+      ticket: { select: { number: true, account: { select: { name: true } } } },
+      project: { select: { code: true, account: { select: { name: true } } } },
+    },
+  });
+  if (!inspection) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That inspection no longer exists." });
+  }
+
+  const [site, inquiry, requester, approver, photoFiles, sketchFiles] = await Promise.all([
+    inspection.siteId
+      ? db.site.findUnique({
+          where: { id: inspection.siteId },
+          select: { name: true, address: true },
+        })
+      : null,
+    // Not a Prisma relation on SiteInspection — see the model's own comment on why `siteId` isn't
+    // one either — so a pre-quotation survey's inquiry is looked up by hand.
+    inspection.inquiryId
+      ? db.inquiry.findUnique({
+          where: { id: inspection.inquiryId },
+          select: { number: true, account: { select: { name: true } } },
+        })
+      : null,
+    inspection.requestedById
+      ? db.user.findUnique({ where: { id: inspection.requestedById }, select: { name: true } })
+      : null,
+    inspection.approvedById
+      ? db.user.findUnique({ where: { id: inspection.approvedById }, select: { name: true } })
+      : null,
+    db.fileObject.findMany({
+      where: { id: { in: inspection.photoFileIds }, deletedAt: null },
+      select: {
+        id: true,
+        storageKey: true,
+        webDerivativeKey: true,
+        filename: true,
+        mimeType: true,
+      },
+    }),
+    db.fileObject.findMany({
+      where: { id: { in: inspection.sketchFileIds }, deletedAt: null },
+      select: {
+        id: true,
+        storageKey: true,
+        webDerivativeKey: true,
+        filename: true,
+        mimeType: true,
+      },
+    }),
+  ]);
+
+  // Preserve the order the surveyor attached them in, not whatever order the database returns.
+  const byId = new Map([...photoFiles, ...sketchFiles].map((file) => [file.id, file]));
+  const embed = async (ids: string[], label: string): Promise<SiteInspectionPhoto[]> => {
+    const results = await Promise.all(
+      ids.map(async (id, index) => {
+        const file = byId.get(id);
+        if (!file) return null;
+        const src = await imageDataUri(file);
+        return src ? { src, caption: `${label} ${index + 1}` } : null;
+      }),
+    );
+    return results.filter((entry): entry is SiteInspectionPhoto => entry !== null);
+  };
+
+  const [photos, sketches] = await Promise.all([
+    embed(inspection.photoFileIds, "Photo"),
+    embed(inspection.sketchFileIds, "Sketch"),
+  ]);
+  const omittedImageCount =
+    inspection.photoFileIds.length +
+    inspection.sketchFileIds.length -
+    photos.length -
+    sketches.length;
+
+  const address = (site?.address as { line1?: string } | null)?.line1 ?? null;
+
+  const linked = inspection.ticket
+    ? { label: "Ticket", value: inspection.ticket.number, customer: inspection.ticket.account.name }
+    : inspection.project
+      ? {
+          label: "Project",
+          value: inspection.project.code,
+          customer: inspection.project.account.name,
+        }
+      : inquiry
+        ? { label: "Inquiry", value: inquiry.number, customer: inquiry.account?.name ?? null }
+        : { label: null, value: null, customer: null };
+
+  return {
+    company: getCompanyDetails(),
+    logoSrc: logoDataUri(),
+
+    number: inspection.number,
+    statusLabel: inspection.status.charAt(0).toUpperCase() + inspection.status.slice(1),
+
+    linkedToLabel: linked.label,
+    linkedToValue: linked.value,
+
+    customerName: linked.customer,
+    siteName: site?.name ?? null,
+    siteAddress: address,
+
+    scheduledFor: inspection.scheduledFor ? fmtDate(inspection.scheduledFor) : null,
+    inspectedAt: inspection.inspectedAt ? fmtDate(inspection.inspectedAt) : null,
+    attendees: describeAttendees(readAttendees(inspection.attendees)),
+
+    findings: inspection.findings,
+
+    tagNumbers: inspection.tagNumbers,
+    hazards: inspection.hazards,
+    permitsRequired: inspection.permitsRequired,
+    accessConstraints: inspection.accessConstraints,
+
+    utilities: readUtilities(inspection.utilitiesAvailable),
+    measurements: readMeasurements(inspection.measurements),
+
+    scopeChangeIdentified: inspection.scopeChangeIdentified,
+    scopeChangeNotes: inspection.scopeChangeNotes,
+
+    photos,
+    sketches,
+    omittedImageCount,
+
+    requestedBy: requester?.name ?? null,
+    approvedBy: approver?.name ?? null,
+    approvedAt: inspection.approvedAt ? fmtDate(inspection.approvedAt) : null,
+    generatedAt: fmtDate(new Date()),
+  };
+}
+
+export async function renderSiteInspectionReportPdf(inspectionId: string): Promise<Buffer> {
+  return renderToBuffer(
+    <SiteInspectionReportDocument {...await buildSiteInspectionReportProps(inspectionId)} />,
   );
 }

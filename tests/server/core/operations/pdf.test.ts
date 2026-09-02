@@ -5,10 +5,12 @@ import {
   buildCloseOutPackProps,
   buildDailyProgressProps,
   buildMethodStatementProps,
+  buildSiteInspectionReportProps,
   buildTcCertificateProps,
   renderCloseOutPackPdf,
   renderDailyProgressPdf,
   renderMethodStatementPdf,
+  renderSiteInspectionReportPdf,
   renderTcCertificatePdf,
 } from "@/server/core/operations/pdf/render";
 import {
@@ -16,7 +18,10 @@ import {
   saveMethodologyService,
 } from "@/server/core/operations/methodology-service";
 import { upsertCloseOutService } from "@/server/core/operations/close-out-service";
+import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
+import { uploadFile } from "@/server/core/storage/storage";
+import { supabaseStorageDriver } from "@/server/core/storage/supabase-driver";
 import type { AuthedUser } from "@/server/core/rbac/types";
 
 /**
@@ -36,6 +41,9 @@ const tcIds: string[] = [];
 const progressIds: string[] = [];
 const userIds: string[] = [];
 const methodologyIds: string[] = [];
+const inspectionIds: string[] = [];
+const fileIds: string[] = [];
+const storageKeys: string[] = [];
 
 async function makeUser(): Promise<AuthedUser> {
   const role = await db.role.findUniqueOrThrow({ where: { key: "operations_manager" } });
@@ -91,6 +99,12 @@ async function makeFixture(user: AuthedUser) {
 }
 
 afterAll(async () => {
+  await db.auditLog.deleteMany({ where: { entityId: { in: inspectionIds } } });
+  await db.siteInspection.deleteMany({ where: { id: { in: inspectionIds } } });
+  await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
+  for (const key of storageKeys) {
+    await supabaseStorageDriver.remove(key).catch(() => {});
+  }
   await db.methodology.deleteMany({ where: { id: { in: methodologyIds } } });
   await db.projectCloseOut.deleteMany({ where: { projectId: { in: projectIds } } });
   await db.testingCommissioning.deleteMany({ where: { id: { in: tcIds } } });
@@ -304,6 +318,101 @@ describe("§12's close-out pack", () => {
     expect(props.canClose).toBe(false);
     expect(props.blockers.length).toBeGreaterThan(0);
   });
+});
+
+/**
+ * §6.1's site inspection report, added 2026-09-03 at the company's request: "once all details in
+ * the site inspection is accomplished, create a pdf site inspection report. include the pictures in
+ * the report."
+ *
+ * The property that matters most is the last one: an uploaded photo has to come back as an
+ * embeddable data URI, not merely as a file id the document trusts blind. `imageDataUri` fetches the
+ * real bytes from Supabase Storage — the same integration-tested path storage.test.ts already
+ * exercises — so this is the one PDF in the suite that cannot be proved with fixture JSON alone.
+ */
+describe("§6.1's site inspection report", () => {
+  it("embeds an uploaded photo as a data URI, in attachment order", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const inspection = await db.siteInspection.create({
+      data: {
+        number: `AIESSIR-PDF${randomUUID().slice(0, 5)}`,
+        ticketId: ticket.id,
+        requestedById: user.id,
+        inspectedAt: new Date("2026-08-20"),
+        attendees: [{ party: "technical", name: "" }] as never,
+        findings: "Existing panel is corroded; recommend full replacement.",
+        status: "completed",
+        completedAt: new Date(),
+      },
+    });
+    inspectionIds.push(inspection.id);
+
+    // A minimal, real, decodable PNG — sharp needs bytes it can actually resize, not a stub.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const file = await uploadFile({
+      entityType: SITE_INSPECTION_ENTITY_TYPE,
+      entityId: inspection.id,
+      uploaderId: user.id,
+      filename: "corroded-panel.png",
+      mimeType: "image/png",
+      buffer: png,
+    });
+    fileIds.push(file.id);
+    storageKeys.push(file.storageKey);
+    if (file.webDerivativeKey) storageKeys.push(file.webDerivativeKey);
+
+    await db.siteInspection.update({
+      where: { id: inspection.id },
+      data: { photoFileIds: [file.id] },
+    });
+
+    const props = await buildSiteInspectionReportProps(inspection.id);
+
+    expect(props.photos).toHaveLength(1);
+    expect(props.photos[0]!.caption).toBe("Photo 1");
+    // sharp resizes every image/* upload to a JPEG derivative — this is that photo, round-tripped.
+    expect(props.photos[0]!.src.startsWith("data:image/jpeg;base64,")).toBe(true);
+    expect(props.omittedImageCount).toBe(0);
+    expect(props.linkedToLabel).toBe("Ticket");
+    expect(props.linkedToValue).toBe(ticket.number);
+
+    const pdf = await renderSiteInspectionReportPdf(inspection.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    // A page with a real embedded photo is not a few hundred bytes.
+    expect(pdf.length).toBeGreaterThan(3000);
+  }, 60_000);
+
+  it("renders a report with no photos rather than failing", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const inspection = await db.siteInspection.create({
+      data: {
+        number: `AIESSIR-PDF${randomUUID().slice(0, 5)}`,
+        ticketId: ticket.id,
+        requestedById: user.id,
+        inspectedAt: new Date("2026-08-21"),
+        attendees: [{ party: "sales", name: "" }] as never,
+        findings: "Refused entry — no authorised contact on site.",
+        status: "completed",
+        completedAt: new Date(),
+      },
+    });
+    inspectionIds.push(inspection.id);
+
+    const props = await buildSiteInspectionReportProps(inspection.id);
+    expect(props.photos).toEqual([]);
+    expect(props.sketches).toEqual([]);
+    expect(props.omittedImageCount).toBe(0);
+
+    const pdf = await renderSiteInspectionReportPdf(inspection.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  }, 30_000);
 });
 
 /**
