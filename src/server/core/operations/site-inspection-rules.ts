@@ -31,6 +31,51 @@ export const INSPECTION_STATUSES = ["scheduled", "completed", "approved"] as con
 export type InspectionStatus = (typeof INSPECTION_STATUSES)[number];
 
 /**
+ * Who may open any site inspection — not only one they attended or requested — by name: EA
+ * (president), KJ (vice president), DJ (operations manager). Asked for by the company on
+ * 2026-09-03, naming the three by name rather than "and anyone else who needs it": *"make it
+ * downloadable and online viewing by ea, kj, dj, person who raised the site inspection, and by the
+ * person that conducted the inspection."*
+ *
+ * Emails, not roles, for the same reason `ARCHIVE_FULL_ACCESS_EMAILS` is (`task-rules.ts`): the
+ * practice-authority grant (`scripts/practice-authority.ts`) currently gives all five named users the
+ * `president` role, so a role check — or `project.manage`, or `ticket.view_all` — would not actually
+ * restrict this to the three people asked for; it would open every survey to PD and EM as well, which
+ * is exactly what naming three people rather than a permission was meant to avoid. The two lists are
+ * intentionally not merged into one shared constant: one names who may see every finished task, the
+ * other who may see every finished survey, and they happen to overlap on two names today because the
+ * same two people are named in both requests — not because the two questions are the same question.
+ * Once practice ends this and a role check become equivalent, same as the archive's; this needs no
+ * revisiting when that happens.
+ */
+export const SITE_INSPECTION_FULL_ACCESS_EMAILS = [
+  "ea@aieselectromech.com",
+  "kj@aieselectromech.com",
+  "dj@aieselectromech.com",
+];
+
+export function canSeeAnySiteInspection(email: string): boolean {
+  return SITE_INSPECTION_FULL_ACCESS_EMAILS.includes(email.trim().toLowerCase());
+}
+
+/**
+ * The actual per-record gate: the two people the survey is about — whoever asked for it, whoever
+ * went — plus the three named above. Replaces a `ticket.view_all` check that, in a company where
+ * "everyone does everything" (Spec.md §1.2), would have handed every survey to whoever happens to
+ * hold that one broad permission for unrelated dispatch reasons.
+ */
+export function canOpenSiteInspection(
+  inspection: { inspectedByIds: readonly string[]; requestedById: string | null },
+  user: { id: string; email: string },
+): boolean {
+  return (
+    inspection.inspectedByIds.includes(user.id) ||
+    inspection.requestedById === user.id ||
+    canSeeAnySiteInspection(user.email)
+  );
+}
+
+/**
  * §6.1's utilities checklist, as the five things the spec names.
  *
  * A fixed list rather than free text because the question a planner asks is always the same one —

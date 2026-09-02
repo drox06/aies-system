@@ -5795,3 +5795,47 @@ string — proof the derivative was fetched and decoded, not merely that a filen
 Verified live as well: a fixture inspection with an uploaded photo showed "Download PDF" only once
 marked `completed`, produced a real `200` PDF response server-side confirmed in the dev log, and the
 button correctly disappeared again when the same record's status was set back to `scheduled`.
+
+## #166 — Site inspections are visible to EA, KJ, DJ, and the two people it's actually about
+
+**2026-09-03. Built** at EA's instruction, right after #165 shipped: *"make it downloadable and
+online viewing by ea, kj, dj, person who raised the site inspection, and by the person that
+conducted the inspection."*
+
+**A real narrowing, not an addition.** Both `getInspectionService` (the `/inspections/[id]` page
+itself) and #165's PDF route already let in whoever attended or asked for the survey — that half was
+unchanged — but the fallback for everyone else was `ticket.view_all`, a broad permission held by
+anyone doing dispatch work for entirely unrelated reasons. EA named five categories with no "or
+anyone else who needs it" — the same closed-list phrasing #157 used for the task archive — so this
+replaces that fallback rather than adding to it. `listInspectionsService` (the register/listing
+query) was narrowed the same way, on its own initiative: leaving it reading `ticket.view_all` while
+the record it links to reads something narrower would have shown somebody a listing entry that then
+403s the moment they open it — precisely the "button that 403s" failure this codebase's own
+convention already warns against elsewhere.
+
+**By email, not by role — the same reasoning as `ARCHIVE_FULL_ACCESS_EMAILS`.** The practice-authority
+grant (`scripts/practice-authority.ts`) currently gives all five named users the `president` role, so
+a role check, or `project.manage`, or `ticket.view_all`, would not actually restrict this to the
+three people named — it would open every survey to PD and EM as well.
+`SITE_INSPECTION_FULL_ACCESS_EMAILS` in `site-inspection-rules.ts` (`ea@`, `kj@`,
+`dj@aieselectromech.com`) is deliberately a
+second constant rather than reusing the archive's — the two lists happen to share two names today
+because the same two people were named in both requests, not because "who may see every finished
+task" and "who may see every finished survey" are the same question. DJ's inclusion here maps to a
+real fact worth recording: DJ's actual role (once practice ends) is `operations_manager` — this list
+is not an arbitrary three names, it is president, vice president, and operations manager, which is
+exactly who has reason to see every site survey regardless of who ran it.
+
+**One committed side effect, deliberately not carved out**: the inquiry page's own mirrored preview
+of a survey's photos (`InspectionPanel.tsx`, via the same `listInspectionsService`) now follows the
+identical rule. In the ordinary case this changes nothing — whoever requested the inspection from an
+inquiry is that inquiry's own owner, and stays `involved` regardless — but a second person merely
+*viewing* someone else's inquiry, previously covered by `ticket.view_all`, now needs to be one of the
+three named people to see that mirror too. Left as the honest consequence of the same rule rather
+than special-cased back open, since EA's instruction did not carve out an exception for it.
+
+**Verified**: `canOpenSiteInspection`'s own tests cover all five paths — attended, requested, EA, KJ,
+DJ, and (the point of naming three people rather than a permission) that PD and EM, holding the exact
+same practice-period role EA does, are still refused. A new database-backed test proves the actual
+behaviour change: a user holding `ticket.view_all` but none of the three emails, uninvolved in the
+record, is now refused where the old code would have let them in.

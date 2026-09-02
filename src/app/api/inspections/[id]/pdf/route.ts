@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { renderSiteInspectionReportPdf } from "@/server/core/operations/pdf/render";
+import { canOpenSiteInspection } from "@/server/core/operations/site-inspection-rules";
 import { resolveSessionUser } from "@/server/core/rbac/permissions";
 
 /**
@@ -15,6 +16,11 @@ import { resolveSessionUser } from "@/server/core/rbac/permissions";
  * "Accomplished" is `inspectionCompleteness`'s own gate, already enforced before "Mark complete"
  * can be pressed — so the report is refused while `status` is still `scheduled` rather than quietly
  * printing a page of blanks for a survey nobody has finished.
+ *
+ * Access is `canOpenSiteInspection` — the same gate `getInspectionService` enforces for viewing the
+ * record itself, widened by name to EA, KJ and DJ on the same instruction: "make it downloadable and
+ * online viewing by ea, kj, dj, person who raised the site inspection, and by the person that
+ * conducted the inspection."
  */
 export const runtime = "nodejs";
 
@@ -39,11 +45,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // Same access rule as the record itself — §19 scopes a technician to work they attended.
-  const involved =
-    inspection.inspectedByIds.includes(session.user.id) ||
-    inspection.requestedById === session.user.id;
-  if (!involved && !resolved.permissions.has("ticket.view_all")) {
+  // Same access rule as the record itself (site-inspection-service.ts's getInspectionService) —
+  // whoever attended, whoever asked for it, or EA, KJ and DJ by name.
+  if (
+    !canOpenSiteInspection(inspection, { id: session.user.id, email: session.user.email ?? "" })
+  ) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

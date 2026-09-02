@@ -453,6 +453,24 @@ describe("§19 — who sees what", () => {
     expect(ids).not.toContain(a.id);
   });
 
+  /**
+   * The behaviour this change actually removed (2026-09-03): `ticket.view_all` used to be enough on
+   * its own. It no longer is — the company asked for exactly EA, KJ and DJ by name, "and by the
+   * person that conducted the inspection" for anyone else, so a bystander who merely holds that one
+   * broad permission for unrelated dispatch reasons is refused, same as one holding no permission at
+   * all in the first test above.
+   */
+  it("refuses a bystander who holds ticket.view_all but is not EA, KJ or DJ", async () => {
+    const tech = await makeUser("technician", ["ticket.execute"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    const dispatcher = await makeUser("operations_manager", ["ticket.view_all"]);
+    await expect(getInspectionService(dispatcher, inspection.id)).rejects.toThrow(
+      /visible to the people who attended/,
+    );
+  });
+
   it("writes an audit row against the inspection", async () => {
     const tech = await makeUser("technician", ["ticket.execute"]);
     const ticket = await makeTicket(tech);

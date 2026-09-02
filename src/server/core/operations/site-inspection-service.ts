@@ -13,6 +13,8 @@ import {
   INSPECTION_APPROVE_PERMISSION,
   SITE_INSPECTION_DOCUMENT_TYPE,
   SITE_INSPECTION_ENTITY_TYPE,
+  canOpenSiteInspection,
+  canSeeAnySiteInspection,
   inspectionCompleteness,
   isInspectionEditable,
   readAttendees,
@@ -506,13 +508,15 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
     throw new TRPCError({ code: "NOT_FOUND", message: "That inspection no longer exists." });
   }
 
-  // §19 scopes technicians to their own work. Attending the survey is what makes it yours.
-  const involved =
-    inspection.inspectedByIds.includes(user.id) || inspection.requestedById === user.id;
-  if (!involved && !user.permissions.has("ticket.view_all")) {
+  // §19 scopes technicians to their own work — attending the survey or asking for it is what makes
+  // it yours — widened to EA, KJ and DJ by name (2026-09-03). See `canOpenSiteInspection`'s own
+  // comment for why this replaced a `ticket.view_all` check rather than adding to it.
+  if (!canOpenSiteInspection(inspection, user)) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Site inspections are visible to the people who attended and to management.",
+      message:
+        "Site inspections are visible to the people who attended, whoever asked for it, and to EA, " +
+        "KJ and DJ.",
     });
   }
 
@@ -541,7 +545,10 @@ export async function listInspectionsService(
     scopeChangeOnly?: boolean;
   } = {},
 ) {
-  const seesAll = user.permissions.has("ticket.view_all");
+  // Kept in step with getInspectionService's own gate — a listing that offered a link to a survey
+  // the click-through would then refuse is the exact "button that 403s" failure this platform's own
+  // convention warns against.
+  const seesAll = canSeeAnySiteInspection(user.email);
 
   return db.siteInspection.findMany({
     where: {

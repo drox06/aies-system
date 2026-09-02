@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   UTILITIES,
+  canOpenSiteInspection,
+  canSeeAnySiteInspection,
   inspectionCompleteness,
   inspectionRequiredForTicket,
   isInspectionEditable,
@@ -226,5 +228,56 @@ describe("§6.1's utilities", () => {
     expect(readUtilities(null)).toHaveLength(5);
     expect(readUtilities("nonsense")).toHaveLength(5);
     expect(readUtilities({ power: "yes" }).find((u) => u.key === "power")?.available).toBeNull();
+  });
+});
+
+describe("canOpenSiteInspection", () => {
+  const inspection = { inspectedByIds: ["inspector-1"], requestedById: "requester-1" };
+
+  it("lets in whoever attended", () => {
+    expect(
+      canOpenSiteInspection(inspection, { id: "inspector-1", email: "someone@test.local" }),
+    ).toBe(true);
+  });
+
+  it("lets in whoever asked for it", () => {
+    expect(
+      canOpenSiteInspection(inspection, { id: "requester-1", email: "someone@test.local" }),
+    ).toBe(true);
+  });
+
+  it("refuses a bystander with none of those, whatever permission they hold elsewhere", () => {
+    expect(
+      canOpenSiteInspection(inspection, { id: "bystander-1", email: "bystander@test.local" }),
+    ).toBe(false);
+  });
+
+  /**
+   * The company's own instruction (2026-09-03): "make it downloadable and online viewing by ea, kj,
+   * dj, person who raised the site inspection, and by the person that conducted the inspection." —
+   * named by email rather than a role, same reasoning as ARCHIVE_FULL_ACCESS_EMAILS: the
+   * practice-authority grant gives all five named users the president role, so PD and EM must stay
+   * out even though they hold exactly the same role EA does today.
+   */
+  it("lets EA, KJ and DJ in by name, uninvolved in the record entirely", () => {
+    for (const address of [
+      "ea@aieselectromech.com",
+      "kj@aieselectromech.com",
+      "dj@aieselectromech.com",
+    ]) {
+      expect(canOpenSiteInspection(inspection, { id: "stranger", email: address })).toBe(true);
+    }
+    // Case-insensitive, the same as ARCHIVE_FULL_ACCESS_EMAILS — a session claim is not guaranteed
+    // to arrive lower-cased.
+    expect(canSeeAnySiteInspection("EA@AIESELECTROMECH.COM")).toBe(true);
+
+    // Two people who hold the identical practice-period "president" role EA does, and are still not
+    // one of the three named — the whole reason this is an email list and not a role check.
+    expect(canOpenSiteInspection(inspection, { id: "pd", email: "pd@aieselectromech.com" })).toBe(
+      false,
+    );
+    expect(canOpenSiteInspection(inspection, { id: "em", email: "em@aieselectromech.com" })).toBe(
+      false,
+    );
   });
 });
