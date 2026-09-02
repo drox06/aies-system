@@ -57,6 +57,17 @@ async function makeInquiryAtEvaluating() {
 }
 
 afterAll(async () => {
+  // Since #164, requesting an inspection also schedules the real SiteInspection immediately rather
+  // than waiting on the job queue, so every createInspectionRequestService call here leaves one of
+  // these behind too — found and its own audit rows before the delete, since AuditLog is keyed on
+  // entityId with no foreign key to enforce it.
+  const inspections = await db.siteInspection.findMany({
+    where: { inquiryId: { in: inquiryIds } },
+    select: { id: true },
+  });
+  const inspectionIds = inspections.map((row) => row.id);
+  await db.auditLog.deleteMany({ where: { entityId: { in: inspectionIds } } });
+  await db.siteInspection.deleteMany({ where: { id: { in: inspectionIds } } });
   await db.notification.deleteMany({ where: { recipientId: { in: userIds } } });
   await db.auditLog.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.searchIndex.deleteMany({ where: { entityId: { in: inquiryIds } } });

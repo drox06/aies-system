@@ -7,6 +7,7 @@ import { INQUIRY_ENTITY_TYPE, transitionInquiryService } from "@/server/core/crm
 import { emit } from "@/server/core/events/emit";
 import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
+import { scheduleFromInspectionRequest } from "@/server/core/operations/site-inspection-service";
 // Imported for its registration side effect, the same shape accreditation-service.ts uses: the
 // checkers must be in the registry before anybody asks for a photograph.
 import "./inspection-access";
@@ -17,11 +18,16 @@ import "./inspection-access";
  * "Per the described process, sales sometimes needs the technical team to inspect a site before a
  * quotation can be completed."
  *
- * §5 is explicit that this is a placeholder for something module 04 will own: "Module 04 subscribes
- * and creates a scheduled field task; module 06 notifies the operations lead. Until module 04
- * exists, the request is a task assigned to a user with a due date." So the request itself is the
- * record of record here, and the assignment is the interim task. When module 04 lands it consumes
- * `inspection.requested` and schedules properly; nothing in this file has to change for that.
+ * §5 asked for this to hand off to module 04: "Module 04 subscribes and creates a scheduled field
+ * task." That still happens — `inspection.requested` is still emitted, and `operations.manifest.ts`
+ * still consumes it — but only as the durable fallback. The company's own instruction (2026-09-02):
+ * *"request for site inspection in inquiry should be the same as the one in operations"* — waiting
+ * on the job queue's once-a-minute drain (`vercel.json`) for a request to become a real Operations
+ * record read as two disconnected things, not one. So `createInspectionRequestService` now also
+ * calls `scheduleFromInspectionRequest` directly, synchronously, the moment the request is created.
+ * `scheduleFromInspectionRequest` is idempotent on `inspectionRequestId` (a unique column), so the
+ * later event-driven call — redundant in the normal case — is exactly what recovers if this
+ * synchronous call fails without rolling back a request that had already been written.
  */
 
 export const INSPECTION_ENTITY_TYPE = "InspectionRequest";
@@ -184,8 +190,8 @@ export interface CreateInspectionInput {
 }
 
 /**
- * Raises an inspection request and moves the inquiry to `inspection_required`, which pauses its SLA
- * clock (§5).
+ * Raises an inspection request, schedules the real Operations record for it immediately, and moves
+ * the inquiry to `inspection_required`, which pauses its SLA clock (§5).
  *
  * The status change goes through `transitionInquiryService` rather than being written here, so it
  * passes the same §3 legality check as any other move and produces the same audit row and events.
@@ -299,6 +305,21 @@ export async function createInspectionRequestService(
   // transition failure must not undo it. If the inquiry was not `evaluating` the caller gets §3's
   // own message back, telling them exactly which move is missing.
   await transitionInquiryService(actor, { inquiryId: inquiry.id, to: "inspection_required" });
+
+  // Instant, not eventual — see the module comment. Best-effort: a failure here must not undo the
+  // request that already exists, and the event emitted inside the transaction above is the durable
+  // retry that self-heals it on the next job-queue drain if this throws.
+  try {
+    await scheduleFromInspectionRequest({
+      inspectionRequestId: request.id,
+      inquiryId: inquiry.id,
+      siteId: request.siteId,
+      assignedToId: request.assignedToId,
+      dueAt: request.dueAt?.toISOString() ?? null,
+    });
+  } catch {
+    // Left to the event-driven fallback.
+  }
 
   if (assignee) {
     await notifyAssignee(assignee.id, request, inquiry);

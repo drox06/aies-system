@@ -151,17 +151,23 @@ export async function scheduleInspectionService(actor: ActorMeta, input: Schedul
     return created;
   });
 
-  for (const attendee of input.inspectedByIds ?? []) {
-    await safeNotify({
-      recipientId: attendee,
-      type: INSPECTION_SCHEDULED_NOTIFICATION_TYPE,
-      title: `${number} — site inspection assigned to you`,
-      body: input.scheduledFor
-        ? `Scheduled for ${input.scheduledFor.toISOString().slice(0, 10)}.`
-        : "No date set yet.",
-      entityType: SITE_INSPECTION_ENTITY_TYPE,
-      entityId: inspection.id,
-    });
+  // Skipped when this came from an inspection request: module 01's own createInspectionRequestService
+  // already told the assignee, with the purpose, the window and what to bring back — richer than
+  // this generic line has any way to be, since a request-driven visit is the only kind with any of
+  // that to say. Sending both would be the same assignment landing twice in one inbox (#164).
+  if (!input.inspectionRequestId) {
+    for (const attendee of input.inspectedByIds ?? []) {
+      await safeNotify({
+        recipientId: attendee,
+        type: INSPECTION_SCHEDULED_NOTIFICATION_TYPE,
+        title: `${number} — site inspection assigned to you`,
+        body: input.scheduledFor
+          ? `Scheduled for ${input.scheduledFor.toISOString().slice(0, 10)}.`
+          : "No date set yet.",
+        entityType: SITE_INSPECTION_ENTITY_TYPE,
+        entityId: inspection.id,
+      });
+    }
   }
 
   return { id: inspection.id, number: inspection.number, status: inspection.status };

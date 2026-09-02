@@ -71,6 +71,17 @@ async function toEvaluating(inquiryId: string) {
 }
 
 afterAll(async () => {
+  // Since #164, requesting an inspection also schedules the real SiteInspection immediately rather
+  // than waiting on the job queue, so every createInspectionRequestService call here leaves one of
+  // these behind too — found and its own audit rows before the delete, since AuditLog is keyed on
+  // entityId with no foreign key to enforce it.
+  const inspections = await db.siteInspection.findMany({
+    where: { inquiryId: { in: inquiryIds } },
+    select: { id: true },
+  });
+  const inspectionIds = inspections.map((row) => row.id);
+  await db.auditLog.deleteMany({ where: { entityId: { in: inspectionIds } } });
+  await db.siteInspection.deleteMany({ where: { id: { in: inspectionIds } } });
   await db.inspectionRequest.deleteMany({ where: { inquiryId: { in: inquiryIds } } });
   await db.auditLog.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.notification.deleteMany({ where: { entityId: { in: inquiryIds } } });
@@ -255,6 +266,24 @@ describe("§5's inspection request and the SLA pause", () => {
       orderBy: { createdAt: "desc" },
     });
     expect((event?.payload as { inquiryId?: string }).inquiryId).toBe(inquiry.id);
+  });
+
+  it("schedules the real SiteInspection immediately, not on the next job-queue drain (#164)", async () => {
+    const inquiry = await makeInquiry();
+    await toEvaluating(inquiry.id);
+    const request = await createInspectionRequestService(actor, {
+      inquiryId: inquiry.id,
+      purpose: "Confirm access before quoting",
+    });
+
+    // No call to scheduleFromInspectionRequest and no wait for a drain — if the request created the
+    // Operations record synchronously, it is already here.
+    const inspection = await db.siteInspection.findUnique({
+      where: { inspectionRequestId: request.id },
+    });
+    expect(inspection).not.toBeNull();
+    expect(inspection?.inquiryId).toBe(inquiry.id);
+    expect(inspection?.status).toBe("scheduled");
   });
 
   it("will not raise a second inspection while one is open", async () => {

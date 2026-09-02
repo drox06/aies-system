@@ -5706,3 +5706,45 @@ to "1 of 9" — the same `crm.updateInquiry` write the completeness gate reads. 
 against that record (status changes, the inspection request, the site inspection, the saved answer,
 and every audit/event row they produced) were reverted afterward, restoring it to the state it was
 found in.
+
+## #164 — Requesting an inspection schedules the real Operations record immediately
+
+**2026-09-02. Built** at EA's instruction, after being asked to confirm the two "site inspection"
+screens (the request on the Inquiry, the survey report in Operations) were in fact different things:
+*"when inquiry requests for site inspection, this should raise a site inspection for operations. so
+request for site inspection in inquiry should be the same as the one in operations."* Offered two
+ways to take that — make the existing hand-off instant, or remove the two-record split entirely —
+and EA chose instant.
+
+**It already did raise one — just on the job queue's clock, not the requester's.** `inspection.
+requested` has been consumed by `scheduleFromInspectionRequest` since module 04 landed; what was
+missing was speed. `vercel.json` drains that queue once a minute, so in production a request could
+sit for the better part of a minute looking like nothing had happened in Operations — long enough
+for "raise a site inspection for operations" to read as broken rather than delayed.
+
+**`createInspectionRequestService` now calls `scheduleFromInspectionRequest` directly**, synchronously,
+right after the request is created — the same function the event handler already called, so nothing
+about *how* the Operations record gets built changed, only *when*. The event is still emitted and
+still consumed on schedule, deliberately: `scheduleFromInspectionRequest` is idempotent on
+`inspectionRequestId`, so the async path is now pure insurance — if the synchronous call throws
+(caught and logged, not re-thrown, so a scheduling hiccup can never undo a request that already
+exists), the next drain repairs it exactly as it always would have.
+
+**Found and fixed in the same change: the synchronous call would have sent an assignee two
+notifications for one assignment.** `createInspectionRequestService`'s own `notifyAssignee` already
+sends a rich one — purpose, due date, window, what to bring back. `scheduleInspectionService`'s
+per-attendee notify loop sent a second, plainer one on top, harmless before because it never used to
+run in the same request-response cycle as the first. Fixed by skipping that loop whenever
+`inspectionRequestId` is set — the one signal that distinguishes "scheduled because someone asked for
+an inspection" (module 01 already told them) from "scheduled directly against a ticket or project"
+(nothing else will).
+
+**Verified two ways.** A new regression test (`tests/server/core/crm/inquiry-flow.test.ts`) creates a
+request and reads back a `SiteInspection` with no call to `scheduleFromInspectionRequest` and no
+wait — proving synchronicity, not merely that the eventual path still works. And the two existing
+notification-count tests in `inspection-assignment.test.ts` — which failed the moment the synchronous
+call was added, expecting 1 and getting 2 — are what caught the duplicate before it shipped; they
+pass again now that the loop is guarded. `inquiry-flow.test.ts` and `inspection-assignment.test.ts`'s
+own cleanup was extended to delete the `SiteInspection` rows (and their audit rows, looked up first
+since `AuditLog` carries no foreign key) that every `createInspectionRequestService` call now leaves
+behind, where before only a `scheduleFromInspectionRequest` call would have.
