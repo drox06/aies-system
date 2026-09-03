@@ -28,7 +28,13 @@ describe("approval decision handlers", () => {
 
     // The types the platform actually raises approvals for, named rather than discovered, so that
     // adding one is a deliberate act that shows up here.
-    const raised = ["CashAdvance", "CashAdvanceExtension", "Quotation", "SupplierPO"];
+    const raised = [
+      "CashAdvance",
+      "CashAdvanceExtension",
+      "InquiryQuotingWaiver",
+      "Quotation",
+      "SupplierPO",
+    ];
 
     const missing = raised.filter((type) => !registered.has(type));
     expect(
@@ -53,6 +59,7 @@ describe("approval decision handlers", () => {
     const barrel = readFileSync("src/server/core/approvals/register-decision-handlers.ts", "utf8");
 
     for (const modulePath of [
+      "@/server/core/crm/inquiry-quoting-waiver",
       "@/server/core/operations/cash-advance-service",
       "@/server/core/order/supplier-po-approval",
       "@/server/core/quotation/approval-service",

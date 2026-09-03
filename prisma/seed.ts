@@ -141,6 +141,15 @@ const APPROVAL_RULES: ApprovalRuleSeed[] = [
   // are decisions about different risks (a price AIES will charge, money AIES will spend), and
   // sharing a key would mean routing spending elsewhere silently moved quotation approval with it.
   { key: "supplier_po.approve", label: "Supplier PO approval", escalateAfterHours: 24 },
+  // "if the inquiry did not call a request for site inspection... ask approval to KJ or EA for this
+  // to push to quotation" (2026-09-04). Same VP-primary/President-fallback pair as every rule above —
+  // both are eligible to decide from the moment the request is raised (see
+  // resolveApprovalFallback), which is what "KJ or EA" means here, not a timed escalation.
+  {
+    key: "inquiry.quoting_waiver_approve",
+    label: "Inquiry quoting waiver approval",
+    escalateAfterHours: 24,
+  },
 ];
 
 /**

@@ -55,6 +55,8 @@ function recordHref(entityType: string, entityId: string): string | null {
       return `/quotations/${entityId}`;
     case "SupplierPO":
       return `/procurement/${entityId}`;
+    case "InquiryQuotingWaiver":
+      return `/crm/inquiries/${entityId}`;
     default:
       // Cash advances live on their ticket rather than at a page of their own, and the request
       // carries the ticket *number* rather than its id. Showing the number and no link is honest;
@@ -66,6 +68,7 @@ function recordHref(entityType: string, entityId: string): string | null {
 const TYPE_LABELS: Record<string, string> = {
   CashAdvance: "Cash advance",
   CashAdvanceExtension: "Liquidation extension",
+  InquiryQuotingWaiver: "Requirements waiver",
   Quotation: "Quotation",
   SupplierPO: "Supplier PO",
 };

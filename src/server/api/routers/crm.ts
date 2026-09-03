@@ -56,6 +56,7 @@ import {
   updateInquiryService,
   upsertRequirementTemplateService,
 } from "@/server/core/crm/inquiry-service";
+import { requestQuotingWaiverService } from "@/server/core/crm/inquiry-quoting-waiver";
 import {
   assignInspectionService,
   cancelInspectionService,
@@ -416,6 +417,16 @@ export const crmRouter = router({
   overrideRequirements: p("crm.edit")
     .input(z.object({ inquiryId: z.string(), reason: z.string().min(10) }))
     .mutation(({ ctx, input }) => overrideRequirementsService(actorMeta(ctx), input)),
+
+  /**
+   * "Are you sure logging the requirements really isn't necessary?" answered yes — only offered when
+   * no site inspection was ever requested for the inquiry. Does not itself move anything: it opens a
+   * request to the Vice President or the President, decided from the global approvals inbox like
+   * every other approval type. See inquiry-quoting-waiver.ts.
+   */
+  requestQuotingWaiver: p("crm.edit")
+    .input(z.object({ inquiryId: z.string() }))
+    .mutation(({ ctx, input }) => requestQuotingWaiverService(actorMeta(ctx), input)),
 
   listRequirementTemplates: p("crm.view").query(() => listRequirementTemplatesService()),
 

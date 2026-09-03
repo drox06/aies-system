@@ -15,6 +15,7 @@
  * has a handler, so forgetting is a red test rather than a VP who cannot approve anything.
  */
 
+import "@/server/core/crm/inquiry-quoting-waiver";
 import "@/server/core/operations/cash-advance-service";
 import "@/server/core/order/supplier-po-approval";
 import "@/server/core/quotation/approval-service";

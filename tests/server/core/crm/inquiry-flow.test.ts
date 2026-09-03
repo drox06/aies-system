@@ -10,6 +10,11 @@ import {
   setInquiryItemsService,
   transitionInquiryService,
 } from "@/server/core/crm/inquiry-service";
+import {
+  decideQuotingWaiverService,
+  findPendingQuotingWaiver,
+  requestQuotingWaiverService,
+} from "@/server/core/crm/inquiry-quoting-waiver";
 import { sweepInquirySla } from "@/server/core/crm/inquiry-sla";
 import {
   cancelInspectionService,
@@ -17,6 +22,7 @@ import {
   createInspectionRequestService,
 } from "@/server/core/crm/inspection-service";
 import { answerKey } from "@/server/core/crm/requirements";
+import type { AuthedUser } from "@/server/core/rbac/types";
 
 /**
  * specs/01-crm-inquiry.md §§3-5, against the real database.
@@ -83,6 +89,8 @@ afterAll(async () => {
   await db.auditLog.deleteMany({ where: { entityId: { in: inspectionIds } } });
   await db.siteInspection.deleteMany({ where: { id: { in: inspectionIds } } });
   await db.inspectionRequest.deleteMany({ where: { inquiryId: { in: inquiryIds } } });
+  await db.approvalAction.deleteMany({ where: { request: { entityId: { in: inquiryIds } } } });
+  await db.approvalRequest.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.auditLog.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.notification.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.searchIndex.deleteMany({ where: { entityId: { in: inquiryIds } } });
@@ -221,6 +229,153 @@ describe("§4's completeness gate", () => {
     await expect(
       transitionInquiryService(actor, { inquiryId: inquiry.id, to: "quoting" }),
     ).rejects.toThrow(/unanswered/);
+  });
+});
+
+/**
+ * 2026-09-04: "if the inquiry did not call a request for site inspection, the 9 gates should not
+ * hold it... pop a prompt that asks if logging the requirements are really not necessary. if it was
+ * clicked yes then ask approval to KJ or EA for this to push to quotation."
+ *
+ * `decideApprovalRequest`'s eligibility check only reads `roleKeys` off the passed-in `AuthedUser` —
+ * it never looks the approver up in the database — so a plain object stands in for KJ/EA here rather
+ * than a persisted `db.user` row, the way this file's `OWNER`/`OTHER` are already plain ids and not
+ * real rows either.
+ */
+function fakeApprover(roleKey: "vice_president" | "president"): AuthedUser {
+  return {
+    id: `${roleKey}-${randomUUID().slice(0, 8)}`,
+    email: `${roleKey}@test.local`,
+    name: roleKey === "vice_president" ? "KJ Test" : "EA Test",
+    roleKeys: [roleKey],
+    permissions: new Set<string>(),
+  };
+}
+
+describe("§4's gate, waived for a simple purchase and delivery", () => {
+  it("refuses a waiver while requirements are already satisfied", async () => {
+    const inquiry = await makeInquiry({ serviceType: null });
+    await toEvaluating(inquiry.id);
+
+    await expect(requestQuotingWaiverService(actor, { inquiryId: inquiry.id })).rejects.toThrow(
+      /nothing to waive/,
+    );
+  });
+
+  it("refuses a waiver once a site inspection has ever been requested", async () => {
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await toEvaluating(inquiry.id);
+    const request = await createInspectionRequestService(actor, {
+      inquiryId: inquiry.id,
+      purpose: "Confirm access before quoting",
+    });
+    // Requesting one parks the inquiry at `inspection_required` (§5) — back to `evaluating` first,
+    // the same way a real inquiry would be by the time anyone is looking at "Hand to quotation"
+    // again. The inspection having been requested at all is what should still refuse the waiver,
+    // regardless of what became of it since.
+    await completeInspectionService(actor, {
+      inspectionRequestId: request.id,
+      findings: "DN80, flanged PN16.",
+    });
+
+    await expect(requestQuotingWaiverService(actor, { inquiryId: inquiry.id })).rejects.toThrow(
+      /has a site inspection on it/,
+    );
+  });
+
+  it("opens exactly one waiver request, and refuses a second while it is pending", async () => {
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await toEvaluating(inquiry.id);
+
+    const request = await requestQuotingWaiverService(actor, { inquiryId: inquiry.id });
+    expect(request.status).toBe("pending");
+    expect(request.entityType).toBe("InquiryQuotingWaiver");
+
+    await expect(requestQuotingWaiverService(actor, { inquiryId: inquiry.id })).rejects.toThrow(
+      /already waiting/,
+    );
+  });
+
+  it("pushes straight to quoting once KJ or EA approves, without a second click", async () => {
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await toEvaluating(inquiry.id);
+    await requestQuotingWaiverService(actor, { inquiryId: inquiry.id });
+
+    const kj = fakeApprover("vice_president");
+    const result = await decideQuotingWaiverService(actor, kj, {
+      inquiryId: inquiry.id,
+      decision: "approved",
+    });
+    expect(result.status).toBe("approved");
+
+    const after = await db.inquiry.findUniqueOrThrow({ where: { id: inquiry.id } });
+    expect(after.status).toBe("quoting");
+    expect(after.requirementsOverrideReason).toContain("No site inspection was requested");
+    expect(after.requirementsOverrideBy).toBe(kj.id);
+
+    expect(await findPendingQuotingWaiver(inquiry.id)).toBeNull();
+  });
+
+  it("lets the President decide it too — not only the Vice President", async () => {
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await toEvaluating(inquiry.id);
+    await requestQuotingWaiverService(actor, { inquiryId: inquiry.id });
+
+    const ea = fakeApprover("president");
+    await decideQuotingWaiverService(actor, ea, { inquiryId: inquiry.id, decision: "approved" });
+
+    const after = await db.inquiry.findUniqueOrThrow({ where: { id: inquiry.id } });
+    expect(after.status).toBe("quoting");
+    expect(after.requirementsOverrideBy).toBe(ea.id);
+  });
+
+  it("leaves the inquiry exactly where it was on a decline, with a reason on record", async () => {
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await toEvaluating(inquiry.id);
+    await requestQuotingWaiverService(actor, { inquiryId: inquiry.id });
+
+    const kj = fakeApprover("vice_president");
+    const result = await decideQuotingWaiverService(actor, kj, {
+      inquiryId: inquiry.id,
+      decision: "rejected",
+      comment: "Get at least the tag numbers from the customer first.",
+    });
+    expect(result.status).toBe("rejected");
+
+    const after = await db.inquiry.findUniqueOrThrow({ where: { id: inquiry.id } });
+    expect(after.status).toBe("evaluating");
+    expect(after.requirementsOverrideReason).toBeNull();
+
+    const audit = await db.auditLog.findFirst({
+      where: { entityId: inquiry.id, action: "quoting_waiver_rejected" },
+    });
+    expect(audit?.summary).toContain("tag numbers");
+
+    // Refused, not stranded — the ordinary gate is exactly what it was before the waiver.
+    await expect(
+      transitionInquiryService(actor, { inquiryId: inquiry.id, to: "quoting" }),
+    ).rejects.toThrow(/unanswered/);
+  });
+
+  it("refuses a decision from someone who is neither the Vice President nor the President", async () => {
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await toEvaluating(inquiry.id);
+    await requestQuotingWaiverService(actor, { inquiryId: inquiry.id });
+
+    const bystander: AuthedUser = {
+      id: `bystander-${randomUUID().slice(0, 8)}`,
+      email: "bystander@test.local",
+      name: "Bystander Test",
+      roleKeys: ["technician"],
+      permissions: new Set<string>(),
+    };
+
+    await expect(
+      decideQuotingWaiverService(actor, bystander, { inquiryId: inquiry.id, decision: "approved" }),
+    ).rejects.toThrow(/not eligible/);
+
+    const after = await db.inquiry.findUniqueOrThrow({ where: { id: inquiry.id } });
+    expect(after.status).toBe("evaluating");
   });
 });
 

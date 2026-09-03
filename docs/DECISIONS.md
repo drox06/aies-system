@@ -6093,3 +6093,78 @@ inquiry → inspection request → linked site inspection with a photo attached 
 attaches one, completed the request. The card now shows "Photographs from AIESSIR-260312" with the
 photo, straight into "Window: 07 Sept 2026 – 11 Sept 2026" and "Findings: Test findings" — no second
 upload section, and the pieces that were never part of it are still exactly where they were.
+
+## #172 — Quoting a simple purchase and delivery no longer waits on a site inspection nobody asked for
+
+**2026-09-04. Built** at EA's instruction: *"if the inquiry did not call a request for site inspection,
+the 9 gates should not hold it. it should be able to get handed to quotation. this means that it is
+only a simple purchase and delivery. however, if this is the case, then pop a prompt that asks if
+logging the requirements are really not necessary. if it was clicked yes then ask approval to KJ or EA
+for this to push to quotation."*
+
+**§4's requirements gate on `evaluating → quoting` is unconditional today** — it does not know or care
+whether a site inspection was ever raised, only whether `assessInquiryCompleteness` is satisfied. There
+already was an escape hatch, `overrideRequirementsService`: any `crm.edit` holder can log a free-text
+reason and the gate opens for good. That stays exactly as it was — it is a standing tool for any
+inquiry, for any reason. What was missing is narrower and specific to the company's own framing here:
+an inquiry nobody ever sent a surveyor to is, on its face, "only a simple purchase and delivery", and
+skipping its paperwork should not be a unilateral click — it should ask, and it should ask the two
+people who actually carry that authority everywhere else in this codebase.
+
+**The gate itself needed no changes.** `transitionInquiryService` still refuses `evaluating → quoting`
+unless `assessInquiryCompleteness` is satisfied, and satisfaction still reads
+`Inquiry.requirementsOverrideReason`. The new path (`inquiry-quoting-waiver.ts`) is a second way to
+get that same field set, routed through module 00's generic approval engine (§7.4) instead of straight
+through a permission check: `requestQuotingWaiverService` refuses unless the inquiry is `evaluating`,
+its requirements are genuinely incomplete, and — the one condition the whole feature turns on — no
+`InspectionRequest` has ever existed for it, regardless of what became of one since (completed,
+cancelled, whatever: the point is the company asked for a look and got one). Passing all three opens
+an `ApprovalRequest` against a new `InquiryQuotingWaiver` entity type, decided from the same global
+`/approvals` inbox every other approval type in this codebase already uses.
+
+**"KJ or EA" is the exact primary/fallback pair `prisma/seed.ts` already seeds for quotations, supplier
+POs and cash advances** — `primaryApproverRole: "vice_president"`, `fallbackApproverRole: "president"`
+— reused rather than invented. The detail worth stating plainly: per
+`resolveApprovalFallback`, both roles are always in `eligibleToDecideRoles` from the moment the request
+is raised, window or not — only the *default inbox* is primary-only until the window elapses. So "KJ or
+EA" is accurate the way the company said it, not "KJ, then EA if KJ is slow": EA can act immediately by
+opening the record, and only needs the inbox itself if the VP has not moved by the 24-hour mark.
+
+**Approval performs the move itself**, attributed to whoever decided it, rather than leaving the
+inquiry merely unlocked for someone to press "Hand to quotation" a second time — matching the
+instruction's own "ask approval... for this to push to quotation," not "ask approval to unlock the
+push." The engine's decision and the override-reason write commit together in one transaction (the
+`decideApprovalRequest(..., tx)` shape this codebase adopted after AIESCA-260127, where a decision and
+its business effect committing separately once stranded a cash advance for good); the actual status
+transition runs as a deliberate second step after that transaction commits. That is safe here in a way
+it was not for AIESCA-260127: the override reason is already on the record by the time that second
+step could fail, so an interrupted push is never stranded — a plain, ordinary "Hand to quotation" click
+would succeed immediately on its own. The second step only saves that click.
+
+**Registered everywhere a new approval type has to be**, matching what
+`decision-handlers-registered.test.ts` already enforces for every other one: the decision handler
+(`registerApprovalDecisionHandler`), the barrel import, the test's own `raised` and barrel-check
+arrays, the `TYPE_LABELS`/`recordHref` entries on `/approvals`, and the `ApprovalRule` seed row (with
+`ensureRule()` as the same self-healing fallback `cash-advance-approval.ts` uses for a database that
+has not been reseeded).
+
+**The client-side prompt uses the company's own words almost verbatim** — "Are you sure logging the
+requirements really isn't necessary?" — and names what is actually missing rather than speaking in
+generalities, matching how the rest of this codebase writes a refusal. It only appears at all when
+`!inquiry.completeness.satisfied && inquiry.inspections.length === 0` — both already present on
+`getInquiryService`'s existing response, so no new query was needed to decide when to show it. A
+complete inquiry, or one that ever had an inspection, sees exactly the same "Hand to quotation" it
+always did.
+
+**Verified**: seven new tests in `inquiry-flow.test.ts` — refuses a waiver on already-satisfied
+requirements; refuses once a site inspection has ever existed on the inquiry (even a completed one);
+refuses a second request while one is pending; the Vice President approving pushes the inquiry straight
+to `quoting` with the override reason and its author on record; the President can decide it too, not
+only the VP; a decline leaves the inquiry exactly at `evaluating` with the ordinary gate still refusing
+it and the decline's own reason in the audit log; a bystander outside both roles is refused. Live end to
+end as the same account in both roles (the seeded end-to-end user holds `president`): opened "Hand to
+quotation" on an inquiry with five unanswered requirements and no inspection ever requested, saw the
+confirm prompt naming them, clicked through, watched the request land as a real `ApprovalRequest`,
+decided it, and watched the inquiry's own activity feed record "Approved skipping the requirements
+gate" immediately followed by "evaluating → quoting" — the same record, the same click, no manual
+follow-up. `tsc --noEmit` clean; `eslint` clean on every changed file.
