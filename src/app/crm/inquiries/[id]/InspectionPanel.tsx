@@ -77,7 +77,7 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Site inspection</h2>
         {!openRequest && inquiry.status === "evaluating" && (
-          <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
+          <Button size="sm" onClick={() => setOpen((v) => !v)}>
             Request an inspection
           </Button>
         )}
