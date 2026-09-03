@@ -155,10 +155,11 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               not a record. Photographs show as thumbnails and open full-size in place: a site photo
               you have to download before you can see it is one nobody looks at. */}
           {/*
-            The survey's own photographs, mirrored here rather than asked for twice. Until 2026-08-17
-            this panel had its own `InspectionRequest` bucket and the surveyor's report had another,
-            so a site photo had to be uploaded in both places to be visible in both — which meant one
-            of the two was always the stale copy. Same entity, same files, two screens.
+            The survey's own photographs — the only bucket now, not one of two. Until 2026-08-17 this
+            panel also had its own `InspectionRequest` bucket alongside the surveyor's report's, so a
+            site photo had to be uploaded in both places to be visible in both, and one was always the
+            stale copy. That second bucket was mirrored in here on 2026-08-17 and then, once the
+            mirroring made it visibly redundant, removed outright on 2026-09-04.
           */}
           {(surveys.data ?? [])
             .filter((survey) => survey.inspectionRequestId === item.id)
@@ -174,23 +175,6 @@ export function InspectionPanel({ inquiry }: { inquiry: InquiryDetail }) {
               </div>
             ))}
 
-          <div className="mt-2 border-t border-border pt-2">
-            <Attachments
-              entityType="InspectionRequest"
-              entityId={item.id}
-              label="Photos and findings from the visit"
-              hint={
-                item.requiredOutputs.includes("photos")
-                  ? "Photographs open full size here. Everything else downloads."
-                  : undefined
-              }
-              emptyText="Nothing has come back from this visit yet."
-              accept="image/*,video/*,.pdf,.xlsx,.csv,.docx"
-              // §7.2's higher ceiling, for the case it names by hand: site video.
-              category="operations"
-              canUpload={item.status !== "cancelled"}
-            />
-          </div>
           {(item.windowStart || item.windowEnd) && (
             <p className="mt-1 text-xs text-text-muted">
               Window: <DateCell value={item.windowStart} /> – <DateCell value={item.windowEnd} />

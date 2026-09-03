@@ -6060,3 +6060,36 @@ its frozen view, and — on a fresh fetch — the record's own History panel sho
 — Re-measured after the client's engineer disputed the first reading." alongside the earlier "Recorded
 findings" and "Completed" entries, proving the same audit row the PDF reads is the one the app already
 shows.
+
+## #171 — The inquiry's inspection panel drops its second, redundant photo bucket
+
+**2026-09-04. Removed** at EA's instruction, reading straight off a screenshot of the inquiry's Site
+inspection card: two upload sections stacked on top of each other, "Photographs from AIESSIR-260221"
+and, right below it, "Photos and findings from the visit" — *"i think the 'photos and findings from
+the visit' is no longer needed here. since the 'photographs from AIESSIR' is already there. remove the
+'photos and findings from the visit'."*
+
+**This was a known leftover, not a new find.** The comment already sitting above the "Photographs
+from…" block said so: until 2026-08-17 this panel had its own `InspectionRequest`-scoped upload bucket
+and the surveyor's site-inspection report had a second, separate one, so a photo had to be attached
+twice to show up in both places — "which meant one of the two was always the stale copy." The fix that
+day added the survey's own attachments *mirrored* into this panel, which made the second bucket
+visibly pointless — but the second bucket itself, the `<Attachments entityType="InspectionRequest" …>`
+block, was never actually deleted. This is that deletion.
+
+**Checked before removing**: `db.fileObject` held zero rows under `entityType: "InspectionRequest"` —
+nobody had ever uploaded anything to the bucket this panel's `canUpload` control offered, so there was
+nothing to migrate and nothing to orphan. The `InspectionRequest` entity type itself, its registered
+file-access checker (`inspection-access.ts`), and `INSPECTION_ENTITY_TYPE` in `inspection-service.ts`
+are untouched — this removed the one dead UI upload point, not the backend capability, which may still
+be addressed elsewhere.
+
+**Left alone on the same card**: the `Window: … – …` and `Findings: …` lines directly below where the
+removed block sat. They read `item.windowStart`/`windowEnd`/`findings` — different data, not part of
+the attachments component — and the instruction named the attachment section specifically.
+
+**Verified**: `tsc --noEmit` clean. Live, as the surveyor a request was assigned to: created a real
+inquiry → inspection request → linked site inspection with a photo attached the way the app actually
+attaches one, completed the request. The card now shows "Photographs from AIESSIR-260312" with the
+photo, straight into "Window: 07 Sept 2026 – 11 Sept 2026" and "Findings: Test findings" — no second
+upload section, and the pieces that were never part of it are still exactly where they were.
