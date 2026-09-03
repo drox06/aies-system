@@ -8,6 +8,7 @@ import { emit } from "@/server/core/events/emit";
 import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
 import { scheduleFromInspectionRequest } from "@/server/core/operations/site-inspection-service";
+import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
 // Imported for its registration side effect, the same shape accreditation-service.ts uses: the
 // checkers must be in the registry before anybody asks for a photograph.
 import "./inspection-access";
@@ -142,6 +143,7 @@ async function assertAssignable(userId: string): Promise<{ id: string; name: str
 async function notifyAssignee(
   recipientId: string,
   request: {
+    id: string;
     purpose: string;
     dueAt: Date | null;
     windowStart: Date | null;
@@ -155,6 +157,21 @@ async function notifyAssignee(
     request.windowStart || request.windowEnd
       ? `Window ${day(request.windowStart) ?? "any"} to ${day(request.windowEnd) ?? "any"}.`
       : null;
+
+  /**
+   * Points at the real Operations record, not the inquiry (2026-09-04, the company's own
+   * instruction: "when the assigned user... click the site inspection request in the notification,
+   * this should direct him to the site inspection request ticket"). #164 means one already exists
+   * by the time this notification is sent — `createInspectionRequestService` schedules it
+   * synchronously before this function is ever called — so it is the form the assignee actually has
+   * to fill in, not a screen they would still have to click through from. Falls back to the inquiry
+   * only if that lookup somehow comes back empty: the synchronous create failing and the async
+   * event not having caught up yet, the exact case its own `try/catch` already anticipates.
+   */
+  const inspection = await db.siteInspection.findUnique({
+    where: { inspectionRequestId: request.id },
+    select: { id: true },
+  });
 
   await notify({
     recipientId,
@@ -170,10 +187,8 @@ async function notifyAssignee(
     ]
       .filter(Boolean)
       .join(" "),
-    // Points at the inquiry, which is where the panel and the site access notes live. The recipient
-    // can now open it: inquiryScopeWhere admits an assigned inspector.
-    entityType: INQUIRY_ENTITY_TYPE,
-    entityId: inquiry.id,
+    entityType: inspection ? SITE_INSPECTION_ENTITY_TYPE : INQUIRY_ENTITY_TYPE,
+    entityId: inspection ? inspection.id : inquiry.id,
   });
 }
 

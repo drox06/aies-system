@@ -188,6 +188,19 @@ describe("notifying the assigned technician", () => {
     expect(notifications[0]!.body).toContain("Confirm tie-in points");
     expect(notifications[0]!.body).toContain("Needed by");
     expect(notifications[0]!.body).toContain("tag list");
+
+    /**
+     * 2026-09-04, the company's own instruction: "when the assigned user... click the site
+     * inspection request in the notification, this should direct him to the site inspection
+     * request ticket" — the real Operations record #164 already schedules synchronously, not the
+     * inquiry a click-through used to land on with nothing to act on.
+     */
+    const inspection = await db.siteInspection.findUniqueOrThrow({
+      where: { inspectionRequestId: request.id },
+      select: { id: true },
+    });
+    expect(notifications[0]!.entityType).toBe("SiteInspection");
+    expect(notifications[0]!.entityId).toBe(inspection.id);
   });
 
   it("marks an assigned request as scheduled rather than merely requested", async () => {
@@ -228,8 +241,15 @@ describe("notifying the assigned technician", () => {
       dueAt: new Date(Date.now() + 3 * 86_400_000),
     });
 
-    const toSecond = await db.notification.count({ where: { recipientId: second.id } });
-    expect(toSecond).toBe(1);
+    const toSecond = await db.notification.findMany({ where: { recipientId: second.id } });
+    expect(toSecond).toHaveLength(1);
+    // Same fix as at creation: reassignment points the new holder at the record too.
+    const inspection = await db.siteInspection.findUniqueOrThrow({
+      where: { inspectionRequestId: request.id },
+      select: { id: true },
+    });
+    expect(toSecond[0]!.entityType).toBe("SiteInspection");
+    expect(toSecond[0]!.entityId).toBe(inspection.id);
     // The previous holder is deliberately not told: "you no longer have to do this" is not worth
     // an interruption, and the audit row records the change anyway.
     const toFirst = await db.notification.count({ where: { recipientId: first.id } });

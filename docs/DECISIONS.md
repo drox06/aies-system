@@ -5887,3 +5887,43 @@ freshly shared user had no way to see the pictures the report is actually about,
 never looked at `sharedWithIds` at all. Replaced the inline copy with a direct call to
 `canOpenSiteInspection` — one rule, not two that could drift — and pinned it with a test that shares
 access and checks `canAccessFile` moves from refused to allowed on the same fake file.
+
+## #168 — A site inspection notification now opens the site inspection
+
+**2026-09-03. Built** at EA's instruction: *"when a site inspection is requested to a user, notify the
+person about the requested site inspection. when the assigned user check his notification and click
+the site inspection request in the notification, this should direct him to the site inspection
+request ticket."*
+
+**The notify-on-assignment call already existed** (`notifyAssignee` in `inspection-service.ts`, wired
+into both `createInspectionRequestService` and `assignInspectionService`) — what it pointed at was
+wrong. It set `entityType: INQUIRY_ENTITY_TYPE, entityId: inquiry.id`, so the notification was really
+about the inquiry the request came from, not the inspection itself. `notifyAssignee` now looks up the
+`SiteInspection` linked to the request (`db.siteInspection.findUnique({ where: { inspectionRequestId:
+request.id } })`) and points there instead — `entityType: SITE_INSPECTION_ENTITY_TYPE, entityId:
+inspection.id` — falling back to the inquiry only if no inspection is found yet, which should not
+happen in practice: #164 made `createInspectionRequestService` call `scheduleFromInspectionRequest`
+synchronously, so the `SiteInspection` row already exists by the time this notification is sent. One
+fix in `notifyAssignee` covers both callers — assignment at creation and reassignment — since both
+already pass the full request row through.
+
+**A bigger, older gap sat underneath this one**: nothing on `/notifications` was ever a link, for any
+notification, of any type — `entityType`/`entityId` were fetched from the server and simply never
+used. Fixing where this one notification pointed would have done nothing without also giving the page
+somewhere to send a click. Added `NOTIFICATION_ENTITY_HREF`, a small map from `entityType` to a page
+URL: it spreads `TASK_ENTITY_HREF` (already vetted for `#164`'s calendar work) and adds `SiteInspection`
+(this instruction's actual subject) and `Channel` (a real, confirmed `notify()` call site). Each list
+row now computes its own target and, when one resolves, renders as a `<Link>` that also marks itself
+read on click; when nothing resolves, it renders exactly as before — plain, unlinked text. Same
+graceful-degradation shape `CALENDAR_ENTITY_HREF` already established: an unmapped `entityType` is a
+plain notification, never a broken link, so this is complete for what is now confirmed without
+requiring an exhaustive audit of every `notify()` call site in the app before shipping.
+
+**Verified**: extended both `inspection-assignment.test.ts` notification tests (creation and
+reassignment) to assert `entityType === "SiteInspection"` and `entityId` matches the real inspection's
+id, not just the notification's title and body — 14/14 pass. Verified live end to end as the assigned
+user: created a real inspection request assigned to a seeded test account, saw "Site inspection
+assigned to you — …" appear on `/notifications` as an actual link (not text), clicked it, landed on
+the real `AIESSIR-…` ticket page, and confirmed via direct query that `readAt` had been set by that
+same click — the same "verify the mutation's actual effect before trusting the UI" pass used for #167.
+`tsc --noEmit` clean; `notify.test.ts` (7/7) and `inspection-assignment.test.ts` (14/14) both pass.
