@@ -51,10 +51,14 @@ export interface SiteInspectionReportPdfProps {
   scopeChangeIdentified: boolean;
   scopeChangeNotes: string | null;
 
+  /**
+   * Everything attached through the record's own "Photographs and sketches" panel — one list, not
+   * split into photos vs. sketches, because nothing captured on upload says which is which; a caption
+   * claiming a category the data cannot back up would be worse than not claiming one.
+   */
   photos: SiteInspectionPhoto[];
-  sketches: SiteInspectionPhoto[];
-  /** True when one or more photos/sketches could not be embedded (an unreadable image format) —
-   *  said on the page rather than silently producing a report with fewer pictures than were taken. */
+  /** True when one or more attachments could not be embedded (an unreadable image format) — said on
+   *  the page rather than silently producing a report with fewer pictures than were taken. */
   omittedImageCount: number;
 
   requestedBy: string | null;
@@ -117,7 +121,7 @@ export function SiteInspectionReportDocument(props: SiteInspectionReportPdfProps
         </View>
         <View style={s.headerRule} fixed />
 
-        <Text style={s.docTitle}>Site Inspection Report</Text>
+        <Text style={{ ...s.docTitle, marginBottom: 4 }}>Site Inspection Report</Text>
         <Text style={s.docNumber}>{props.number}</Text>
         <Text style={[s.value, s.muted]}>{props.statusLabel}</Text>
 
@@ -211,25 +215,16 @@ export function SiteInspectionReportDocument(props: SiteInspectionReportPdfProps
           </>
         )}
 
-        {props.photos.length > 0 && (
+        {props.photos.length > 0 ? (
           <>
             <Text style={s.sectionHeading} break>
-              Photographs
+              Photographs and sketches
             </Text>
             <PhotoGrid items={props.photos} />
           </>
-        )}
-
-        {props.sketches.length > 0 && (
+        ) : (
           <>
-            <Text style={s.sectionHeading}>Sketches</Text>
-            <PhotoGrid items={props.sketches} />
-          </>
-        )}
-
-        {props.photos.length === 0 && props.sketches.length === 0 && (
-          <>
-            <Text style={s.sectionHeading}>Photographs</Text>
+            <Text style={s.sectionHeading}>Photographs and sketches</Text>
             <Text style={s.optionalNote}>None attached to this visit.</Text>
           </>
         )}

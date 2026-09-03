@@ -5927,3 +5927,67 @@ assigned to you — …" appear on `/notifications` as an actual link (not text)
 the real `AIESSIR-…` ticket page, and confirmed via direct query that `readAt` had been set by that
 same click — the same "verify the mutation's actual effect before trusting the UI" pass used for #167.
 `tsc --noEmit` clean; `notify.test.ts` (7/7) and `inspection-assignment.test.ts` (14/14) both pass.
+
+## #169 — The SIR actually finds its photos, and the requester learns when it's approved
+
+**2026-09-04. Built** at EA's instruction, reported against a real generated report: *"allocate proper
+spacing between the wording of 'Site Inspection Report' and 'AIESSIR-0000'. the photo was also
+attached in the app, but it was not included in the site inspection report. the report says 'None
+attached to this visit'. the generated SIR should be made available to the requestor of the site
+inspection. this should also go into the requestor's notification as soon as the SIR is approved and
+generated."*
+
+**The heading and number were touching.** `docTitle`/`docNumber` are two bare `<Text>` blocks with no
+margin between them — `TcCertificateDocument.tsx` had already hit the same thing and fixed it locally
+with `{ ...s.docTitle, marginBottom: 4 }` rather than touching the shared theme (every other PDF in the
+codebase uses the same tokens and none of them asked for the extra space). `SiteInspectionReportDocument.tsx`
+now does the same, one line, matching the established local-fix precedent instead of a theme-wide change
+nobody else asked for.
+
+**The missing photo was the real bug, and it was never really about photos.** `buildSiteInspectionReportProps`
+read `SiteInspection.photoFileIds`/`sketchFileIds` — but the record's actual "Photographs and sketches"
+panel (`<Attachments entityType={SITE_INSPECTION_ENTITY_TYPE} entityId={data.id} />`) is the generic,
+polymorphic file store keyed by `entityType`/`entityId`, and nothing in the live app ever wrote to
+`photoFileIds` — `InspectionForm`'s save call never touches it, and the one client that does populate a
+field with that name (`app/field/page.tsx`) is the delivery-attempt flow, an unrelated feature that
+happens to share a property name. So the array was always empty, no matter how many photos a surveyor
+actually attached, and the report always said "None attached to this visit." The same dead field fed
+`inspectionCompleteness`'s "No photographs" warning too — a fully photographed visit still carried that
+warning on the record itself, which is a second, quieter symptom of the identical bug.
+
+**The fix reads the same store the panel writes to**, the same choice `goods-receipt-service.ts`
+already made for its own photo count ("Counted from the stored files, never claimed on a form"):
+`buildSiteInspectionReportProps` now queries `FileObject` by `entityType`/`entityId` directly, and a
+new `countInspectionPhotos` helper backs `inspectionCompleteness`'s warning the same way, replacing all
+three of its call sites (`saveInspectionService`, `completeInspectionService`, `getInspectionService`).
+`photoFileIds`/`sketchFileIds` are left alone on the model and the `saveInspection` mutation — removing
+a still-declared API surface nobody asked to remove would be a second, unrequested change riding on the
+first.
+
+**The photos/sketches split in the PDF was fiction the data never supported** — there is one upload
+panel, one entityType, and nothing on a `FileObject` says which category it belongs to. Rather than
+guess, the document's two props and two headings became one: `photos`, captioned "Photo N", under a
+single "Photographs and sketches" heading — the same label the panel itself already uses, so the report
+never claims a distinction the app never captured.
+
+**The requester already had access; only the notification was missing.** `canOpenSiteInspection` (and
+therefore both the record and the `/api/inspections/[id]/pdf` download route) already admits whoever
+requested the survey — that shipped alongside the download route itself on 2026-09-03. What was missing
+was telling them the report existed. Approval, not completion, is the trigger: the report renders on
+demand from whatever the record holds, a completed-but-unapproved inspection can still be corrected,
+and approval is what §6.1 already treats as the signature — the moment `approveInspectionService`
+itself already lets the requester press. A new `site_inspection.approved` notification type fires from
+there, pointed at the inspection (`entityType: SiteInspection`), so it opens on the record via #168's
+click-through with no further wiring — skipped when the requester approved their own report, since
+telling somebody their own action just happened is not news.
+
+**Verified**: extended `site-inspection-rules.test.ts` and `pdf.test.ts` for the new `photoCount`
+shape. Added three integration tests to `site-inspection.test.ts`: a photo attached the way the app
+actually attaches one (through `uploadFile`, entityType/entityId only, no `photoFileIds` write) clears
+the "No photographs" warning on both `completeInspectionService` and `getInspectionService`; approval
+by somebody other than the requester creates a `site_inspection.approved` notification pointed at the
+inspection; self-approval creates none. `pdf.test.ts`'s existing photo-embedding test had its manual
+`photoFileIds` write deleted outright — the attachment alone is now enough, which is the fix itself,
+proven by the test that used to need a workaround no longer needing one. 60 tests pass across
+`site-inspection.test.ts` (23), `site-inspection-rules.test.ts` (26) and `pdf.test.ts` (11).
+`tsc --noEmit` clean.

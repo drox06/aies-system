@@ -188,7 +188,14 @@ export function inspectionCompleteness(inspection: {
   /** `[{ party, name }]` — the record of who was actually there. */
   attendees?: unknown;
   findings: string | null;
-  photoFileIds: readonly string[];
+  /**
+   * Counted from `FileObject` (entityType `SiteInspection`), not a stored id list — the same choice
+   * `goods-receipt-service.ts` already makes for the same reason: "Counted from the stored files,
+   * never claimed on a form." `photoFileIds` looked like the source of truth but nothing in the app
+   * ever wrote to it — photos are attached through the generic `Attachments` panel — so a real,
+   * photographed visit was warning "No photographs" regardless (2026-09-04).
+   */
+  photoCount: number;
   measurements?: unknown;
   scopeChangeIdentified: boolean;
   scopeChangeNotes: string | null;
@@ -222,7 +229,7 @@ export function inspectionCompleteness(inspection: {
     missing.push("what changed about the scope — sales cannot revise a quotation against a flag");
   }
 
-  if (inspection.photoFileIds.length === 0) {
+  if (inspection.photoCount === 0) {
     warnings.push(
       "No photographs. Not a blocker — a refused-entry visit is still a real inspection — but a " +
         "survey nobody photographed is one somebody will have to repeat.",

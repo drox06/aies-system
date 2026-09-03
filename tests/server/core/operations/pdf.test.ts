@@ -366,11 +366,10 @@ describe("§6.1's site inspection report", () => {
     storageKeys.push(file.storageKey);
     if (file.webDerivativeKey) storageKeys.push(file.webDerivativeKey);
 
-    await db.siteInspection.update({
-      where: { id: inspection.id },
-      data: { photoFileIds: [file.id] },
-    });
-
+    // No further wiring needed — attaching the file (above, keyed by entityType/entityId) is the
+    // whole of what the real "Photographs and sketches" panel does. Pinning that the report finds it
+    // without a second write is the point: `SiteInspection.photoFileIds` used to be required here too,
+    // and the real UI never sets it (2026-09-04).
     const props = await buildSiteInspectionReportProps(inspection.id);
 
     expect(props.photos).toHaveLength(1);
@@ -407,7 +406,6 @@ describe("§6.1's site inspection report", () => {
 
     const props = await buildSiteInspectionReportProps(inspection.id);
     expect(props.photos).toEqual([]);
-    expect(props.sketches).toEqual([]);
     expect(props.omittedImageCount).toBe(0);
 
     const pdf = await renderSiteInspectionReportPdf(inspection.id);

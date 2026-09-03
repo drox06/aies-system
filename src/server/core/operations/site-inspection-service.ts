@@ -47,6 +47,7 @@ import { TICKET_ENTITY_TYPE } from "./ticket-rules";
 
 export const SCOPE_CHANGE_NOTIFICATION_TYPE = "scope_change.identified";
 export const INSPECTION_SCHEDULED_NOTIFICATION_TYPE = "site_inspection.scheduled";
+export const INSPECTION_APPROVED_NOTIFICATION_TYPE = "site_inspection.approved";
 
 registerNotificationType({
   key: SCOPE_CHANGE_NOTIFICATION_TYPE,
@@ -57,6 +58,20 @@ registerNotificationType({
 registerNotificationType({
   key: INSPECTION_SCHEDULED_NOTIFICATION_TYPE,
   label: "A site inspection has been scheduled for you",
+  defaultChannels: { inApp: true, email: false, digest: false },
+});
+
+/**
+ * "The generated SIR should be made available to the requestor... this should also go into the
+ * requestor's notification as soon as the SIR is approved and generated" (2026-09-04). Approval, not
+ * completion, is the trigger: the report is generated on demand from whatever the record holds at
+ * download time (`renderSiteInspectionReportPdf`), and a completed-but-unapproved inspection can still
+ * be corrected — approval is the point §6.1 already treats as the signature, and it is also the
+ * moment `approveInspectionService` allows the requester themselves to press.
+ */
+registerNotificationType({
+  key: INSPECTION_APPROVED_NOTIFICATION_TYPE,
+  label: "Your site inspection report has been approved",
   defaultChannels: { inApp: true, email: false, digest: false },
 });
 
@@ -79,6 +94,20 @@ registerFileAccessChecker(SITE_INSPECTION_ENTITY_TYPE, async (user, file) => {
   if (!inspection) return false;
   return canOpenSiteInspection(inspection, user);
 });
+
+/**
+ * How many photos are actually on the record, for `inspectionCompleteness`'s warning — counted from
+ * `FileObject`, the same store the "Photographs and sketches" panel (`<Attachments>`) reads and
+ * writes, not from `SiteInspection.photoFileIds`. That field is never written by the app itself
+ * (photos are attached through the generic panel, keyed by entityType/entityId, not by id list), so
+ * reading it always found zero — a fully photographed visit still warned "No photographs" and its
+ * generated report always said "None attached to this visit" (2026-09-04).
+ */
+async function countInspectionPhotos(inspectionId: string): Promise<number> {
+  return db.fileObject.count({
+    where: { entityType: SITE_INSPECTION_ENTITY_TYPE, entityId: inspectionId, deletedAt: null },
+  });
+}
 
 // ---- scheduling ---------------------------------------------------------------------------------
 
@@ -257,7 +286,6 @@ export async function saveInspectionService(actor: ActorMeta, input: SaveInspect
     inspectedByIds: input.inspectedByIds ?? inspection.inspectedByIds,
     attendees: input.attendees ?? readAttendees(inspection.attendees),
     findings: input.findings !== undefined ? input.findings : inspection.findings,
-    photoFileIds: input.photoFileIds ?? inspection.photoFileIds,
     scopeChangeIdentified: input.scopeChangeIdentified ?? inspection.scopeChangeIdentified,
     scopeChangeNotes:
       input.scopeChangeNotes !== undefined ? input.scopeChangeNotes : inspection.scopeChangeNotes,
@@ -335,7 +363,11 @@ export async function saveInspectionService(actor: ActorMeta, input: SaveInspect
   return {
     id: inspection.id,
     scopeChangeReported: verdict.shouldReport,
-    completeness: inspectionCompleteness({ ...next, measurements: input.measurements }),
+    completeness: inspectionCompleteness({
+      ...next,
+      measurements: input.measurements,
+      photoCount: await countInspectionPhotos(inspection.id),
+    }),
   };
 }
 
@@ -353,7 +385,10 @@ export async function completeInspectionService(actor: ActorMeta, inspectionId: 
     });
   }
 
-  const check = inspectionCompleteness(inspection);
+  const check = inspectionCompleteness({
+    ...inspection,
+    photoCount: await countInspectionPhotos(inspection.id),
+  });
   if (!check.complete) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -491,6 +526,18 @@ export async function approveInspectionService(
     });
   });
 
+  // Only when somebody else approved it — the requester approving their own report already knows.
+  if (inspection.requestedById && inspection.requestedById !== actor.actorId) {
+    await safeNotify({
+      recipientId: inspection.requestedById,
+      type: INSPECTION_APPROVED_NOTIFICATION_TYPE,
+      title: `Site inspection report approved — ${inspection.number}`,
+      body: "The report you asked for is approved and ready to view or download.",
+      entityType: SITE_INSPECTION_ENTITY_TYPE,
+      entityId: inspection.id,
+    });
+  }
+
   return { status: "approved" as const };
 }
 
@@ -520,20 +567,22 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
     });
   }
 
-  const sharedWith =
+  const [sharedWith, photoCount] = await Promise.all([
     inspection.sharedWithIds.length > 0
-      ? await db.user.findMany({
+      ? db.user.findMany({
           where: { id: { in: inspection.sharedWithIds } },
           select: { id: true, name: true },
         })
-      : [];
+      : Promise.resolve([]),
+    countInspectionPhotos(inspection.id),
+  ]);
 
   return {
     ...inspection,
     /** Shaped, not raw Json — the screen and `inspectionCompleteness` read the same list. */
     attendees: readAttendees(inspection.attendees),
     utilities: readUtilities(inspection.utilitiesAvailable),
-    completeness: inspectionCompleteness(inspection),
+    completeness: inspectionCompleteness({ ...inspection, photoCount }),
     editable: isInspectionEditable(inspection.status),
     /** Named, not just the raw ids — so "Shared with" reads as people rather than as cuids. */
     sharedWith,

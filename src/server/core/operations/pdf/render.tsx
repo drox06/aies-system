@@ -10,6 +10,7 @@ import {
   type StandbyCause,
 } from "../daily-progress-rules";
 import {
+  SITE_INSPECTION_ENTITY_TYPE,
   describeAttendees,
   readAttendees,
   readUtilities,
@@ -596,7 +597,7 @@ export async function buildSiteInspectionReportProps(
     throw new TRPCError({ code: "NOT_FOUND", message: "That inspection no longer exists." });
   }
 
-  const [site, inquiry, requester, approver, photoFiles, sketchFiles] = await Promise.all([
+  const [site, inquiry, requester, approver, attachedFiles] = await Promise.all([
     inspection.siteId
       ? db.site.findUnique({
           where: { id: inspection.siteId },
@@ -617,8 +618,13 @@ export async function buildSiteInspectionReportProps(
     inspection.approvedById
       ? db.user.findUnique({ where: { id: inspection.approvedById }, select: { name: true } })
       : null,
+    // Counted from the stored files, never a stale id list — see `inspectionCompleteness`'s own
+    // comment on `photoCount` for why: `photoFileIds`/`sketchFileIds` looked like the source of truth
+    // but nothing in the app ever wrote to them, so a genuinely photographed visit still generated a
+    // report reading "None attached to this visit" (2026-09-04). Attachment order is preserved
+    // because that is the order the surveyor actually added them in.
     db.fileObject.findMany({
-      where: { id: { in: inspection.photoFileIds }, deletedAt: null },
+      where: { entityType: SITE_INSPECTION_ENTITY_TYPE, entityId: inspectionId, deletedAt: null },
       select: {
         id: true,
         storageKey: true,
@@ -626,42 +632,18 @@ export async function buildSiteInspectionReportProps(
         filename: true,
         mimeType: true,
       },
-    }),
-    db.fileObject.findMany({
-      where: { id: { in: inspection.sketchFileIds }, deletedAt: null },
-      select: {
-        id: true,
-        storageKey: true,
-        webDerivativeKey: true,
-        filename: true,
-        mimeType: true,
-      },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
-  // Preserve the order the surveyor attached them in, not whatever order the database returns.
-  const byId = new Map([...photoFiles, ...sketchFiles].map((file) => [file.id, file]));
-  const embed = async (ids: string[], label: string): Promise<SiteInspectionPhoto[]> => {
-    const results = await Promise.all(
-      ids.map(async (id, index) => {
-        const file = byId.get(id);
-        if (!file) return null;
-        const src = await imageDataUri(file);
-        return src ? { src, caption: `${label} ${index + 1}` } : null;
-      }),
-    );
-    return results.filter((entry): entry is SiteInspectionPhoto => entry !== null);
-  };
-
-  const [photos, sketches] = await Promise.all([
-    embed(inspection.photoFileIds, "Photo"),
-    embed(inspection.sketchFileIds, "Sketch"),
-  ]);
-  const omittedImageCount =
-    inspection.photoFileIds.length +
-    inspection.sketchFileIds.length -
-    photos.length -
-    sketches.length;
+  const embedded = await Promise.all(
+    attachedFiles.map(async (file, index) => {
+      const src = await imageDataUri(file);
+      return src ? { src, caption: `Photo ${index + 1}` } : null;
+    }),
+  );
+  const photos = embedded.filter((entry): entry is SiteInspectionPhoto => entry !== null);
+  const omittedImageCount = attachedFiles.length - photos.length;
 
   const address = (site?.address as { line1?: string } | null)?.line1 ?? null;
 
@@ -709,7 +691,6 @@ export async function buildSiteInspectionReportProps(
     scopeChangeNotes: inspection.scopeChangeNotes,
 
     photos,
-    sketches,
     omittedImageCount,
 
     requestedBy: requester?.name ?? null,

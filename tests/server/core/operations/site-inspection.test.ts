@@ -13,6 +13,8 @@ import {
 } from "@/server/core/operations/site-inspection-service";
 import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
 import { canAccessFile } from "@/server/core/storage/access";
+import { uploadFile } from "@/server/core/storage/storage";
+import { supabaseStorageDriver } from "@/server/core/storage/supabase-driver";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
 import { promptRevisionOnScopeChange } from "@/server/core/quotation/scope-change-service";
 import { createQuotationService } from "@/server/core/quotation/quotation-service";
@@ -41,6 +43,8 @@ const requestIds: string[] = [];
 const inquiryIds: string[] = [];
 const quotationIds: string[] = [];
 const userIds: string[] = [];
+const fileIds: string[] = [];
+const storageKeys: string[] = [];
 
 async function makeUser(roleKey: string, permissions: string[]): Promise<AuthedUser> {
   const role = await db.role.findUniqueOrThrow({ where: { key: roleKey } });
@@ -102,6 +106,10 @@ const GOOD_FINDINGS = {
 };
 
 afterAll(async () => {
+  await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
+  for (const key of storageKeys) {
+    await supabaseStorageDriver.remove(key).catch(() => {});
+  }
   await db.siteInspection.deleteMany({ where: { id: { in: inspectionIds } } });
   await db.inspectionRequest.deleteMany({ where: { id: { in: requestIds } } });
   await db.notification.deleteMany({ where: { recipientId: { in: userIds } } });
@@ -170,6 +178,42 @@ describe("§6.1 — scheduling and recording", () => {
     expect((event?.payload as { siteInspectionId?: string })?.siteInspectionId).toBe(inspection.id);
   });
 
+  /**
+   * Pins the 2026-09-04 fix: a photo attached the way the app actually attaches one — through the
+   * generic "Photographs and sketches" panel, which uploads keyed by entityType/entityId and never
+   * touches `SiteInspection.photoFileIds` — used to still trigger this exact warning, because the
+   * check read the unused id list instead of what was really on the record.
+   */
+  it("does not warn about photographs once one is actually attached", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const file = await uploadFile({
+      entityType: SITE_INSPECTION_ENTITY_TYPE,
+      entityId: inspection.id,
+      uploaderId: tech.id,
+      filename: "meter-room.png",
+      mimeType: "image/png",
+      buffer: png,
+    });
+    fileIds.push(file.id);
+    storageKeys.push(file.storageKey);
+    if (file.webDerivativeKey) storageKeys.push(file.webDerivativeKey);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    const result = await completeInspectionService(actorFor(tech), inspection.id);
+
+    expect(result.warnings.join(" ")).not.toMatch(/No photographs/);
+
+    const read = await getInspectionService(tech, inspection.id);
+    expect(read.completeness.warnings.join(" ")).not.toMatch(/No photographs/);
+  });
+
   it("closes an approved report to further edits", async () => {
     const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
     const manager = await makeUser("operations_manager", ["project.manage", "ticket.view_all"]);
@@ -183,6 +227,28 @@ describe("§6.1 — scheduling and recording", () => {
     await expect(
       saveInspectionService(actorFor(tech), { inspectionId: inspection.id, findings: "changed" }),
     ).rejects.toThrow(/signature/);
+  });
+
+  /**
+   * 2026-09-04: "the generated SIR should be made available to the requestor... this should also go
+   * into the requestor's notification as soon as the SIR is approved and generated." Approval is the
+   * trigger — the report itself is generated on demand, so there is nothing to wait on beyond that.
+   */
+  it("tells the requester their report is approved, pointing at the inspection", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const manager = await makeUser("operations_manager", ["project.manage", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+    await approveInspectionService(manager, actorFor(manager), inspection.id);
+
+    const notifications = await db.notification.findMany({ where: { recipientId: tech.id } });
+    const approved = notifications.find((n) => n.type === "site_inspection.approved");
+    expect(approved).toBeDefined();
+    expect(approved?.entityType).toBe(SITE_INSPECTION_ENTITY_TYPE);
+    expect(approved?.entityId).toBe(inspection.id);
   });
 
   /**
@@ -208,6 +274,10 @@ describe("§6.1 — scheduling and recording", () => {
     const after = await db.siteInspection.findUniqueOrThrow({ where: { id: inspection.id } });
     expect(after.status).toBe("approved");
     expect(after.approvedById).toBe(tech.id);
+
+    // Approving your own report is not news — nothing should land in your own inbox for it.
+    const notifications = await db.notification.findMany({ where: { recipientId: tech.id } });
+    expect(notifications.find((n) => n.type === "site_inspection.approved")).toBeUndefined();
   });
 
   /** Enough is not the same as anybody. */

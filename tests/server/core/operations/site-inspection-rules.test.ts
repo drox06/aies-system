@@ -24,7 +24,7 @@ const BASE = {
   inspectedByIds: ["tech-1"],
   attendees: [{ party: "sales" }, { party: "technical" }],
   findings: "Existing flow meter is a DN100, not the DN150 on the drawing.",
-  photoFileIds: ["file-1"],
+  photoCount: 1,
   scopeChangeIdentified: false,
   scopeChangeNotes: null as string | null,
 };
@@ -102,7 +102,7 @@ describe("§6.1's completeness", () => {
    * cannot satisfy honestly gets satisfied dishonestly — one meaningless photograph to clear it.
    */
   it("warns about missing photographs without blocking", () => {
-    const check = inspectionCompleteness({ ...BASE, photoFileIds: [] });
+    const check = inspectionCompleteness({ ...BASE, photoCount: 0 });
     expect(check.complete).toBe(true);
     expect(check.warnings.join(" ")).toMatch(/No photographs/);
   });
