@@ -64,8 +64,10 @@ export const financeManifest = defineManifest({
       // Whoever holds this is who the "ready to bill" notification reaches — see
       // billing-service.ts's notifyFinance. The two are the same list on purpose: a notification to
       // somebody who cannot act on it is noise, and an actionable list nobody is told about is a
-      // list nobody reads.
-      defaultRoles: ["president", "vice_president", "finance_officer"],
+      // list nobody reads. `admin_manager` joined 2026-09-04 — EA's rebuild table gives PD "billing
+      // statements" among the partial-finance grant that comes with the Admin Manager and Purchaser
+      // title change. docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
     },
     {
       key: "billing_schedule.manage",
@@ -87,7 +89,9 @@ export const financeManifest = defineManifest({
       group: "Finance",
       // Separate from drafting one. Drafting is arithmetic somebody can check; issuing creates a
       // receivable and puts a demand in front of a customer, which is the act with consequences.
-      defaultRoles: ["president", "vice_president", "finance_officer"],
+      // `admin_manager` joined 2026-09-04, same reasoning as `billing_statement.create` above.
+      // docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
     },
     {
       key: "payment.record",
@@ -100,15 +104,19 @@ export const financeManifest = defineManifest({
        * invoice, and a service invoice is a declaration to the government that a sale happened. It is
        * not a bookkeeping note and it is not reversible by deleting anything.
        */
-      defaultRoles: ["president", "vice_president", "finance_officer"],
+      // `admin_manager` joined 2026-09-04 — EA's rebuild table names "records payments" and
+      // "processes receiving customer payment" for PD explicitly. docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
     },
     {
       key: "invoice.cancel",
       label: "Cancel a service invoice",
       group: "Finance",
-      // The officers only. A cancelled BIR document is retained forever with its reason attached,
-      // and the reason is the company's answer if anybody asks about the gap in the series.
-      defaultRoles: ["president", "vice_president"],
+      // Originally the officers only. A cancelled BIR document is retained forever with its reason
+      // attached, and the reason is the company's answer if anybody asks about the gap in the
+      // series. `admin_manager` joined 2026-09-04 — EA's rebuild table names "cancels invoices" for
+      // PD explicitly. docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "admin_manager"],
     },
     {
       key: "finance.override_billing_gate",
@@ -130,9 +138,10 @@ export const financeManifest = defineManifest({
       /*
         The export is every invoice, payment and bill for a period in one file, so it is the widest
         read of company figures the platform offers. Held where the other whole-company money
-        permissions are held.
+        permissions are held. `admin_manager` joined 2026-09-04 — EA's rebuild table names
+        "accountant exports" for PD explicitly. docs/DECISIONS.md #151.
       */
-      defaultRoles: ["president", "vice_president", "finance_officer"],
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
     },
     {
       key: "payables.manage",
@@ -141,24 +150,10 @@ export const financeManifest = defineManifest({
       /*
         §7 does not build a payment run, so this is "cleared to pay" rather than "paid" — but it is
         still the act that lets money leave, and the override on a failed three-way match sits behind
-        it. Held where the other money permissions are held.
+        it. Held where the other money permissions are held. `admin_manager` joined 2026-09-04 — EA's
+        rebuild table names "processes paying suppliers" for PD explicitly. docs/DECISIONS.md #151.
       */
-      defaultRoles: ["president", "vice_president", "finance_officer"],
-    },
-    {
-      key: "pnl.view",
-      label: "See project profitability",
-      group: "Finance",
-      /*
-        Narrow, and narrower than most finance permissions.
-
-        A project P&L shows labour cost, and labour cost divided by hours is close enough to what
-        somebody is paid that treating it as an ordinary report would leak pay across the company.
-        §6 gates this explicitly. Operations managers are deliberately out: they own the job, not
-        its margin, and the number they would act on — budget against actual hours — is on the
-        ticket already.
-      */
-      defaultRoles: ["president", "vice_president", "finance_officer"],
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
     },
     {
       key: "expense.submit",
@@ -204,10 +199,30 @@ export const financeManifest = defineManifest({
       defaultRoles: ["president", "vice_president"],
     },
     {
+      key: "pnl.view",
+      label: "See project profitability",
+      group: "Finance",
+      /*
+        A project P&L shows labour cost, and labour cost divided by hours is close enough to what
+        somebody is paid that treating it as an ordinary report would leak pay across the company.
+        §6 gates this explicitly. Operations managers are deliberately out: they own the job, not
+        its margin, and the number they would act on — budget against actual hours — is on the
+        ticket already.
+
+        `admin_manager` joined 2026-09-04 at EA's explicit instruction: PD's rebuild table names
+        "P&L" among the partial-finance grant, alongside a general "cannot see cost or margin" that
+        would otherwise read as excluding it — asked directly and confirmed the explicit grant
+        controls. docs/DECISIONS.md #151.
+      */
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
+    },
+    {
       key: "ar.view",
       label: "See what customers owe",
       group: "Finance",
-      defaultRoles: ["president", "vice_president", "finance_officer"],
+      // `admin_manager` joined 2026-09-04 — EA's rebuild table names "AR" for PD explicitly.
+      // docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
     },
   ],
 

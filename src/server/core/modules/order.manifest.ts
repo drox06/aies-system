@@ -96,8 +96,10 @@ export const orderManifest = defineManifest({
       label: "Approve a supplier under ISO 9001 clause 8.4",
       group: "Orders",
       // Narrower than maintaining the directory on purpose: approving a vendor is the control an
-      // auditor asks about, and "who decided this" should be a short list.
-      defaultRoles: ["president", "vice_president"],
+      // auditor asks about, and "who decided this" should be a short list. `admin_manager` joined
+      // 2026-09-04 — EA's rebuild table gives PD "supplier accreditation" by name, alongside the
+      // title change to Admin Manager and Purchaser. docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "admin_manager"],
     },
     {
       key: "sales_order.view",
@@ -134,7 +136,10 @@ export const orderManifest = defineManifest({
       group: "Orders",
       // PD does the buying. Sales is deliberately absent: raising the customer's order and
       // committing AIES's money are different jobs, and §5 puts an approval between them.
-      defaultRoles: ["president", "vice_president", "admin_manager", "operations_manager"],
+      // `operations_manager` withdrawn 2026-09-04 — EA's rebuild table names "raise a supplier PO"
+      // explicitly as something DJ cannot do; buying stays PD's alone among the four widened roles.
+      // docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "admin_manager"],
     },
     {
       key: "supplier_po.delete",
@@ -170,13 +175,10 @@ export const orderManifest = defineManifest({
       group: "Orders",
       // Whoever is at the gate when the truck arrives. Wider than inspecting, because counting
       // boxes and certifying paperwork are different acts — see goods-receipt-service.ts.
-      defaultRoles: [
-        "president",
-        "vice_president",
-        "admin_manager",
-        "operations_manager",
-        "technician",
-      ],
+      // `operations_manager` withdrawn 2026-09-04 — EA's rebuild table names "record a goods
+      // receipt" explicitly as something DJ cannot do. `goods_receipt.inspect` is untouched: DJ's
+      // list still records QA outcomes, and inspecting is the separate act. docs/DECISIONS.md #151.
+      defaultRoles: ["president", "vice_president", "admin_manager", "technician"],
     },
     {
       key: "goods_receipt.inspect",

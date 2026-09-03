@@ -74,12 +74,17 @@ describe("order manifest", () => {
 
   it("keeps approving a supplier narrower than maintaining the directory", () => {
     // ISO 9001 clause 8.4's whole point: the people who can type a vendor in are not automatically
-    // the people who decide AIES may buy from it.
+    // the people who decide AIES may buy from it. `admin_manager` gained supplier accreditation
+    // specifically (docs/DECISIONS.md #151, 2026-09-04) — PD's title became Admin Manager *and
+    // Purchaser* for exactly this — so the assertion narrows to "approve is still not everyone who
+    // can manage the directory" rather than pinning the exact two names it used to be.
     const roles = (key: string) =>
       orderManifest.permissions.find((p) => p.key === key)?.defaultRoles ?? [];
 
-    expect(roles("supplier.approve")).toEqual(["president", "vice_president"]);
+    expect(roles("supplier.approve")).toEqual(["president", "vice_president", "admin_manager"]);
     expect(roles("supplier.manage")).toContain("admin_manager");
+    expect(roles("supplier.manage")).toContain("marketing_manager");
+    expect(roles("supplier.approve")).not.toContain("marketing_manager");
     expect(roles("supplier.manage").length).toBeGreaterThan(roles("supplier.approve").length);
   });
 

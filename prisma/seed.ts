@@ -72,7 +72,11 @@ const PERMISSIONS: PermissionSeed[] = [
     key: "admin.manage_custom_fields",
     label: "Manage custom fields",
     group: "Administration",
-    defaultRoles: ["president"],
+    // `vice_president` joined 2026-09-04 — EA's rebuild table gives KJ "roughly everything except
+    // administering people," withholding only admin.manage_users and admin.manage_roles by name.
+    // Managing custom fields is not administering people, so it is one of the things "nothing else
+    // is withheld" includes. docs/DECISIONS.md #151.
+    defaultRoles: ["president", "vice_president"],
   },
 ];
 

@@ -54,8 +54,16 @@ export const quotationManifest = defineManifest({
       label: "Issue an approved quotation to the customer",
       group: "Quotation",
       // §6: approval is required before `sent`, so sending is the act of releasing something the VP
-      // already cleared. It stays with the people who own the customer relationship.
-      defaultRoles: ["president", "vice_president", "marketing_manager", "sales"],
+      // already cleared. It stays with the people who own the customer relationship — widened
+      // 2026-09-04 to match `QUOTING_ROLES()`, docs/DECISIONS.md #151.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "marketing_manager",
+        "sales",
+        "admin_manager",
+        "operations_manager",
+      ],
     },
     {
       key: "quotation.revise",
@@ -67,20 +75,35 @@ export const quotationManifest = defineManifest({
       key: "quotation.delete",
       label: "Delete a quotation",
       group: "Quotation",
-      // The two officers only, and separate from `quotation.cancel` because they are different
-      // acts: cancelling records that a live quotation is no longer being pursued, which is history
-      // worth keeping; deleting takes it off the screens entirely. Asked for by name — EA and KJ.
-      defaultRoles: ["president", "vice_president"],
+      // Originally the two officers only, and separate from `quotation.cancel` because they are
+      // different acts: cancelling records that a live quotation is no longer being pursued, which
+      // is history worth keeping; deleting takes it off the screens entirely. Widened to the full
+      // quoting roster 2026-09-04 — EA's rebuild table gives PD, DJ and EM delete alongside the rest
+      // of the lifecycle. docs/DECISIONS.md #151.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "admin_manager",
+        "operations_manager",
+        "marketing_manager",
+      ],
     },
     {
       key: "quotation.view_archive",
       label: "See archived quotations",
       group: "Quotation",
-      // Asked for by name, EA and KJ again. The archive is every won deal the company has ever
-      // done, with its margin — management history rather than working material. See
+      // Originally EA and KJ by name. The archive is every won deal the company has ever done, with
+      // its margin — management history rather than working material. See
       // QUOTATION_ARCHIVE_PERMISSION in archive-rules.ts for why it gates the list and not the
-      // record.
-      defaultRoles: ["president", "vice_president"],
+      // record. Widened to the full quoting roster 2026-09-04, same reasoning as `quotation.delete`
+      // above. docs/DECISIONS.md #151.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "admin_manager",
+        "operations_manager",
+        "marketing_manager",
+      ],
     },
     {
       key: "supplier_rfq.manage",
@@ -221,5 +244,15 @@ export const quotationManifest = defineManifest({
  * pricing, which has its own permission.
  */
 function QUOTING_ROLES(): string[] {
-  return ["president", "vice_president", "marketing_manager", "sales"];
+  // Widened 2026-09-04 at EA's instruction for the rebuild (docs/DECISIONS.md #151): quoting stops
+  // being gated by role. PD and DJ join KJ, EM and sales in authoring a quotation; `quotation.approve`
+  // stays with only the president and vice-president, everywhere, unaffected by this list.
+  return [
+    "president",
+    "vice_president",
+    "marketing_manager",
+    "sales",
+    "admin_manager",
+    "operations_manager",
+  ];
 }
