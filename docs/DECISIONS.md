@@ -5991,3 +5991,72 @@ inspection; self-approval creates none. `pdf.test.ts`'s existing photo-embedding
 proven by the test that used to need a workaround no longer needing one. 60 tests pass across
 `site-inspection.test.ts` (23), `site-inspection-rules.test.ts` (26) and `pdf.test.ts` (11).
 `tsc --noEmit` clean.
+
+## #170 — An accomplished SIR freezes; revising it is tracked, not a silent overwrite
+
+**2026-09-04. Built** at EA's instruction, reported against a real report: *"the inputs in the app
+disappeared, but the downloadable pdf copy retained the inputs. the inputs should remain on
+accomplished SIRs and should become frozen and cannot be edited. unless the assigned person to
+conduct the SIRs press the edit button. but this edit becomes a revision not an overwrite. reason
+should be added at the bottom of the SIR on why it was revised."* Two smaller asks rode along: add
+"Customer Representative" to the attendee dropdown, and print "Attended by" name-first ("EA
+(Technical)") rather than department-first ("Technical (EA)").
+
+**`completed` had no protection at all, and that is exactly how inputs "disappeared".**
+`isInspectionEditable` returned true for both `scheduled` and `completed` — only `approved` was
+refused. So once a report was accomplished, anybody holding `ticket.execute` could still open the
+same always-live `InspectionForm` and save straight over it, with nothing recording who touched it
+or why. The PDF, generated on demand from whatever the row held at download time, simply reflected
+whatever was there a moment before — which is exactly the symptom reported: the app showed one thing,
+the PDF (read a moment earlier) showed another, because the record had been silently rewritten
+in between.
+
+**The fix does not touch `isInspectionEditable`** — `loadEditable` still uses it exactly as before,
+refusing only `approved`. A new, narrower question sits on top of it: `canReviseInspection(inspection,
+userId)` in site-inspection-rules.ts, true only when `status === "completed"` *and* `userId` is in
+`inspectedByIds` — the person who actually went, not merely someone with the permission. `getInspection`
+now returns `editable` narrowed to `scheduled` only (the free-editing window, no reason needed) plus a
+separate `canRevise` flag for whoever is looking. On the page, a `completed` record renders
+`ReadOnlyFindings` — frozen, an "Edit" button shown only when `canRevise` is true. Pressing it opens the
+same `InspectionForm` in a revision mode that requires a "Reason for this revision" box before "Save
+revision" enables at all.
+
+**`saveInspectionService` enforces the same gate server-side**, not just the button's absence:
+reopening a `completed` report without being in `inspectedByIds` throws `FORBIDDEN`; without a
+`revisionReason` throws `BAD_REQUEST` asking for one. No new table for the history — a second,
+purpose-built `AuditLog` row (`action: "revised"`, the reason folded into `summary`) is written
+alongside the existing "updated" one, reusing the entity's already-shared `AuditTrail` component for
+free rather than building a second history view, and giving the PDF something specific to query instead
+of having to sift the general "updated" log for what counts as a revision.
+
+**The PDF prints why, not just that.** `buildSiteInspectionReportProps` now also queries every
+`"revised"` audit row for the inspection and prints them under a new "Revision history" section, right
+above the signature block — literally the bottom of the report, as asked. Empty for the common case of
+a report nobody has ever had to correct.
+
+**"Customer Representative" and the name-first "Attended by" line** were the concrete evidence behind
+the freeze bug — the reported wrong output, `"Technical (EA), Technical (customer)"`, is what happens
+when the only way to record a client's representative is to misuse the "Technical" department and type
+their role into the name field, because there was nowhere else to put it. Added `customer_rep` to
+`ATTENDEE_PARTIES` (the dropdown iterates that array directly, so no separate UI change was needed
+beyond the rules file) and flipped `describeAttendees`'s named case from `Party (Name)` to
+`Name (Party)` — `"EA (Technical)"`, `"Customer (Customer Representative)"`. `"Other"` is unchanged: it
+still prints the bare name, since it is the one party with nothing categorical to say.
+
+**Verified**: four new integration tests in `site-inspection.test.ts` — a bystander refused on a
+completed report with the DB row proven untouched; the assigned surveyor refused without a reason;
+the assigned surveyor's revision succeeding, the audit row correct, and `getInspectionService` showing
+`editable: false` / `canRevise: true` beforehand; an approved report still refused entirely, even for
+the person who conducted it. A new `pdf.test.ts` case seeds a real `"revised"` audit row and confirms
+`buildSiteInspectionReportProps` returns it and the PDF still renders. `site-inspection-rules.test.ts`
+covers `canReviseInspection`'s four states and the reordered `describeAttendees` output including the
+new party. 69 tests pass across the three files (`site-inspection.test.ts` 27, `site-inspection-
+rules.test.ts` 30, `pdf.test.ts` 12); `tsc --noEmit` clean.
+
+Verified live end to end as the assigned surveyor: a completed report rendered frozen with an "Edit"
+button; pressing it opened the form with attendee dropdowns offering "Customer Representative"; "Save
+revision" stayed disabled until a reason was typed; saving updated the findings, returned the record to
+its frozen view, and — on a fresh fetch — the record's own History panel showed "Revised AIESSIR-260310
+— Re-measured after the client's engineer disputed the first reading." alongside the earlier "Recorded
+findings" and "Completed" entries, proving the same audit row the PDF reads is the one the app already
+shows.

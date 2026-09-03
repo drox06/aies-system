@@ -529,6 +529,8 @@ export const operationsRouter = router({
         sketchFileIds: z.array(z.string()).optional(),
         scopeChangeIdentified: z.boolean().optional(),
         scopeChangeNotes: z.string().max(5000).nullish(),
+        /** Required by the service once the report is `completed` — see `canReviseInspection`. */
+        revisionReason: z.string().max(2000).optional(),
       }),
     )
     .mutation(({ ctx, input }) => saveInspectionService(actorMeta(ctx), input)),

@@ -307,6 +307,109 @@ describe("§6.1 — scheduling and recording", () => {
   });
 });
 
+/**
+ * 2026-09-04: "the inputs in the app disappeared, but the downloadable pdf copy retained the
+ * inputs. the inputs should remain on accomplished SIRs and should become frozen and cannot be
+ * edited. unless the assigned person to conduct the SIRs press the edit button. but this edit
+ * becomes a revision not an overwrite. reason should be added at the bottom of the SIR."
+ *
+ * Before this, `completed` had no protection beyond "not yet approved" — anybody with
+ * `ticket.execute` could reopen and silently rewrite a finished report, which is exactly how a
+ * report's own inputs could vanish from the app while the PDF (rendered from the same row, a
+ * moment earlier) still had them.
+ */
+describe("§6.1 — revising an accomplished report", () => {
+  it("freezes a completed report against anyone but who conducted it", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const bystander = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+
+    await expect(
+      saveInspectionService(actorFor(bystander), {
+        inspectionId: inspection.id,
+        findings: "Overwritten by somebody who never went.",
+      }),
+    ).rejects.toThrow(/Only the person who conducted the inspection/);
+
+    const untouched = await db.siteInspection.findUniqueOrThrow({ where: { id: inspection.id } });
+    expect(untouched.findings).toBe(GOOD_FINDINGS.findings);
+  });
+
+  it("refuses even the assigned surveyor without a reason", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+
+    await expect(
+      saveInspectionService(actorFor(tech), {
+        inspectionId: inspection.id,
+        findings: "Corrected the DN100 reading.",
+      }),
+    ).rejects.toThrow(/Say why/);
+  });
+
+  it("lets the assigned surveyor revise with a reason, tracked, not overwritten silently", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+
+    const beforeRevise = await getInspectionService(tech, inspection.id);
+    expect(beforeRevise.editable).toBe(false);
+    expect(beforeRevise.canRevise).toBe(true);
+
+    await saveInspectionService(actorFor(tech), {
+      inspectionId: inspection.id,
+      findings: "Corrected: the meter is actually a DN80, not a DN100.",
+      revisionReason: "Re-measured after the client's engineer disputed the first reading.",
+    });
+
+    const after = await db.siteInspection.findUniqueOrThrow({ where: { id: inspection.id } });
+    expect(after.findings).toContain("DN80");
+    expect(after.status).toBe("completed");
+
+    const revised = await db.auditLog.findFirst({
+      where: {
+        entityType: SITE_INSPECTION_ENTITY_TYPE,
+        entityId: inspection.id,
+        action: "revised",
+      },
+    });
+    expect(revised?.summary).toContain("Re-measured after the client's engineer disputed");
+    expect(revised?.actorId).toBe(tech.id);
+  });
+
+  it("leaves an approved report refused even for the person who conducted it", async () => {
+    const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);
+    const ticket = await makeTicket(tech);
+    const inspection = await scheduleFor(tech, ticket.id);
+
+    await saveInspectionService(actorFor(tech), { inspectionId: inspection.id, ...GOOD_FINDINGS });
+    await completeInspectionService(actorFor(tech), inspection.id);
+    await approveInspectionService(tech, actorFor(tech), inspection.id);
+
+    const read = await getInspectionService(tech, inspection.id);
+    expect(read.canRevise).toBe(false);
+
+    await expect(
+      saveInspectionService(actorFor(tech), {
+        inspectionId: inspection.id,
+        findings: "changed",
+        revisionReason: "Trying anyway.",
+      }),
+    ).rejects.toThrow(/signature/);
+  });
+});
+
 describe("§6.1 — the scope-change link", () => {
   it("emits once, on the save that flags it, and not again", async () => {
     const tech = await makeUser("technician", ["ticket.execute", "ticket.view_all"]);

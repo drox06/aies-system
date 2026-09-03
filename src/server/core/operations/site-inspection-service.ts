@@ -14,6 +14,7 @@ import {
   SITE_INSPECTION_DOCUMENT_TYPE,
   SITE_INSPECTION_ENTITY_TYPE,
   canOpenSiteInspection,
+  canReviseInspection,
   canSeeAnySiteInspection,
   inspectionCompleteness,
   isInspectionEditable,
@@ -268,6 +269,12 @@ export interface SaveInspectionInput {
   sketchFileIds?: string[];
   scopeChangeIdentified?: boolean;
   scopeChangeNotes?: string | null;
+  /**
+   * Required, and only meaningful, once the report is `completed` — see `canReviseInspection`. A
+   * `scheduled` inspection is still being filled in for the first time and has nothing to give a
+   * reason for yet.
+   */
+  revisionReason?: string;
 }
 
 /**
@@ -277,9 +284,33 @@ export interface SaveInspectionInput {
  * §6.1: the value of the link is how early it fires. A surveyor who flags a scope change from the
  * site on Tuesday and finishes the paperwork on Friday has given sales three days, and waiting for
  * `completed` would throw them away.
+ *
+ * **Reopening an already-accomplished report is a different action from filling one in**, and this is
+ * the one place that difference is enforced — `loadEditable` only refuses `approved`, exactly as
+ * before. Asked for by the company on 2026-09-04, after a completed report's inputs were overwritten
+ * with nothing recording who did it or why: while `status` is `completed`, only the person who
+ * conducted the inspection may save here (`canReviseInspection`), and they must say why
+ * (`revisionReason`) — recorded as its own audit row rather than folded into the ordinary "updated"
+ * one, so the report's own history can tell "first write-up" apart from "correction, and here's why".
  */
 export async function saveInspectionService(actor: ActorMeta, input: SaveInspectionInput) {
   const inspection = await loadEditable(input.inspectionId);
+
+  const isRevision = inspection.status === "completed";
+  if (isRevision) {
+    if (!inspection.inspectedByIds.includes(actor.actorId)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: `${inspection.number} has been accomplished and is frozen. Only the person who conducted the inspection may revise it.`,
+      });
+    }
+    if (!input.revisionReason?.trim()) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Say why this accomplished report is being revised.",
+      });
+    }
+  }
 
   const next = {
     inspectedAt: input.inspectedAt !== undefined ? input.inspectedAt : inspection.inspectedAt,
@@ -342,6 +373,22 @@ export async function saveInspectionService(actor: ActorMeta, input: SaveInspect
       userAgent: actor.userAgent,
       requestId: actor.requestId,
     });
+
+    if (isRevision) {
+      // Its own row, not folded into the "updated" one above — the reason is the whole point, and
+      // this is also what `buildSiteInspectionReportProps` queries to print "why revised" on the PDF.
+      await writeAuditLog(tx, {
+        actorId: actor.actorId,
+        actorLabel: actor.actorLabel,
+        action: "revised",
+        entityType: SITE_INSPECTION_ENTITY_TYPE,
+        entityId: inspection.id,
+        summary: `Revised ${inspection.number} — ${input.revisionReason!.trim()}`,
+        ip: actor.ip,
+        userAgent: actor.userAgent,
+        requestId: actor.requestId,
+      });
+    }
 
     if (verdict.shouldReport) {
       await emit(
@@ -583,7 +630,16 @@ export async function getInspectionService(user: AuthedUser, inspectionId: strin
     attendees: readAttendees(inspection.attendees),
     utilities: readUtilities(inspection.utilitiesAvailable),
     completeness: inspectionCompleteness({ ...inspection, photoCount }),
-    editable: isInspectionEditable(inspection.status),
+    /**
+     * Freely editable, no reason required — true only while still `scheduled`. This used to also be
+     * true for `completed` (`isInspectionEditable` covers both, and still does — it is the "not yet
+     * approved" gate `saveInspectionService` enforces at the door). The screen needs a narrower
+     * question: whether to open the form with no further gate, and the answer to that narrows to
+     * `scheduled` once `completed` has its own gate — see `canRevise`.
+     */
+    editable: inspection.status === "scheduled",
+    /** Whether *this* user may reopen an accomplished report — see `canReviseInspection`. */
+    canRevise: canReviseInspection(inspection, user.id),
     /** Named, not just the raw ids — so "Shared with" reads as people rather than as cuids. */
     sharedWith,
     /**

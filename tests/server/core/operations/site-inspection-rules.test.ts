@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   UTILITIES,
   canOpenSiteInspection,
+  canReviseInspection,
   canSeeAnySiteInspection,
   inspectionCompleteness,
   inspectionRequiredForTicket,
@@ -65,14 +66,41 @@ describe("§6.1's attendance", () => {
     expect(check.complete).toBe(true);
   });
 
-  it("says the attendance back in words", () => {
+  it("says the attendance back in words, name first", () => {
     expect(
       describeAttendees([
         { party: "sales" },
         { party: "technical", name: "DJ" },
+        { party: "customer_rep", name: "Juan dela Cruz" },
         { party: "other", name: "Plant engineer" },
       ]),
-    ).toBe("Sales, Technical (DJ), Plant engineer");
+    ).toBe("Sales, DJ (Technical), Juan dela Cruz (Customer Representative), Plant engineer");
+  });
+});
+
+describe("§6.1 — revising an accomplished report", () => {
+  it("lets the person who conducted the inspection revise a completed report", () => {
+    expect(canReviseInspection({ status: "completed", inspectedByIds: ["tech-1"] }, "tech-1")).toBe(
+      true,
+    );
+  });
+
+  it("refuses anyone not named as having conducted it", () => {
+    expect(
+      canReviseInspection({ status: "completed", inspectedByIds: ["tech-1"] }, "bystander"),
+    ).toBe(false);
+  });
+
+  it("refuses revision once approved, even for the person who conducted it", () => {
+    expect(canReviseInspection({ status: "approved", inspectedByIds: ["tech-1"] }, "tech-1")).toBe(
+      false,
+    );
+  });
+
+  it("refuses revision before it is even completed", () => {
+    expect(canReviseInspection({ status: "scheduled", inspectedByIds: ["tech-1"] }, "tech-1")).toBe(
+      false,
+    );
   });
 });
 

@@ -142,12 +142,15 @@ export interface CompletenessCheck {
  *
  * Asked for by the company on 2026-08-17, replacing a checkbox list of internal users.
  */
-export const ATTENDEE_PARTIES = ["sales", "technical", "other"] as const;
+export const ATTENDEE_PARTIES = ["sales", "technical", "customer_rep", "other"] as const;
 export type AttendeeParty = (typeof ATTENDEE_PARTIES)[number];
 
 export const ATTENDEE_PARTY_LABELS: Record<AttendeeParty, string> = {
   sales: "Sales",
   technical: "Technical",
+  /** Added 2026-09-04 — the client's own representative was previously recorded as "Technical" with
+   *  their name typed in, or as an "other" guest, neither of which reads correctly on the report. */
+  customer_rep: "Customer Representative",
   other: "Others",
 };
 
@@ -176,7 +179,7 @@ export function describeAttendees(attendees: readonly Attendee[]): string {
       a.party === "other"
         ? a.name?.trim() || "unnamed guest"
         : a.name?.trim()
-          ? `${ATTENDEE_PARTY_LABELS[a.party]} (${a.name.trim()})`
+          ? `${a.name.trim()} (${ATTENDEE_PARTY_LABELS[a.party]})`
           : ATTENDEE_PARTY_LABELS[a.party],
     )
     .join(", ");
@@ -263,6 +266,29 @@ export function inspectionRequiredForTicket(ticket: { type: string }): boolean {
 /** Whether an inspection still accepts edits. Approved is a signature; it does not get rewritten. */
 export function isInspectionEditable(status: string): boolean {
   return status === "scheduled" || status === "completed";
+}
+
+/**
+ * Whether `userId` may reopen an *accomplished* (`completed`) report to correct it.
+ *
+ * Before 2026-09-04, `completed` gave no protection at all beyond "not yet approved" —
+ * `isInspectionEditable` above stayed true and anybody with `ticket.execute` could freely rewrite a
+ * finished report, silently. Asked for by the company after exactly that happened: "the inputs...
+ * disappeared" on a report the PDF still had correctly, because the record itself had been reopened
+ * and overwritten with nobody accountable for why. So once accomplished, the record freezes; only the
+ * person who actually conducted the inspection — named in `inspectedByIds`, not merely anyone with the
+ * permission — may reopen it, and reopening it is a tracked revision (`saveInspectionService` requires
+ * a reason once this is true), not a second silent edit.
+ *
+ * Stops at `completed` on purpose — `approved` stays refused entirely, exactly as `isInspectionEditable`
+ * already refuses it. An approved report is the one state this codebase already calls a signature;
+ * widening revision to cover it too would undo that decision rather than close the gap next to it.
+ */
+export function canReviseInspection(
+  inspection: { status: string; inspectedByIds: readonly string[] },
+  userId: string,
+): boolean {
+  return inspection.status === "completed" && inspection.inspectedByIds.includes(userId);
 }
 
 // ---- the scope-change link ----------------------------------------------------------------------

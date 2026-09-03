@@ -597,7 +597,7 @@ export async function buildSiteInspectionReportProps(
     throw new TRPCError({ code: "NOT_FOUND", message: "That inspection no longer exists." });
   }
 
-  const [site, inquiry, requester, approver, attachedFiles] = await Promise.all([
+  const [site, inquiry, requester, approver, attachedFiles, revisionLog] = await Promise.all([
     inspection.siteId
       ? db.site.findUnique({
           where: { id: inspection.siteId },
@@ -633,6 +633,14 @@ export async function buildSiteInspectionReportProps(
         mimeType: true,
       },
       orderBy: { createdAt: "asc" },
+    }),
+    // Every reopening of an already-accomplished report, oldest first — written by
+    // `saveInspectionService` as its own `"revised"` audit row specifically so this query does not
+    // have to pick revisions back out of the general "updated" history.
+    db.auditLog.findMany({
+      where: { entityType: SITE_INSPECTION_ENTITY_TYPE, entityId: inspectionId, action: "revised" },
+      select: { actorLabel: true, summary: true, at: true },
+      orderBy: { at: "asc" },
     }),
   ]);
 
@@ -692,6 +700,12 @@ export async function buildSiteInspectionReportProps(
 
     photos,
     omittedImageCount,
+
+    revisions: revisionLog.map((entry) => ({
+      by: entry.actorLabel,
+      at: fmtDate(entry.at),
+      summary: entry.summary,
+    })),
 
     requestedBy: requester?.name ?? null,
     approvedBy: approver?.name ?? null,

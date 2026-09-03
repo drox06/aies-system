@@ -411,6 +411,49 @@ describe("§6.1's site inspection report", () => {
     const pdf = await renderSiteInspectionReportPdf(inspection.id);
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
   }, 30_000);
+
+  /**
+   * 2026-09-04: "reason should be added at the bottom of the SIR on why it was revised." The reason
+   * is a `"revised"` audit row, written by `saveInspectionService` — this proves the report actually
+   * finds it and renders with it present, not just that an empty list renders (the case above).
+   */
+  it("prints why an accomplished report was revised", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const inspection = await db.siteInspection.create({
+      data: {
+        number: `AIESSIR-PDF${randomUUID().slice(0, 5)}`,
+        ticketId: ticket.id,
+        requestedById: user.id,
+        inspectedAt: new Date("2026-08-21"),
+        attendees: [{ party: "sales", name: "" }] as never,
+        findings: "Corrected: the meter is a DN80, not a DN100.",
+        status: "completed",
+        completedAt: new Date(),
+      },
+    });
+    inspectionIds.push(inspection.id);
+
+    await db.auditLog.create({
+      data: {
+        actorId: user.id,
+        actorLabel: user.name,
+        action: "revised",
+        entityType: SITE_INSPECTION_ENTITY_TYPE,
+        entityId: inspection.id,
+        summary: `Revised ${inspection.number} — re-measured after the client disputed the first reading.`,
+      },
+    });
+
+    const props = await buildSiteInspectionReportProps(inspection.id);
+    expect(props.revisions).toHaveLength(1);
+    expect(props.revisions[0]!.summary).toContain("re-measured after the client disputed");
+    expect(props.revisions[0]!.by).toBe(user.name);
+
+    const pdf = await renderSiteInspectionReportPdf(inspection.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  }, 30_000);
 });
 
 /**

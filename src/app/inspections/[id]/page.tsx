@@ -49,6 +49,12 @@ interface Measurement {
 export default function InspectionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const inspection = trpc.operations.getInspection.useQuery({ inspectionId: id });
+  /**
+   * Whether the frozen "What was found" card has been reopened for a revision — see
+   * `canReviseInspection`. Local, not server state: the record stays `completed` throughout, so there
+   * is nothing in `data` this could be derived from, and there does not need to be.
+   */
+  const [revising, setRevising] = useState(false);
 
   // Only a pre-quotation survey — one raised from an inquiry — has requirements to answer. A
   // ticket- or project-side inspection has no inquiry behind it and nothing quoting is gated on.
@@ -171,14 +177,23 @@ export default function InspectionPage({ params }: { params: Promise<{ id: strin
               inquiry has one of these to fill in. */}
           {inquiry.data && <RequirementsPanel inquiry={inquiry.data} />}
 
-          {data.editable ? (
+          {data.editable || (data.canRevise && revising) ? (
             <InspectionForm
               inspectionId={data.id}
               initial={data}
-              onSaved={() => void inspection.refetch()}
+              isRevision={!data.editable}
+              onSaved={() => {
+                setRevising(false);
+                void inspection.refetch();
+              }}
+              onCancel={data.canRevise ? () => setRevising(false) : undefined}
             />
           ) : (
-            <ReadOnlyFindings data={data} />
+            <ReadOnlyFindings
+              data={data}
+              canRevise={data.canRevise}
+              onEdit={() => setRevising(true)}
+            />
           )}
 
           <Card className="p-4">
@@ -285,7 +300,9 @@ function ShareButton({
 function InspectionForm({
   inspectionId,
   initial,
+  isRevision = false,
   onSaved,
+  onCancel,
 }: {
   inspectionId: string;
   initial: {
@@ -302,9 +319,14 @@ function InspectionForm({
     measurements: unknown;
     utilities: { key: string; available: boolean | null }[];
   };
+  /** True when reopening an already-accomplished report — see `canReviseInspection`. Requires a
+   *  reason and records it, rather than saving as a plain, silent edit. */
+  isRevision?: boolean;
   onSaved: () => void;
+  onCancel?: () => void;
 }) {
   const [findings, setFindings] = useState(initial.findings ?? "");
+  const [revisionReason, setRevisionReason] = useState("");
   const [attendees, setAttendees] = useState<Attendee[]>(initial.attendees);
   const [inspectedAt, setInspectedAt] = useState(
     initial.inspectedAt ? new Date(initial.inspectedAt).toISOString().slice(0, 10) : "",
@@ -577,6 +599,27 @@ function InspectionForm({
           </Button>
         </div>
 
+        {/*
+          Only for a revision — a first write-up needs no explanation, but reopening an accomplished
+          report does. Required, same as the scope-change notes above: a reason box nobody has to fill
+          in records nothing.
+        */}
+        {isRevision && (
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3">
+            <Label htmlFor="revision-reason">Reason for this revision</Label>
+            <Textarea
+              id="revision-reason"
+              rows={2}
+              value={revisionReason}
+              onChange={(e) => setRevisionReason(e.target.value)}
+              placeholder="Why this accomplished report is being corrected"
+            />
+            <p className="mt-1 text-xs text-text-muted">
+              Required. This is recorded and printed on the report — not an overwrite.
+            </p>
+          </div>
+        )}
+
         {save.error && <p className="mt-2 text-sm text-danger">{save.error.message}</p>}
         {save.data?.scopeChangeReported && (
           <p className="mt-2 text-sm text-amber-800">
@@ -584,30 +627,37 @@ function InspectionForm({
           </p>
         )}
 
-        <Button
-          className="mt-3"
-          disabled={save.isPending}
-          onClick={() =>
-            save.mutate({
-              inspectionId,
-              inspectedAt: inspectedAt ? new Date(inspectedAt) : null,
-              attendees,
-              findings,
-              accessConstraints,
-              tagNumbers: list(tagNumbers),
-              hazards: list(hazards),
-              permitsRequired: list(permits),
-              measurements: measurements.filter((row) => row.label.trim()),
-              utilitiesAvailable: Object.fromEntries(
-                Object.entries(utilities).map(([key, available]) => [key, { available }]),
-              ),
-              scopeChangeIdentified: scopeChange,
-              scopeChangeNotes: scopeNotes,
-            })
-          }
-        >
-          Save findings
-        </Button>
+        <div className="mt-3 flex gap-2">
+          <Button
+            disabled={save.isPending || (isRevision && !revisionReason.trim())}
+            onClick={() =>
+              save.mutate({
+                inspectionId,
+                inspectedAt: inspectedAt ? new Date(inspectedAt) : null,
+                attendees,
+                findings,
+                accessConstraints,
+                tagNumbers: list(tagNumbers),
+                hazards: list(hazards),
+                permitsRequired: list(permits),
+                measurements: measurements.filter((row) => row.label.trim()),
+                utilitiesAvailable: Object.fromEntries(
+                  Object.entries(utilities).map(([key, available]) => [key, { available }]),
+                ),
+                scopeChangeIdentified: scopeChange,
+                scopeChangeNotes: scopeNotes,
+                ...(isRevision ? { revisionReason: revisionReason.trim() } : {}),
+              })
+            }
+          >
+            {isRevision ? "Save revision" : "Save findings"}
+          </Button>
+          {isRevision && onCancel && (
+            <Button variant="ghost" disabled={save.isPending} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
       </Card>
     </>
   );
@@ -619,8 +669,11 @@ function InspectionForm({
 
 function ReadOnlyFindings({
   data,
+  canRevise,
+  onEdit,
 }: {
   data: {
+    status: string;
     findings: string | null;
     scopeChangeIdentified: boolean;
     scopeChangeNotes: string | null;
@@ -629,10 +682,19 @@ function ReadOnlyFindings({
     tagNumbers: string[];
     accessConstraints: string | null;
   };
+  canRevise: boolean;
+  onEdit: () => void;
 }) {
   return (
     <Card className="p-4">
-      <h2 className="text-sm font-semibold">What was found</h2>
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="text-sm font-semibold">What was found</h2>
+        {canRevise && (
+          <Button variant="secondary" size="sm" onClick={onEdit}>
+            Edit
+          </Button>
+        )}
+      </div>
       {data.scopeChangeIdentified && (
         <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-900">
           <strong>Scope change.</strong> {data.scopeChangeNotes}
@@ -645,9 +707,21 @@ function ReadOnlyFindings({
         <Row label="Permits" value={data.permitsRequired.join(", ") || "—"} />
         <Row label="Access" value={data.accessConstraints || "—"} />
       </dl>
+      {/*
+        §6.1's signature rule, unchanged for `approved`. `completed` used to have no protection at all
+        beyond "not yet approved" — anybody with `ticket.execute` could reopen and silently rewrite it.
+        Asked for by the company on 2026-09-04: it freezes the moment it is accomplished, and the only
+        way back in is the button above, reserved for whoever actually conducted the inspection.
+      */}
       <p className="mt-3 text-xs text-text-muted">
-        This report has been approved, so it is no longer editable. An approved report is a
-        signature — raise a new inspection rather than rewriting it.
+        {data.status === "approved"
+          ? "This report has been approved, so it is no longer editable. An approved report is a " +
+            "signature — raise a new inspection rather than rewriting it."
+          : canRevise
+            ? "This report has been accomplished and is frozen. Press Edit to correct it — you will " +
+              "be asked why, and it will be recorded as a revision, not a silent overwrite."
+            : "This report has been accomplished and is frozen. Only the person who conducted the " +
+              "inspection may revise it."}
       </p>
     </Card>
   );

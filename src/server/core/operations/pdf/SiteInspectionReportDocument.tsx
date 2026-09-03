@@ -65,6 +65,14 @@ export interface SiteInspectionReportPdfProps {
   approvedBy: string | null;
   approvedAt: string | null;
   generatedAt: string;
+
+  /**
+   * Every time this *accomplished* report was reopened and corrected, oldest first — empty for the
+   * common case of a report nobody has ever had to revise. Added 2026-09-04, alongside freezing a
+   * `completed` report against silent edits: the record only unlocks for the person who conducted the
+   * inspection, and doing so requires saying why, printed here rather than left for someone to ask.
+   */
+  revisions: { by: string; at: string; summary: string }[];
 }
 
 const photoStyles = {
@@ -234,6 +242,17 @@ export function SiteInspectionReportDocument(props: SiteInspectionReportPdfProps
             {props.omittedImageCount} attached image{props.omittedImageCount === 1 ? "" : "s"} could
             not be embedded in this document and are available on the record itself.
           </Text>
+        )}
+
+        {props.revisions.length > 0 && (
+          <>
+            <Text style={s.sectionHeading}>Revision history</Text>
+            {props.revisions.map((entry, index) => (
+              <Text key={index} style={[s.value, { marginTop: index === 0 ? 0 : 3 }]}>
+                {entry.at} — {entry.by}: {entry.summary}
+              </Text>
+            ))}
+          </>
         )}
 
         <View style={s.signatureRow} wrap={false}>
