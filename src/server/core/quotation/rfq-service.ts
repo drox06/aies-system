@@ -47,6 +47,23 @@ registerNotificationType({
   defaultChannels: { inApp: true, email: false, digest: false },
 });
 
+/**
+ * §3.2's own policy, made to actually happen: "the Admin Manager (PD) handles supplier price
+ * inquiries." That sentence describes who processes an RFQ — sends it, chases it, records the
+ * response — but nothing told PD one existed until they happened to open the quotation. Asked for by
+ * the company on 2026-09-04: whenever somebody other than EA or KJ raises one, PD is notified and is
+ * the one who processes it from there. EA and KJ are exempt because they are already the two people
+ * every escalation in this codebase resolves *to* — routing their own request to PD would be handing
+ * it downhill.
+ */
+export const RFQ_NEEDS_PROCESSING_NOTIFICATION_TYPE = "supplier_rfq.needs_processing";
+
+registerNotificationType({
+  key: RFQ_NEEDS_PROCESSING_NOTIFICATION_TYPE,
+  label: "A supplier price request needs to be sent",
+  defaultChannels: { inApp: true, email: false, digest: false },
+});
+
 export const RFQ_ENTITY_TYPE = "SupplierQuoteRequest";
 
 /**
@@ -146,6 +163,12 @@ export interface CreateRfqInput {
   dueBy?: Date | null;
   /** Anything to say beyond the line list — tolerances, a site constraint, a deadline. */
   notes?: string | null;
+  /**
+   * Whether whoever is raising this holds the president or vice-president role — computed at the
+   * router from the session, never trusted from the client. Only when this is false does PD get
+   * notified; see `RFQ_NEEDS_PROCESSING_NOTIFICATION_TYPE`.
+   */
+  raisedByEaOrKj?: boolean;
 }
 
 /**
@@ -257,6 +280,33 @@ export async function createSupplierRfqService(actor: ActorMeta, input: CreateRf
 
     return created;
   });
+
+  if (!input.raisedByEaOrKj) {
+    // Best-effort — the RFQ is already raised and real either way; a notification failure must not
+    // roll back the thing it announces.
+    try {
+      const pd = await db.user.findMany({
+        where: {
+          isActive: true,
+          deletedAt: null,
+          roles: { some: { role: { key: "admin_manager" } } },
+        },
+        select: { id: true },
+      });
+      for (const recipient of pd) {
+        await notify({
+          recipientId: recipient.id,
+          type: RFQ_NEEDS_PROCESSING_NOTIFICATION_TYPE,
+          title: `${number} needs to go to ${supplier.name}`,
+          body: `${actor.actorLabel} raised a supplier price request on ${quotation.number}. Send it and record the response when it comes back.`,
+          entityType: "Quotation",
+          entityId: quotation.id,
+        });
+      }
+    } catch {
+      // Deliberately swallowed — see the comment above.
+    }
+  }
 
   return rfq;
 }

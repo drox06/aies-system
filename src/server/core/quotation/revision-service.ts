@@ -127,6 +127,13 @@ export async function reviseQuotationService(
           unitCost: line.unitCost,
           costCurrency: line.costCurrency,
           costFxRate: line.costFxRate,
+          // fxBufferPct was missing here before 2026-09-04 — a line's own FX cushion silently reset
+          // to "inherit the header's" on every revision, the same class of bug freightCostPct/
+          // dutiesTaxesPct/localDeliveryCost would have introduced if added anywhere but here.
+          fxBufferPct: line.fxBufferPct,
+          freightCostPct: line.freightCostPct,
+          dutiesTaxesPct: line.dutiesTaxesPct,
+          localDeliveryCost: line.localDeliveryCost,
           markupPct: line.markupPct,
           unitPrice: line.unitPrice,
           lineDiscountPct: line.lineDiscountPct,

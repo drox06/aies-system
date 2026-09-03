@@ -89,6 +89,9 @@ const lineInput = z.object({
   costFxRate: z.string().optional(),
   /** Per-line FX cushion; null means the quotation's applies. */
   fxBufferPct: z.string().nullish(),
+  freightCostPct: z.string().nullish(),
+  dutiesTaxesPct: z.string().nullish(),
+  localDeliveryCost: z.string().nullish(),
   markupPct: z.string().nullish(),
   unitPrice: z.string().nullish(),
   lineDiscountPct: z.string().nullish(),
@@ -318,7 +321,16 @@ export const quotationRouter = router({
         notes: z.string().nullish(),
       }),
     )
-    .mutation(({ ctx, input }) => createSupplierRfqsService(actorMeta(ctx), input)),
+    .mutation(({ ctx, input }) =>
+      createSupplierRfqsService(actorMeta(ctx), {
+        ...input,
+        // Computed from the session, never accepted from the client — a caller asserting their own
+        // exemption would mean PD never hears about a request that needed them.
+        raisedByEaOrKj: ctx.user.roleKeys.some(
+          (key) => key === "president" || key === "vice_president",
+        ),
+      }),
+    ),
 
   /** §3.2's "mark as sent", which starts the response clock. */
   markRfqSent: p("supplier_rfq.manage")

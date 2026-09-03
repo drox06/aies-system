@@ -100,6 +100,11 @@ afterAll(async () => {
   await db.supplierQuoteRequest.deleteMany({ where: { id: { in: rfqIds } } });
   await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
   await db.notification.deleteMany({ where: { recipientId: PD } });
+  // The PD-notification tests target the real seeded PD (admin_manager), not the fake `PD` actor
+  // id above — cleaned up by entity rather than recipient, since the recipient is a real account.
+  await db.notification.deleteMany({
+    where: { type: "supplier_rfq.needs_processing", entityId: { in: quotationIds } },
+  });
   await db.auditLog.deleteMany({
     where: { entityId: { in: [...quotationIds, ...accountIds, ...rfqIds] } },
   });
@@ -195,6 +200,72 @@ describe("raising a request", () => {
         sourceLineNos: [99],
       }),
     ).rejects.toThrow(/None of those line numbers/);
+  }, 60_000);
+});
+
+/**
+ * 2026-09-04: "if a user other than EA and KJ clicks 'Request for supplier pricing' PD is notified
+ * and he is the one to process the request for supplier pricing." §3.2's own policy — PD handles
+ * supplier price inquiries — made to actually notify PD rather than depending on them happening to
+ * open the quotation. `raisedByEaOrKj` is computed at the router from the session; these tests call
+ * the service directly, which is why it is passed by hand.
+ */
+describe("PD is told when somebody else raises a request", () => {
+  it("notifies every admin_manager when raised by neither EA nor KJ", async () => {
+    const supplier = await makePrincipal();
+    const quotation = await makeQuotation();
+
+    const pd = await db.user.findFirstOrThrow({
+      where: { roles: { some: { role: { key: "admin_manager" } } }, isActive: true },
+      select: { id: true },
+    });
+
+    const rfq = await createSupplierRfqService(actor, {
+      quotationId: quotation.id,
+      supplierId: supplier.id,
+      raisedByEaOrKj: false,
+    });
+    rfqIds.push(rfq.id);
+
+    // Scoped to this test's own quotation — PD is a real, shared account, and every other RFQ
+    // raised elsewhere in this file also notifies them (none of those calls set `raisedByEaOrKj`),
+    // so a query keyed only on recipient and type would read whichever test wrote last.
+    const notifications = await db.notification.findMany({
+      where: {
+        recipientId: pd.id,
+        type: "supplier_rfq.needs_processing",
+        entityId: quotation.id,
+      },
+    });
+    expect(notifications.length).toBeGreaterThan(0);
+    expect(notifications[0]!.entityType).toBe("Quotation");
+  }, 60_000);
+
+  it("does not notify PD when EA or KJ raises it themselves", async () => {
+    const supplier = await makePrincipal();
+    const quotation = await makeQuotation();
+
+    const pd = await db.user.findFirstOrThrow({
+      where: { roles: { some: { role: { key: "admin_manager" } } }, isActive: true },
+      select: { id: true },
+    });
+
+    const rfq = await createSupplierRfqService(actor, {
+      quotationId: quotation.id,
+      supplierId: supplier.id,
+      raisedByEaOrKj: true,
+    });
+    rfqIds.push(rfq.id);
+
+    // Scoped to this test's own quotation, for the same reason as above.
+    const after = await db.notification.count({
+      where: {
+        recipientId: pd.id,
+        type: "supplier_rfq.needs_processing",
+        entityId: quotation.id,
+      },
+    });
+    expect(after).toBe(0);
   }, 60_000);
 });
 

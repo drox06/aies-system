@@ -6168,3 +6168,70 @@ confirm prompt naming them, clicked through, watched the request land as a real 
 decided it, and watched the inquiry's own activity feed record "Approved skipping the requirements
 gate" immediately followed by "evaluating → quoting" — the same record, the same click, no manual
 follow-up. `tsc --noEmit` clean; `eslint` clean on every changed file.
+
+## #173 — Landed-cost columns, discount on the PDF, PD told about supplier requests, panel reordered
+
+**2026-09-04. Built** across four instructions on the quotation screen: move "Supplier pricing" above
+"Lines"; give the lines table Group, Description, Qty, Unit Cost, Currency, FX Rate, FX Buff %,
+Freight Cost %, Duties and Taxes%, Local Delivery Cost, Mark up %, Unit Price, Disc %, Total, Opt.;
+notify PD when somebody other than EA or KJ requests supplier pricing, since he is the one who
+processes it; and show the discount applied on the generated PDF.
+
+**The panel reorder was a straight swap** — `RfqPanel` now renders before `LineEditor` in
+`quotations/[id]/page.tsx`, on the reasoning that a line often waits on a supplier's price before it
+can be filled in at all, so the request that produces the price reads before the table that consumes
+it.
+
+**"FX Rate", "FX buff %", "Freight cost %", "Duties and taxes %" and "Local delivery cost" are three
+genuinely new fields, not a relabel.** `freightCostPct`, `dutiesTaxesPct` (both a percentage of the
+converted, buffered cost — additive with each other, not compounding, the same way `fxBufferPct` is a
+single multiplier rather than a chain) and `localDeliveryCost` (a flat per-unit amount, already in the
+quotation's own currency — not run through `costFxRate`, since a delivery run inside the Philippines is
+not an import cost with an exchange rate) landed on `QuotationLine` via a new, additive migration and
+flow through the exact order §4 already established: FX conversion and buffer, then these three, *then*
+markup — margin is markup on the fully landed cost, never on a partial figure with cost layers still to
+come. `landedUnitCost` (previously only used by the internal costing sheet's own copy of this formula)
+is now the single implementation; `computeCosting`'s inline duplicate was retired in favor of calling
+it, rather than keeping two formulas that would have needed to grow in lockstep forever.
+
+**Found in passing, while adding a fourth field everywhere `fxBufferPct` already had to be copied**:
+three existing call sites — revising a quotation, duplicating one, and the §8 what-if calculator — had
+never carried a line's own `fxBufferPct` override in the first place, silently falling back to the
+header's figure. All three now carry `fxBufferPct` alongside the three new fields, and the internal
+costing sheet's own landed-cost display (`buildCostingPdfProps`) picks up the line's own buffer too,
+not just the header's — the same bug, one call site over. (`QuoteTemplateLine`, a genuinely narrower,
+deliberate model that already omits several `QuotationLine` fields including `fxBufferPct` itself, was
+left alone — extending it is a separate decision nobody asked for here.)
+
+**PD's notification reuses §3.2's own policy rather than inventing a new one**: "the Admin Manager (PD)
+handles supplier price inquiries" was already the stated rule, just never enforced by anything that
+told PD a request existed. `createRfq` now computes `raisedByEaOrKj` at the router from the session's
+role keys — never trusted from the client — and `createSupplierRfqService` notifies every
+`admin_manager` only when it is false. EA and KJ are exempt because routing *their* request to PD would
+be handing it downhill: they are the two people every other escalation in this codebase already
+resolves to.
+
+**The discount gap was real, and it was not the one already fixed.** The header discount already had
+its own row in the PDF's totals block. A line negotiated down through its own `Disc %` had the
+reduction folded silently into `unitPrice`/`lineTotal`, with nothing on the document saying it was ever
+anything else. `CustomerLine` gained a `lineDiscountPct` (e.g. "10%", null when the line carries none),
+printed as a small note under the description — the same slot lead time and manufacturer/model already
+use — rather than a new table column, since the customer-facing table has no room to spare.
+
+**Verified**: seven new `computeCosting` cases pin the landed-cost formula by hand — freight alone,
+duties alone, the two summed rather than compounded, local delivery added flat, local delivery skipping
+the FX rate entirely, and the fully landed figure feeding markup correctly. Two new `rfq-flow.test.ts`
+cases prove PD is notified when raised by neither EA nor KJ and is not when `raisedByEaOrKj` is true,
+each scoped to its own quotation's `entityId` since PD is a real, shared account other tests in the
+same file also now notify. A new `pdf.test.ts` case confirms a line's own discount prints and a line
+with none prints nothing. The pre-existing "never carries a cost or margin figure" scan and the
+field-gating test (which iterates `QUOTATION_LINE_COST_FIELDS`, now including the three new fields,
+automatically) both still pass unmodified. Live end to end, as a user holding `finance.view_cost`: a
+line costed at ₱1,000 with 10% freight, 5% duties, ₱50 local delivery, 20% markup and a 10% line
+discount landed at exactly ₱2,592.00 through the real save-and-reload cycle — matching the hand-worked
+figure to the centavo — and the table header read exactly the order asked for, "Supplier pricing"
+sitting above "Lines". 96 tests pass across `costing.test.ts` (32), `rfq-flow.test.ts` (28),
+`rfq-carry.test.ts` (7), `pdf.test.ts` (8), `quotation-flow.test.ts` (12) and `terms.test.ts` (9,
+unaffected but run to confirm) — and, since every line-copy site touched (revision, duplicate,
+template, the what-if calculator) is shared machinery, the full `quotation/` suite: 227 tests across
+all 18 files, unmodified beyond these six, all passing. `tsc --noEmit` and `eslint` clean.

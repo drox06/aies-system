@@ -114,6 +114,9 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
       costCurrency?: string;
       costFxRate?: string;
       fxBufferPct?: string | null;
+      freightCostPct?: string | null;
+      dutiesTaxesPct?: string | null;
+      localDeliveryCost?: string | null;
       markupPct?: string | null;
       unitPrice: string;
       lineDiscountPct: string | null;
@@ -133,6 +136,9 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     costCurrency: line.costCurrency ?? "PHP",
     fxBufferPct: line.fxBufferPct ?? "",
     costFxRate: line.costFxRate ?? "1",
+    freightCostPct: line.freightCostPct ?? "",
+    dutiesTaxesPct: line.dutiesTaxesPct ?? "",
+    localDeliveryCost: line.localDeliveryCost ?? "",
     markupPct: line.markupPct ?? "",
     unitPrice: line.unitPrice,
     lineDiscountPct: line.lineDiscountPct ?? "",
@@ -276,6 +282,21 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             )}
           </Card>
 
+          {/* Above Lines on the company's instruction (2026-09-04): a line often waits on a
+              supplier's price before it can be filled in at all, so the request that produces that
+              price reads before the table that consumes it. */}
+          <RfqPanel
+            quotationId={data.id}
+            quotationCurrency={data.currency}
+            editable={editable}
+            canSeeCost={canSeeCost}
+            lines={data.lines.map((line, index) => ({
+              lineNo: index + 1,
+              description: line.description,
+            }))}
+            onApplied={refresh}
+          />
+
           <div onChangeCapture={() => setDirty(true)}>
             <LineEditor
               /**
@@ -309,18 +330,6 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               onSaved={refresh}
             />
           </div>
-
-          <RfqPanel
-            quotationId={data.id}
-            quotationCurrency={data.currency}
-            editable={editable}
-            canSeeCost={canSeeCost}
-            lines={data.lines.map((line, index) => ({
-              lineNo: index + 1,
-              description: line.description,
-            }))}
-            onApplied={refresh}
-          />
 
           <TermsPanel
             quotationId={data.id}

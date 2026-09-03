@@ -33,6 +33,12 @@ export interface DraftLine {
   costFxRate: string;
   /** Blank means "use the quotation's". A typed 0 is a real answer and is kept. */
   fxBufferPct: string;
+  /** A percentage of the converted, buffered cost. Blank means none. */
+  freightCostPct: string;
+  /** A percentage of the converted, buffered cost. Blank means none. */
+  dutiesTaxesPct: string;
+  /** A flat per-unit amount, already in the quotation's own currency. Blank means none. */
+  localDeliveryCost: string;
   markupPct: string;
   unitPrice: string;
   lineDiscountPct: string;
@@ -56,6 +62,9 @@ const BLANK_LINE: DraftLine = {
   costCurrency: "PHP",
   costFxRate: "1",
   fxBufferPct: "",
+  freightCostPct: "",
+  dutiesTaxesPct: "",
+  localDeliveryCost: "",
   markupPct: "",
   unitPrice: "",
   lineDiscountPct: "",
@@ -129,6 +138,9 @@ export function LineEditor({
           costCurrency: line.costCurrency || "PHP",
           costFxRate: line.costFxRate || "1",
           fxBufferPct: line.fxBufferPct ?? "",
+          freightCostPct: line.freightCostPct === "" ? null : line.freightCostPct,
+          dutiesTaxesPct: line.dutiesTaxesPct === "" ? null : line.dutiesTaxesPct,
+          localDeliveryCost: line.localDeliveryCost === "" ? null : line.localDeliveryCost,
           markupPct: line.markupPct === "" ? null : line.markupPct,
           unitPrice: line.unitPrice || "0",
           lineDiscountPct: line.lineDiscountPct === "" ? null : line.lineDiscountPct,
@@ -165,12 +177,36 @@ export function LineEditor({
                   className="py-1 text-center font-medium"
                   title="What one unit of the cost currency is worth in the quote's currency today"
                 >
-                  Rate
+                  FX Rate
                 </th>
               )}
               {canSeeCost && (
                 <th className="py-1 text-center font-medium" title="Blank uses the quotation's">
                   FX buff %
+                </th>
+              )}
+              {canSeeCost && (
+                <th
+                  className="py-1 text-center font-medium"
+                  title="Percentage of the converted, buffered cost"
+                >
+                  Freight cost %
+                </th>
+              )}
+              {canSeeCost && (
+                <th
+                  className="py-1 text-center font-medium"
+                  title="Percentage of the converted, buffered cost"
+                >
+                  Duties and taxes %
+                </th>
+              )}
+              {canSeeCost && (
+                <th
+                  className="py-1 text-center font-medium"
+                  title="A flat per-unit amount, already in the quotation's own currency"
+                >
+                  Local delivery cost
                 </th>
               )}
               {canSeeCost && <th className="py-1 text-center font-medium">Markup %</th>}
@@ -297,6 +333,45 @@ export function LineEditor({
                         value={line.fxBufferPct}
                         disabled={!editable}
                         onChange={(e) => update(index, { fxBufferPct: e.target.value })}
+                      />
+                    </td>
+                  )}
+                  {canSeeCost && (
+                    <td className="py-1 pr-2">
+                      <Input
+                        aria-label={`Line ${index + 1} freight cost`}
+                        className="w-20 text-right"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={line.freightCostPct}
+                        disabled={!editable}
+                        onChange={(e) => update(index, { freightCostPct: e.target.value })}
+                      />
+                    </td>
+                  )}
+                  {canSeeCost && (
+                    <td className="py-1 pr-2">
+                      <Input
+                        aria-label={`Line ${index + 1} duties and taxes`}
+                        className="w-20 text-right"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={line.dutiesTaxesPct}
+                        disabled={!editable}
+                        onChange={(e) => update(index, { dutiesTaxesPct: e.target.value })}
+                      />
+                    </td>
+                  )}
+                  {canSeeCost && (
+                    <td className="py-1 pr-2">
+                      <Input
+                        aria-label={`Line ${index + 1} local delivery cost`}
+                        className="w-24 text-right"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={line.localDeliveryCost}
+                        disabled={!editable}
+                        onChange={(e) => update(index, { localDeliveryCost: e.target.value })}
                       />
                     </td>
                   )}
@@ -468,6 +543,10 @@ export function LineEditor({
                             // line deliberately carrying no cushion is an answer, and sending null
                             // would silently reapply a cushion for risk it does not have.
                             fxBufferPct: line.fxBufferPct === "" ? null : line.fxBufferPct,
+                            freightCostPct: line.freightCostPct === "" ? null : line.freightCostPct,
+                            dutiesTaxesPct: line.dutiesTaxesPct === "" ? null : line.dutiesTaxesPct,
+                            localDeliveryCost:
+                              line.localDeliveryCost === "" ? null : line.localDeliveryCost,
                             markupPct: line.markupPct === "" ? null : line.markupPct,
                           }
                         : {}),

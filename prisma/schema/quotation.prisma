@@ -242,6 +242,17 @@ model QuotationLine {
   /// that does not exist. Raised by the company on 2026-08-18.
   fxBufferPct Decimal? @db.Decimal(7, 4)
 
+  /// Landed-cost add-ons, asked for by the company on 2026-09-04 as their own columns rather than
+  /// folded into `unitCost` by hand: a percentage of the converted, buffered cost for freight and for
+  /// duties/taxes, and a flat per-unit amount — already in the quotation's own currency, not the
+  /// cost currency, since a local delivery run is not an import cost with an exchange rate — for
+  /// local delivery. All three apply before `markupPct`, the same order `fxBufferPct` already does:
+  /// margin is markup on the fully landed cost, not on the supplier's raw figure. See
+  /// `landedUnitCost` in costing.ts for the exact order.
+  freightCostPct    Decimal? @db.Decimal(7, 4)
+  dutiesTaxesPct    Decimal? @db.Decimal(7, 4)
+  localDeliveryCost Decimal? @db.Decimal(14, 2)
+
   // §4 supports both pricing modes: markup on cost, or a directly entered price with implied
   // margin. `markupPct` is null when the price was typed rather than derived — which is itself
   // information, so it is not defaulted to zero.

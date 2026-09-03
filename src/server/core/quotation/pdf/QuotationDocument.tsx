@@ -37,6 +37,15 @@ export interface CustomerLine {
   lineTotal: string;
   leadTimeDays: number | null;
   isOptional: boolean;
+  /**
+   * §8's line-level negotiation, e.g. "10%" — null when this line carries none. Distinct from the
+   * header `discount` in `totals`: that one prints as its own subtotal-to-net step, because reducing
+   * every line amount *and* printing a discount row would show the same reduction twice (see the
+   * totals block below). A line discount has already been folded into `unitPrice`/`lineTotal` by the
+   * time it reaches this document, so without this the customer sees a lower price with no record
+   * that it was ever anything else — asked for by the company on 2026-09-04.
+   */
+  lineDiscountPct: string | null;
 }
 
 export interface CustomerQuotationPdfProps {
@@ -323,6 +332,9 @@ function LineTable({ lines }: { lines: CustomerLine[] }) {
                 )}
                 {line.leadTimeDays !== null && (
                   <Text style={[s.small, s.muted]}>Lead time {line.leadTimeDays} days</Text>
+                )}
+                {line.lineDiscountPct && (
+                  <Text style={[s.small, s.muted]}>{line.lineDiscountPct} discount applied</Text>
                 )}
               </View>
               <Text style={[s.right, { width: COLS.qty }]}>{line.quantity}</Text>

@@ -112,13 +112,35 @@ export const MARGIN_FLOOR_PCT = 15;
  * idempotent by construction: feeding a stored line back in produces the same numbers, because the
  * inputs are the inputs rather than a previous output.
  */
+/**
+ * Freight, duties/taxes and local delivery — asked for as their own line-level fields on
+ * 2026-09-04, on top of the FX conversion and buffer above. All three apply before markup: margin
+ * is markup on the fully landed cost, not on the supplier's converted figure with freight still to
+ * come.
+ *
+ * Freight and duties are each a percentage of the **converted, buffered** cost — not compounded on
+ * each other — so a typed "10%" always means ten per cent of that one base figure, the same way
+ * `fxBufferPct` is a single multiplier rather than a chain. Local delivery is a flat amount, already
+ * in the quotation's own currency: a delivery run inside the Philippines is not an import cost with
+ * an exchange rate, so it is added after conversion rather than run through `costFxRate`.
+ */
+export interface LandedCostAddOns {
+  freightCostPct?: string | number | null;
+  dutiesTaxesPct?: string | number | null;
+  localDeliveryCost?: string | number | null;
+}
+
 export function landedUnitCost(
   unitCost: string | number,
   costFxRate: string | number,
   fxBufferPct: string | number | null | undefined,
+  addOns: LandedCostAddOns = {},
 ): Centavos {
   const landedFx = rate(costFxRate) * (1 + pct(fxBufferPct) / 100);
-  return roundHalfUp(toCentavos(unitCost) * landedFx);
+  const converted = toCentavos(unitCost) * landedFx;
+  const surchargePct = pct(addOns.freightCostPct) + pct(addOns.dutiesTaxesPct);
+  const withSurcharges = converted * (1 + surchargePct / 100);
+  return roundHalfUp(withSurcharges + toCentavos(addOns.localDeliveryCost));
 }
 
 export const QUOTE_CURRENCIES = ["PHP", "USD", "EUR"] as const;
@@ -145,6 +167,12 @@ export interface CostingLineInput {
    * Zero is a real answer, not an absence — a peso line deliberately carrying no cushion.
    */
   fxBufferPct?: string | number | null;
+  /** This line's share of freight, as a percentage of the converted, buffered cost. */
+  freightCostPct?: string | number | null;
+  /** This line's share of duties and taxes, as a percentage of the converted, buffered cost. */
+  dutiesTaxesPct?: string | number | null;
+  /** A flat per-unit amount, already in the quotation's own currency — not run through `costFxRate`. */
+  localDeliveryCost?: string | number | null;
   /**
    * Markup on landed cost, as a percentage. When null the price was typed directly and the margin
    * is implied — §4 supports both because "engineers think in price, finance thinks in margin".
@@ -260,9 +288,12 @@ export function computeCosting(input: CostingInput): CostingResult {
     // answer, and `||` would throw it away and reapply the header's.
     const lineBuffer =
       line.fxBufferPct === null || line.fxBufferPct === undefined ? buffer : pct(line.fxBufferPct);
-    const landedFx = rate(line.costFxRate) * (1 + lineBuffer / 100);
     const unitCost = assertRepresentable(
-      roundHalfUp(toCentavos(line.unitCost) * landedFx),
+      landedUnitCost(line.unitCost, line.costFxRate ?? 1, lineBuffer, {
+        freightCostPct: line.freightCostPct,
+        dutiesTaxesPct: line.dutiesTaxesPct,
+        localDeliveryCost: line.localDeliveryCost,
+      }),
       "unit cost",
     );
 

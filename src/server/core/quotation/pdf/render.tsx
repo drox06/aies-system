@@ -110,6 +110,10 @@ export async function buildCustomerPdfProps(
     lineTotal: formatMoneyCode(line.lineTotal.toString(), currency),
     leadTimeDays: line.leadTimeDays,
     isOptional: line.isOptional,
+    lineDiscountPct:
+      line.lineDiscountPct && Number(line.lineDiscountPct) > 0
+        ? `${Number(line.lineDiscountPct).toFixed(1).replace(/\.0$/, "")}%`
+        : null,
   }));
 
   const discount = quotation.discountAmount.toString();
@@ -216,7 +220,16 @@ export async function buildCostingPdfProps(
       // column is the cost to AIES in the quotation's currency (docs/DECISIONS.md #32).
       unitCost: formatMoneyCode(
         fromCentavos(
-          landedUnitCost(line.unitCost.toString(), line.costFxRate.toString(), fxBufferPct),
+          landedUnitCost(
+            line.unitCost.toString(),
+            line.costFxRate.toString(),
+            line.fxBufferPct?.toString() ?? fxBufferPct,
+            {
+              freightCostPct: line.freightCostPct?.toString(),
+              dutiesTaxesPct: line.dutiesTaxesPct?.toString(),
+              localDeliveryCost: line.localDeliveryCost?.toString(),
+            },
+          ),
         ),
         currency,
       ),

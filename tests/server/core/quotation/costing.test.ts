@@ -437,3 +437,82 @@ describe("the FX buffer, per line", () => {
     expect(result.lines[1]!.unitCost).toBe(100_000);
   });
 });
+
+/**
+ * 2026-09-04: three landed-cost add-ons asked for as their own columns — freight and duties/taxes
+ * as a percentage of the converted, buffered cost, and local delivery as a flat per-unit amount
+ * already in the quotation's own currency. All three apply before markup, same order as the FX
+ * buffer above: margin is markup on the fully landed cost.
+ */
+describe("landed-cost add-ons: freight, duties and local delivery", () => {
+  const line = (over: Record<string, unknown> = {}) => ({
+    quantity: "1",
+    unitCost: "1000",
+    costFxRate: "1",
+    markupPct: "0",
+    ...over,
+  });
+
+  it("applies freight as a percentage of the converted cost", () => {
+    const result = computeCosting({ lines: [line({ freightCostPct: "10" })] });
+    expect(result.lines[0]!.unitCost).toBe(110_000); // 1000 × 1.10
+  });
+
+  it("applies duties and taxes the same way", () => {
+    const result = computeCosting({ lines: [line({ dutiesTaxesPct: "5" })] });
+    expect(result.lines[0]!.unitCost).toBe(105_000); // 1000 × 1.05
+  });
+
+  it("adds freight and duties rather than compounding them", () => {
+    // 15% combined, not 10% then 5% on top of that — 1150, not 1155.
+    const result = computeCosting({
+      lines: [line({ freightCostPct: "10", dutiesTaxesPct: "5" })],
+    });
+    expect(result.lines[0]!.unitCost).toBe(115_000);
+  });
+
+  it("adds local delivery as a flat amount after the percentages", () => {
+    const result = computeCosting({
+      lines: [line({ freightCostPct: "10", localDeliveryCost: "50" })],
+    });
+    expect(result.lines[0]!.unitCost).toBe(115_000); // (1000 × 1.10) + 50
+  });
+
+  it("does not run local delivery through the FX rate — it is already in the quote's currency", () => {
+    // §4's own worked example ($100 at 58.5 with a 3% buffer = ₱6,025.50) plus a flat ₱20 delivery.
+    const result = computeCosting({
+      lines: [
+        {
+          quantity: "1",
+          unitCost: "100.00",
+          costFxRate: "58.5",
+          fxBufferPct: "3",
+          localDeliveryCost: "20",
+          markupPct: "0",
+        },
+      ],
+    });
+    expect(result.lines[0]!.unitCost).toBe(604_550); // 602,550 + 2,000
+  });
+
+  it("feeds the fully landed cost into markup, not the supplier's raw figure", () => {
+    const result = computeCosting({
+      lines: [
+        {
+          quantity: "1",
+          unitCost: "1000.00",
+          costFxRate: "1",
+          freightCostPct: "10",
+          dutiesTaxesPct: "5",
+          localDeliveryCost: "25",
+          markupPct: "20",
+        },
+      ],
+    });
+    // Landed: (1000 × 1.15) + 25 = 1175. Marked up 20% = 1410.
+    expect(result.lines[0]!.unitCost).toBe(117_500);
+    expect(result.lines[0]!.unitPrice).toBe(141_000);
+    expect(result.lines[0]!.lineMargin).toBe(23_500);
+    expect(result.lines[0]!.marginPct).toBeCloseTo(16.6667, 4);
+  });
+});

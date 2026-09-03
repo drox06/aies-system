@@ -260,6 +260,14 @@ export async function whatIfService(input: {
       quantity: line.quantity.toString(),
       unitCost: line.unitCost.toString(),
       costFxRate: line.costFxRate.toString(),
+      // The line's own overrides, not just the header's — omitting them here (as this calculator
+      // did before 2026-09-04) means "what if" disagrees with what a real save would produce for
+      // any line with its own FX cushion, and would now also disagree for one with freight, duties
+      // or local delivery on it.
+      fxBufferPct: line.fxBufferPct?.toString() ?? null,
+      freightCostPct: line.freightCostPct?.toString() ?? null,
+      dutiesTaxesPct: line.dutiesTaxesPct?.toString() ?? null,
+      localDeliveryCost: line.localDeliveryCost?.toString() ?? null,
       markupPct: line.markupPct?.toString() ?? null,
       unitPrice: line.unitPrice.toString(),
       lineDiscountPct: line.lineDiscountPct?.toString() ?? null,
