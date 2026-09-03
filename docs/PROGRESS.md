@@ -1,8 +1,15 @@
 # Build Progress
 
-Last updated: 2026-08-09
-Current module: 02 — Quotation. Module 01 is COMPLETE and tagged `module-01-complete`.
-Status: in progress. Module 00 is COMPLETE and tagged `module-00-complete`.
+Last updated: 2026-09-04
+Current module: no single one. Modules 00–04 are complete and tagged (`module-00-complete`,
+`module-01-complete`, `module-02-complete`, `module-04-complete`; module 03 is complete in practice
+per its own session notes but was never separately tagged), module 05 is feature-complete and
+awaiting its review gate, and module 06 is feature-complete. Modules 07–10 are not started. Since
+module 06 shipped (2026-08-21) the work has been the company's walkthrough against real use
+(docs/DECISIONS.md #149–#173) — findings and fixes that reopened modules 01, 02, 04 and 06 in turn,
+rather than advancing to 07.
+Status: in progress — walkthrough and fix pass across already-shipped modules, not new-module
+construction.
 
 ## Done
 - [x] Spec pack organized into repo layout (Spec.md, docs/, specs/, brand/)
@@ -3591,6 +3598,259 @@ attachments, which §3 routes through module 07's DMS.
 
 **Next concrete step:** module 07 — the NAS-backed document management system.
 
+## The walkthrough, resumed — 2026-08-31 to 2026-09-04
+
+Ten days after module 06 shipped, the company came back — first with a day of findings and role
+decisions logged against a separate future rebuild rather than against this codebase, then with ten
+days of real use that reopened CRM, Operations and Quotation in turn. None of this is module 07;
+module 07 has not started. docs/DECISIONS.md #149–#173.
+
+### 2026-08-31 — a day of findings and decisions, logged for a separate rebuild, not built here
+
+`aies-system` was deliberately frozen for the day — nothing below changed code.
+
+**Site photographs are HEIC, with no web derivative, and nobody was told.** DJ uploaded seven iPhone
+photos to a site inspection; all seven stored undisplayable, and he silently deleted and re-uploaded
+them converted elsewhere, unreported. The decision: convert HEIC to JPEG **in the browser** (no
+server-side HEIF dependency to carry forever) and resize to roughly 2,000px on the long edge while
+converting — a converted JPEG is *larger* than its HEIC source unresized, so resizing is the point,
+not a bonus — carrying EXIF capture time across deliberately, since a site photo's timestamp is part
+of what makes it evidence. **Decided, not built** — it belongs to "the simplified rebuild," a
+separate track from this codebase, frozen for the walkthrough. docs/DECISIONS.md #149.
+
+**Five findings from walking one real ticket (AIESTKT-260001) from generated through to a collected
+payment, then undoing the billing step.** Two real bugs, one structural gap worth a rebuild decision,
+two gates confirmed working as designed. **Findings only, nothing built.** docs/DECISIONS.md #150:
+1. A delivery ticket reached the QA/T&C lane and had its correct `completed` status silently
+   overwritten to `tc` by a QA approval — nothing checks a ticket's `type` before a QA write, though
+   module 04 §2 is explicit that a delivery ticket never enters QA/T&C. Corrected by hand on the live
+   record; **the control itself is still missing.**
+2. A sales order can be raised carrying no payment term, and nothing catches that until billing
+   refuses cleanly much later — the refusal is correct, but by then the missing term reads as a
+   mystery rather than a traceable cause. Open question for the rebuild: should an order be raisable
+   at all with no term, given nothing downstream can bill it either way.
+3. Every billing trigger except `on_order` is lost for good if it fires before the schedule exists —
+   only `on_order` is special-cased to catch up at generation time. A late payment term on any order
+   can silently drop a milestone's billing with nothing on screen showing it happened.
+4. `cancelStatementService` correctly refused to cancel a statement with money already against it —
+   the gate working exactly as designed.
+5. A cleared, invoiced payment cannot be deleted (`ServiceInvoice.paymentId` is a required foreign
+   key) — a hard schema constraint, not a bug. No `voidPayment` exists anywhere in the finance module;
+   the only route today is cancelling the invoice and leaving the payment on record, unallocated. Open
+   question for the rebuild: is "a payment, once invoiced, is only ever offset by a credit note" the
+   permanent stance — the credit-note flow it would depend on does not exist yet either.
+
+**New duties and responsibilities, by role, decided by EA for the rebuild.** Quoting stops being
+gated by role: KJ, DJ, PD and EM all gain full quotation authorship, withholding only
+`quotation.approve`, which stays KJ/EA-only everywhere. PD's title becomes Admin Manager **and
+Purchaser**, gaining supplier accreditation and partial finance (AR, billing statements, recording
+payments, paying suppliers) that today sits with the vice-president only. DJ gains full quotation
+authorship — the single largest grant in the table, an operations manager gaining authorship of the
+document that starts the sales side. **Decided, not yet applied to the live permission set.**
+docs/DECISIONS.md #151.
+
+### 2026-09-01/02 — CRM: addresses, a plant contact built inline, and Principals/Suppliers merged
+
+Building resumed directly against the live app the next day; #149–#151 above stayed rebuild-only.
+
+- [x] **Customer and plant address fields, finally reachable.** `CustomerAccount.billingAddress` and
+      `Site.address` had been read by three PDF renderers (quotation, finance, supplier PO) since
+      modules 01/02 shipped; no form had ever had a field for either. Added a plain text input to
+      `AccountDialog` and `SiteForm`. docs/DECISIONS.md #152, 2026-09-01.
+- [x] **A plant's main contact became an inline "add a contact for this plant" form**, replacing a
+      dropdown over the account's existing contact list, at the company's explicit "rather than, not
+      in addition to." A brand-new plant has no id for a contact to belong to yet, so saving one now
+      runs three calls in sequence (create plant → create contact → attach as main contact) — accepted
+      rather than engineered around. Editing a plant that already has a main contact prefills all five
+      fields. docs/DECISIONS.md #152.
+- [x] **Calling-card photo upload on `Contact`** (`callingCardFileId`, migration
+      `20260901104625_contact_calling_card_file`), the same `FileObject`-id-not-foreign-key shape
+      every other single-file reference in the platform already uses. docs/DECISIONS.md #152. Gained a
+      camera option the next day — `FileDropzone`'s new opt-in `enableCamera` prop, "Take a photo"
+      above the existing dropzone — wired only to the two calling-card upload sites, since `capture`
+      means nothing for the app's other five upload sites (agreements, price lists, site photos,
+      contact photos, accreditation documents), all of which take a document rather than a snapshot.
+      docs/DECISIONS.md #159, 2026-09-01/02.
+- [x] **The Principals/Suppliers bug closed: a supplier tagged "principal" now actually lands on the
+      Principals table.** The old `/crm/principals` page read only the §5c courting pipeline and never
+      `Supplier` at all, so ticking "this is a principal" on the supplier form had nowhere to show up.
+      Fixed definitionally, not with a new join: the Principals table on the new combined `/suppliers`
+      screen **is** `Supplier.isPrincipal = true`, split client-side from the Suppliers table below it;
+      `/crm/principals` now redirects there. Principal banking details (bank name, SWIFT code, bank
+      address, account number), head-office/plant address (in place of the old bare `country` field),
+      and matching supplier-side TIN/address/banking fields added in the same change. docs/DECISIONS.md
+      #158, 2026-09-01.
+- [x] **A live-tested stale-cache bug caught in the same pass**: `SupplierPanel` stays mounted under
+      `SupplierDialog` while editing, and the page's `onSaved` only refetched the list, never the
+      panel's own query — so a freshly saved address read back as "—" until the page was reloaded.
+      Fixed by also invalidating `getSupplier` in `onSaved`. docs/DECISIONS.md #158.
+- [x] The pipeline's "Show prospect pipeline" toggle switched from ghost to the same primary blue as
+      "Add principal"/"Add supplier" beside it, at the company's request. docs/DECISIONS.md #159.
+
+### 2026-09-01/02 — Collaboration workspace, reopened after "feature-complete"
+
+Module 06 shipped feature-complete 2026-08-21 (above); every item below is a fix or extension found
+by using it for real, not new module-06 scope.
+
+- [x] **Urgent tasks now actually bypass quiet hours**, closing finding #1 of the 21 August
+      walkthrough — open since then, reproduced twice more against EA's own test tasks tonight.
+      `passesQuietHours` and `notify()` had always supported it; `task-service.ts`'s `tellAssignee()`
+      — the function both task creation and reassignment notify through — never read the task's own
+      `priority`, so `urgent` was always unset regardless of the task. One field threaded through both
+      call sites. docs/DECISIONS.md #153, 2026-09-01.
+- [x] **Web Push, so an urgent notification actually reaches a device that isn't looking at the app.**
+      `PushSubscription` (one row per device, keyed on `endpoint`), `sendPushToUser()` (best-effort per
+      device, a dead subscription self-prunes on a 410/404), wired into `notify()` at both the
+      immediate-fire and the held-notification-release points; `public/sw.js` gained
+      `push`/`notificationclick` handlers; `/settings/notifications` gained a per-device
+      enable/list/remove card. **iOS Safari only accepts a push subscription from an installed Home
+      Screen app** — a bookmark or an open tab is never offered the prompt, stated on screen since
+      nothing here works around Apple's rule. **The three VAPID keys are generated but not yet added
+      to Vercel's environment** — code deploys and runs, but push is inert in production until that one
+      manual step happens. docs/DECISIONS.md #154, 2026-09-01. A real bug caught before shipping:
+      "Remove" on one device's row was, in the first draft, unsubscribing *this* browser's own
+      subscription regardless of which row was clicked.
+- [x] **A task can be edited after it's raised** — closing a gap PD hit directly on 25 August 2026.
+      `updateTaskService` edits title/description/priority/dates/estimate/labels; reassignment and
+      re-pointing the entity stay separate acts with their own reasoning. Editing is restricted to the
+      task's creator or `admin.manage_users` — deliberately reused as a stand-in for "EA" (the practice
+      grant withholds `admin.manage_users` from all five named users), so this becomes "whoever holds
+      president" automatically once practice ends rather than needing a code change. A new
+      `task.edited` notification, skipped when editor === assignee. docs/DECISIONS.md #155,
+      2026-09-01.
+- [x] **A task archive at `/tasks/archive`**, reading the same `status: "done"` rows the working list
+      already stopped showing — nothing new to store, just a screen built for search/sort/CSV rather
+      than the working list's inline-edit shape. Gated on `task.view`, the broadest grant in the
+      module, not `task.assign`. docs/DECISIONS.md #156, 2026-09-01. **Scoped the next day** to
+      assignee, creator, EA and KJ only, at EA's explicit follow-up instruction — checked by email
+      (`ARCHIVE_FULL_ACCESS_EMAILS`), not role, since the practice grant gives all five named users the
+      same `president` bundle and a role check would have opened everyone's archive to everyone. A real
+      bug caught before shipping: building the scoped query as two spread `OR` keys would have let the
+      second silently overwrite the first; built as `AND: [searchOr, scopeOr]` instead. docs/DECISIONS.md
+      #157, 2026-09-01.
+- [x] **`/boards` now opens straight onto a real default board** rather than an empty list waiting for
+      someone to build one — `ensureDefaultBoardService` creates one smart board (empty filter, the
+      standard five-status columns) the first time anyone opens `/boards`, found by `Board.isDefault`
+      rather than by name. The old list screen moved to `/boards/all`, not deleted. docs/DECISIONS.md
+      #160, 2026-09-02.
+- [x] **The calendar reads real task due dates, and two sources declared since module 06 shipped but
+      never wired up: delivery tickets and site inspections.** `task_due` (from `Task.dueAt`) and
+      `site_inspection` (from `SiteInspection.scheduledFor`, with its site and assigned inspector(s))
+      are new sources; the `delivery` source, declared and dead since the calendar was built, now reads
+      a delivery ticket's own `scheduledStart` instead of the generic "Job scheduled" every ticket type
+      showed. `CalendarEntry` gained optional `location`/`people`. docs/DECISIONS.md #161, 2026-09-02.
+- [x] **"Channels" is now "Discussion" everywhere a person reads it** — nav label, headings, button
+      copy, toast messages — while the `Channel` model, its service, rules and route stay untouched, at
+      EA's framing that this is a place to discuss ongoing work, not a rename of the underlying
+      concept. docs/DECISIONS.md #162, 2026-09-02.
+
+### 2026-09-02 to 2026-09-04 — the site inspection becomes the real home for requirements, and gets its own report
+
+- [x] **The Requirements checklist moved from the inquiry page to the site inspection page**, at EA's
+      instruction that it "should be filled up during site inspection." `RequirementsPanel` moved
+      unchanged (same component, same mutations, same `Inquiry.requirements` data) to
+      `/inspections/[id]`, rendered only when the inspection has an inquiry behind it. **Consequence
+      named rather than hidden:** an inquiry that skips inspection entirely (§3 allows going straight
+      `evaluating → quoting`) now has nowhere in the UI to answer requirements at all — the existing
+      "Override the checklist" mechanism is what carries that case. docs/DECISIONS.md #163, 2026-09-02.
+- [x] **Requesting an inspection from an inquiry now schedules the real Operations record
+      synchronously**, not only on the once-a-minute job-queue drain — closing the gap where "raise a
+      site inspection for operations" could look broken for the better part of a minute in production.
+      The async path stays as insurance, since `scheduleFromInspectionRequest` is idempotent on
+      `inspectionRequestId`. Caught and fixed in the same change: the synchronous call would have sent
+      the assignee two notifications for one assignment. docs/DECISIONS.md #164, 2026-09-02.
+- [x] **A PDF site inspection report, with photographs embedded** — offered only once
+      `inspectionCompleteness`'s gate is satisfied (`completed`/`approved`), generated on demand like
+      every other PDF in the codebase. New capability, not a reused pattern: nothing before this pulled
+      a `FileObject`'s actual bytes back into a Node buffer for embedding — a new `imageDataUri()`
+      fetches the signed URL server-side. Uses the existing 1600px web derivative ahead of the original
+      for size and guaranteed format decodability; a file that can't be embedded is skipped, with the
+      skipped count printed on the report rather than the document failing silently. docs/DECISIONS.md
+      #165, 2026-09-03.
+- [x] **Site inspection access narrowed to EA, KJ, DJ, the requester, and whoever attended** —
+      replacing a `ticket.view_all` fallback that had let anyone doing unrelated dispatch work open
+      every survey. By email, not role, for the same reason as the task archive: the practice grant
+      gives every named user the same permission bundle. The listing query and the inquiry page's own
+      mirrored photo preview were narrowed the same way, on the builder's own initiative, so a listing
+      row never 403s the record it links to. docs/DECISIONS.md #166, 2026-09-03.
+- [x] **"Share report to" — one more person, per record.** `SiteInspection.sharedWithIds`, the escape
+      hatch the #166 closed list needed: anyone who can already open a report may extend that to
+      anyone else, checked via the same `canOpenSiteInspection`. A second, older gap fixed in the same
+      change: the survey's own photo file-access checker had its own inline copy of the old, wider
+      rule and had never been touched by #166 — replaced with a direct call to `canOpenSiteInspection`
+      so there is one rule, not two that can drift. docs/DECISIONS.md #167, 2026-09-03.
+- [x] **A site inspection notification now opens the site inspection, not the inquiry it came from** —
+      `notifyAssignee` had been pointing `entityType`/`entityId` at the inquiry. Fixed, and (the
+      larger, older gap underneath it) `/notifications` had never linked *anything*, for any
+      notification type, ever — `entityType`/`entityId` were fetched from the server and simply never
+      used. `NOTIFICATION_ENTITY_HREF` now maps Task/SiteInspection/Channel to a real URL; an unmapped
+      type still renders as plain text rather than a broken link. docs/DECISIONS.md #168, 2026-09-03.
+- [x] **The SIR's photos were never actually in the SIR.** The report read
+      `photoFileIds`/`sketchFileIds` — a field the live upload panel had never written to, since the
+      panel is the generic polymorphic file store keyed by `entityType`/`entityId`. Every generated
+      report said "None attached to this visit" regardless of how many photos a surveyor actually
+      attached, and the same dead field fed the record's own "No photographs" completeness warning.
+      Fixed by querying `FileObject` directly, the same choice module 03's goods-receipt photo count
+      already made. The photos/sketches split in the PDF was fiction the data never supported —
+      collapsed into one "Photographs and sketches" heading, matching the panel. **The requester is
+      now notified when the report is approved** (not merely completed — a completed-but-unapproved
+      report can still be corrected), pointed at the inspection via #168's click-through, skipped on
+      self-approval. docs/DECISIONS.md #169, 2026-09-04.
+- [x] **An accomplished (`completed`) SIR now freezes; revising it is a tracked act, not a silent
+      overwrite.** Closes the reported symptom directly — the app showed one thing, a PDF generated
+      moments earlier showed another, because `completed` had no protection at all and anybody holding
+      `ticket.execute` could save straight over it. `canReviseInspection` now permits only the surveyor
+      who actually attended, and only with a typed reason; the reason is written to a `"revised"` audit
+      row and printed on the PDF as a "Revision history" section at the bottom, per the company's own
+      wording. Added "Customer Representative" to the attendee list and flipped `describeAttendees` to
+      name-first ("EA (Technical)") — the concrete bug behind the freeze report was that a client's
+      representative had nowhere to go but the misused "Technical" department slot. docs/DECISIONS.md
+      #170, 2026-09-04.
+- [x] **The inquiry's inspection panel dropped its second, redundant photo upload bucket.** A known
+      leftover from the 2026-08-17 fix that mirrored the survey's own attachments into the panel — the
+      original `InspectionRequest`-scoped bucket was never actually deleted, and held zero rows.
+      Removed; the backend entity type and its file-access checker are untouched. docs/DECISIONS.md
+      #171, 2026-09-04.
+
+### 2026-09-04 — CRM: quoting a simple purchase no longer waits on a site inspection nobody asked for
+
+- [x] **A new approval path lets an inquiry with no inspection ever raised skip straight to
+      `quoting`, with KJ or EA's sign-off.** §4's completeness gate is unconditional today and stays
+      unconditional — `overrideRequirementsService` remains the standing, unilateral escape hatch it
+      always was. The new path (`inquiry-quoting-waiver.ts`) is narrower and asks first: offered only
+      when the inquiry is `evaluating`, its requirements are genuinely incomplete, **and no
+      `InspectionRequest` has ever existed for it**. Confirming opens an `ApprovalRequest` (reusing the
+      seeded VP-primary/president-fallback pair every other approval type already uses) whose decision
+      performs the `evaluating → quoting` move itself, attributed to whoever decided it — not merely
+      unlocking a second click. docs/DECISIONS.md #172, 2026-09-04.
+
+### 2026-09-04 — Quotation: landed-cost columns, a printed line discount, PD told about supplier requests
+
+- [x] **Three new landed-cost fields on a quotation line** — `freightCostPct`, `dutiesTaxesPct` (both
+      percentages of the converted, buffered cost, additive with each other, applied *before* markup)
+      and `localDeliveryCost` (a flat per-unit amount in the quotation's own currency, not run through
+      the FX rate) — plus the lines table reordered to show FX rate, FX buffer, freight %, duties %,
+      local delivery alongside the existing columns, and the Supplier pricing panel moved above the
+      lines table since a line often waits on a supplier's price before it can be filled in at all.
+      `landedUnitCost` is now the single implementation the internal costing sheet and the line editor
+      both call, rather than two formulas that could drift out of step. **Found in passing:** three
+      existing call sites (revise, duplicate, the §8 what-if calculator) had never carried a line's own
+      `fxBufferPct` override, silently falling back to the header's figure — fixed at all three.
+      docs/DECISIONS.md #173, 2026-09-04.
+- [x] **A line's own discount now prints on the customer PDF.** The header discount already had its
+      own totals-block row; a line negotiated down through `Disc %` had the reduction folded silently
+      into `unitPrice`, with nothing on the document saying so. `CustomerLine.lineDiscountPct` prints
+      as a small note under the description. docs/DECISIONS.md #173.
+- [x] **PD is now notified when someone other than EA or KJ requests supplier pricing** — enforcing
+      §3.2's already-stated "the Admin Manager (PD) handles supplier price inquiries," which nothing
+      had ever told PD about. `createRfq` computes `raisedByEaOrKj` from the session's own role keys,
+      never trusted from the client; EA and KJ are exempt since routing their own request to PD would
+      be handing it downhill. docs/DECISIONS.md #173.
+
+**Next concrete step:** unclear from the decisions log alone — the walkthrough has been reactive,
+following the company's own use of the app rather than a session plan. Module 07 (DMS) is still the
+next *new* module whenever the walkthrough settles.
+
 ## Not started
 - [ ] Modules 07–10. Module 05 is feature-complete and awaiting its review gate; module 06 is
       under way (session 1 in, sessions 2–6 to go).
@@ -3992,3 +4252,38 @@ and function; nobody has judged how they *look*.
 - **`quoted` / `won` / `lost` are unreachable until module 02.** Deliberate — §3 says the
   quotation sets them. Module 02 calls `transitionInquiryService` with `bySystem: true` from its
   `quotation.sent` / `accepted` / `rejected` subscribers.
+- **A delivery ticket can still have its correct `completed` status overwritten by a QA approval.**
+  Found live on AIESTKT-260001, 2026-08-31: nothing in the QA-recording path checks a ticket's
+  `type` before writing to it, though module 04 §2 is explicit that a delivery ticket never enters
+  QA/T&C at all. Corrected by hand on that one record; the missing control itself is not built.
+  docs/DECISIONS.md #150.
+- **A sales order can be raised with no payment term, and nothing catches it until billing refuses
+  much later.** The refusal itself (`generateScheduleService`) is correct and clean, but by the time
+  anyone reaches billing the missing term reads as a mystery rather than a traceable cause. Open
+  question for the rebuild, not yet decided: should an order be raisable at all with no term.
+  docs/DECISIONS.md #150.
+- **Every billing trigger except `on_order` is lost for good if it fires before the schedule
+  exists.** `generateScheduleService` special-cases only `on_order` to catch up at generation time —
+  `on_dr_signed`, `on_delivery`, `on_installation`, `on_tc_accepted` and `on_project_close` all have
+  no such catch-up. A late payment term on any order can silently drop a milestone's billing with
+  nothing on screen showing it happened; the only known instance was found and re-applied by hand.
+  docs/DECISIONS.md #150.
+- **No `voidPayment` exists anywhere in the finance module — a cleared, invoiced payment cannot be
+  deleted or undone.** `ServiceInvoice.paymentId` is a required foreign key, so once an invoice is
+  issued against a payment it is permanently anchored; the only route is cancelling the invoice
+  (retained, never deleted, per its own BIR-sequencing rule) and leaving the payment on record,
+  unallocated. Open question for the rebuild: is "a payment, once invoiced, is only ever offset by a
+  credit note" the permanent stance — the credit-note flow it would depend on does not exist yet
+  either, and nothing today surfaces an unallocated payment sitting unmatched. docs/DECISIONS.md
+  #150.
+- **Site photographs are HEIC with no web derivative, and the platform accepts them and says
+  nothing.** Decided 2026-08-31: convert to JPEG client-side and resize to ~2,000px on the long edge
+  while converting, carrying EXIF capture time across. **Decided, not built** — it belongs to "the
+  simplified rebuild," a separate track from this codebase frozen for the walkthrough, not to
+  `aies-system` itself. docs/DECISIONS.md #149.
+- **A new duties-and-permissions matrix for KJ/PD/DJ/EM, decided by EA for the rebuild, is not
+  applied to the live permission set.** Quoting stops being gated by role (all four gain authorship,
+  only `quotation.approve` stays KJ/EA-only); PD gains supplier accreditation and partial finance
+  (AR, billing statements, recording payments, paying suppliers) currently VP-only; DJ gains full
+  quotation authorship. None of this is reflected in `prisma/seed.ts` or any manifest today.
+  docs/DECISIONS.md #151.
