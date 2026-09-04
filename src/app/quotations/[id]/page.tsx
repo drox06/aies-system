@@ -70,6 +70,7 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     status: string;
     version: number;
     currency: string;
+    fxRate: string;
     revision: number;
     quoteType: string;
     validUntil: string;
@@ -287,7 +288,9 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               price reads before the table that consumes it. */}
           <RfqPanel
             quotationId={data.id}
+            version={data.version}
             quotationCurrency={data.currency}
+            quotationFxRate={data.fxRate}
             editable={editable}
             canSeeCost={canSeeCost}
             lines={data.lines.map((line, index) => ({

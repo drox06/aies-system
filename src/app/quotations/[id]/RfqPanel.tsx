@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Card } from "@/components/ui/layout";
@@ -32,14 +32,18 @@ const RFQ_TONE: Record<string, StatusTone> = {
 
 export function RfqPanel({
   quotationId,
+  version,
   quotationCurrency,
+  quotationFxRate,
   editable,
   canSeeCost,
   lines,
   onApplied,
 }: {
   quotationId: string;
+  version: number;
   quotationCurrency: string;
+  quotationFxRate: string;
   editable: boolean;
   canSeeCost: boolean;
   lines: { lineNo: number; description: string }[];
@@ -66,6 +70,11 @@ export function RfqPanel({
   const [costs, setCosts] = useState<Record<number, string>>({});
   const [leadTimes, setLeadTimes] = useState<Record<number, string>>({});
   const [currency, setCurrency] = useState("PHP");
+  const [fxRateDraft, setFxRateDraft] = useState(quotationFxRate);
+  // Re-seeds after a save, so the field shows what was stored — same reasoning as TermsPanel's
+  // `clauses` effect, and for the same practical reason: it must reflect a save made moments ago,
+  // not the value the panel was born with.
+  useEffect(() => setFxRateDraft(quotationFxRate), [quotationFxRate]);
 
   // Gated on `supplier_rfq.manage`, so this errors for anyone else. The panel disappears rather
   // than showing controls that will 403 — a salesperson does not raise supplier pricing (§3).
@@ -81,6 +90,7 @@ export function RfqPanel({
   const markSent = trpc.quotation.markRfqSent.useMutation();
   const record = trpc.quotation.recordRfqResponse.useMutation();
   const apply = trpc.quotation.applyRfq.useMutation();
+  const setFxRate = trpc.quotation.updateHeader.useMutation();
 
   const mayManage = !suppliers.error;
   const rows = rfqs.data ?? [];
@@ -119,6 +129,55 @@ export function RfqPanel({
         §3&rsquo;s price requests. The app writes the request; PD sends it and records what comes
         back.
       </p>
+
+      {/* A supplier's price is only ever recorded in the currency they quoted in — converting it
+          into this quotation's currency needs a rate, and until now there was nowhere in the app to
+          set one. `applyRfqToQuotationService` refused rather than guess, correctly, but the
+          refusal pointed at a field with no screen — the company hit exactly that wall: "it says
+          apply FX rate, but it is already applied and entered in the line," which was the *line's*
+          own `costFxRate` (a different, output field this action overwrites) being mistaken for the
+          quotation's own rate, because the real one had never been visible anywhere. */}
+      {editable && rows.some((rfq) => rfq.currency && rfq.currency !== quotationCurrency) && (
+        <div className="mt-2 rounded border border-warning/40 bg-warning/10 p-2.5">
+          <p className="text-xs text-warning">
+            A supplier quoted in a different currency than {quotationCurrency}. Set the exchange
+            rate here before applying their price — this is what every apply and comparison action
+            on this quotation uses to convert it.
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <Label htmlFor="rfq-fx-rate" className="text-xs">
+              1 foreign unit = this many {quotationCurrency}
+            </Label>
+            <Input
+              id="rfq-fx-rate"
+              inputMode="decimal"
+              className="w-24"
+              value={fxRateDraft}
+              onChange={(e) => setFxRateDraft(e.target.value)}
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={setFxRate.isPending || fxRateDraft.trim().length === 0}
+              onClick={async () => {
+                try {
+                  await setFxRate.mutateAsync({
+                    quotationId,
+                    version,
+                    fxRate: fxRateDraft.trim(),
+                  });
+                  toastSuccess(`Exchange rate set to ${fxRateDraft.trim()}.`);
+                  onApplied();
+                } catch (error) {
+                  toastError(error);
+                }
+              }}
+            >
+              Save rate
+            </Button>
+          </div>
+        </div>
+      )}
 
       {mayManage && editable && (
         // Primary, not ghost, at the company's request — and it is right on the merits. Spec.md

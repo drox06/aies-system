@@ -6426,3 +6426,61 @@ grants were applied. Full runs across `rbac/`, `modules/`, `system-nav`, `approv
 unrelated liquidation/overdue-sweep tests — different tests each run, confirmed to pass individually
 in under 15 seconds, consistent with transient contention against the remote database under a large
 parallel suite rather than a real regression. `tsc --noEmit` and `eslint` clean throughout.
+
+---
+
+## #176 — A quotation's own exchange rate had no screen, so applying a foreign-currency supplier
+price could never actually succeed
+
+**2026-09-04. Bug reported and fixed** the same day, from the company's own walkthrough: *"the
+pricing from the supplier is not being applied to the lines to be computed."* Pressing Apply on a
+supplier's foreign-currency response produced a toast about setting the FX rate; the company had
+already set an FX rate on the line itself and could not understand why the message persisted.
+
+**Diagnosis, not a misunderstanding.** `applyRfqToQuotationService`'s `rateFor()` — deliberately
+strict per its own doc comment, refusing to guess a rate rather than risk repeating the defect it
+was written to prevent (a EUR 1,450 part once stored as PHP 1,450, margin looking enormous, §4's
+floor never tripping) — falls back to `quotation.fxRate`, the quotation **header's** own exchange
+rate, when nothing is passed explicitly per call. That field has existed on the model since it was
+first needed, and `updateQuotationHeaderService` already accepted it as a plain, partial-update
+field. But:
+
+- `getQuotationService` never included `fxRate` in what it serialised to the client — grep across
+  the whole file found zero references to it.
+- No screen anywhere in `src/app/quotations` ever read, displayed, or wrote it — a repo-wide grep
+  for `fxRate` outside `LineEditor.tsx` returned nothing.
+- The only FX-rate control that existed anywhere was `costFxRate` — a **per-line** field, itself
+  cost-gated (`QUOTATION_LINE_COST_FIELDS`), which `applyRfqToQuotationService` treats as an
+  *output* it overwrites when applying, never an input it reads.
+
+So the header field this refusal actually checks had been permanently unreachable since it was
+built: no way to set it existed in the product, for any quotation, ever. The company found the one
+FX-rate-shaped field that *was* editable (the line's), set it, and kept hitting a refusal reading a
+completely different field that had silently stayed at its default of 1 forever.
+
+**Fixed narrowly, at the actual gap**:
+
+- `getQuotationService` now serialises `fxRate` alongside the other header decimals. It is
+  deliberately **not** added to `QUOTATION_COST_FIELDS`, so it reaches a caller without
+  `finance.view_cost` too — an exchange rate is a market fact, not AIES's margin, and PD
+  (`admin_manager`) is precisely the role §3 puts in charge of this whole flow while explicitly
+  withholding cost visibility from them (see `applyRfqToQuotationService`'s own doc comment on that
+  point). Gating the one field that unblocks PD's own job behind a permission PD does not hold would
+  have reintroduced the same wall from the other side.
+- `RfqPanel.tsx` gained a small inline control — "1 foreign unit = this many {quotationCurrency}" —
+  shown whenever any recorded response is priced in a currency other than the quotation's own,
+  wired to the existing `quotation.updateHeader` mutation. Placed at the panel level rather than
+  only inside the "record response" flow, so it is also reachable later, when someone comes back
+  just to press Apply without reopening that panel.
+- `page.tsx` passes `version` and `fxRate` down as two new props; `RfqPanel` re-seeds its draft
+  input from the prop on every change, the same pattern `TermsPanel`'s own field already used, for
+  the same reason: it must show what was just saved, not what the panel was born with.
+
+**Verified**: a new `rfq-flow.test.ts` case sets the header rate via `updateQuotationHeaderService`
+directly, then calls `applyRfqToQuotationService` with **no** per-call override, and confirms the
+line costs from the header's rate — proving the field this screen now writes is the one the
+refusal reads. All 29 existing tests in that file still pass unmodified, including the refusal test
+itself and the one proving an explicit per-call rate still works. The full `tests/server/core/
+quotation/` suite plus `rbac/field-gating.test.ts` (233 tests, 19 files) passes, confirming the
+newly-serialised field does not leak into a cost-stripped payload and nothing else broke.
+`tsc --noEmit` and `eslint` clean.

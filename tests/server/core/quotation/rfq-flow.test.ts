@@ -12,7 +12,10 @@ import {
   RFQ_ENTITY_TYPE,
   sweepOverdueRfqs,
 } from "@/server/core/quotation/rfq-service";
-import { saveQuotationLinesService } from "@/server/core/quotation/quotation-line-service";
+import {
+  saveQuotationLinesService,
+  updateQuotationHeaderService,
+} from "@/server/core/quotation/quotation-line-service";
 import { createQuotationService } from "@/server/core/quotation/quotation-service";
 import { fromCentavos, landedUnitCost } from "@/server/core/quotation/costing";
 
@@ -496,6 +499,43 @@ describe("§3.5: applying the pricing back", () => {
       where: { quotationId: quotation.id, lineNo: 1 },
     });
     expect(line.unitCost.toString()).toBe("0");
+  }, 60_000);
+
+  /**
+   * The gap the company actually hit: `applyRfqToQuotationService` falls back to the quotation's
+   * own `fxRate` when nobody passes one explicitly, and that field always existed on the model and
+   * was always settable via `updateQuotationHeaderService` — but no screen ever read or wrote it, so
+   * a real user had no way to satisfy the refusal above. They found the *line's* own `costFxRate`
+   * instead — a different field this same action overwrites — set it, and the apply button kept
+   * refusing "no exchange rate has been set" against a rate they were certain they had entered.
+   * `RfqPanel.tsx` now exposes the header field directly; this proves the field it writes to is the
+   * one this refusal actually reads.
+   */
+  it("uses the quotation's own exchange rate once it is set, with no per-call override needed", async () => {
+    const supplier = await makePrincipal();
+    const quotation = await makeQuotation();
+    const rfq = await raise(quotation.id, supplier.id, [1]);
+    await markRfqSentService(actor, { rfqId: rfq.id });
+    await recordRfqResponseService(actor, {
+      rfqId: rfq.id,
+      currency: "EUR",
+      lines: [{ lineNo: 1, unitCost: "1450.00", currency: "EUR" }],
+    });
+
+    await updateQuotationHeaderService(actor, {
+      quotationId: quotation.id,
+      version: quotation.version,
+      fxRate: "65",
+    });
+
+    // No `fxRate` in this call — it must come from the quotation itself.
+    await applyRfqToQuotationService(actor, { rfqId: rfq.id });
+
+    const line = await db.quotationLine.findFirstOrThrow({
+      where: { quotationId: quotation.id, lineNo: 1 },
+    });
+    expect(line.unitCost.toString()).toBe("1450");
+    expect(Number(line.costFxRate)).toBe(65);
   }, 60_000);
 
   it("converts at the rate it is given, and records the rate it used", async () => {

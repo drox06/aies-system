@@ -449,6 +449,11 @@ export async function getQuotationService(
     total: quotation.total.toString(),
     totalCost: quotation.totalCost.toString(),
     marginAmount: quotation.marginAmount.toString(),
+    // Read by `applyRfqToQuotationService` to convert a foreign-currency supplier price, but never
+    // reached the client before this — no screen read it, so it also had no screen to set it,
+    // leaving every quotation stuck at its default of 1 with no way to apply a foreign-currency
+    // response. The RFQ panel is the first caller.
+    fxRate: quotation.fxRate.toString(),
     marginPct: quotation.marginPct.toString(),
     lines: quotation.lines.map((line) => ({
       ...line,
