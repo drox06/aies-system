@@ -186,7 +186,15 @@ export function cashAdvanceGate(
   }
 
   const pending = advances.find(
-    (a) => a.status === "pending_approval" || a.status === "approved" || a.status === "draft",
+    (a) =>
+      a.status === "pending_approval" ||
+      // `endorsed` added 2026-09-04 (docs/DECISIONS.md #175) — PD's or DJ's endorsement, still
+      // short of the Vice President's own decision. Without this branch an endorsed advance fell
+      // through to "none has been requested", which is false — one has, and it is further along
+      // than a plain pending request.
+      a.status === "endorsed" ||
+      a.status === "approved" ||
+      a.status === "draft",
   );
 
   return {
@@ -197,7 +205,9 @@ export function cashAdvanceGate(
         ? "The advance is approved but the money has not been handed over. Mobilization waits on release, not approval."
         : pending.status === "pending_approval"
           ? "The advance is with the Vice President. Mobilization is blocked until it is approved and released."
-          : "The advance is still a draft. Submit it — mobilization is blocked until it is released."
+          : pending.status === "endorsed"
+            ? "The advance was endorsed and is with the Vice President. Mobilization is blocked until it is approved and released."
+            : "The advance is still a draft. Submit it — mobilization is blocked until it is released."
       : "This ticket needs a cash advance and none has been requested. Mobilization is blocked until one is released.",
   };
 }

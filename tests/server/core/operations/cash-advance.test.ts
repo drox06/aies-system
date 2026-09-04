@@ -5,6 +5,7 @@ import {
   cashAdvanceGateForTicket,
   decideCashAdvanceService,
   decideExtensionService,
+  endorseCashAdvanceService,
   getCashAdvanceService,
   liquidateCashAdvanceService,
   listCashAdvancesService,
@@ -317,6 +318,98 @@ describe("§5 — approval routing", () => {
         decision: "rejected",
       }),
     ).rejects.toThrow(/Say why/);
+  });
+});
+
+/**
+ * PD's or DJ's endorsement, ahead of the Vice President's own decision (docs/DECISIONS.md #175, EA's
+ * own correction to #151: "PD and DJ approval are more akin to endorsement to KJ").
+ *
+ * Deliberately outside the `ApprovalRequest` engine — see `endorseCashAdvanceService`'s doc comment
+ * for why — so what matters here is exactly the boundary that separation creates: endorsing must
+ * never let money move on its own, and must never get in the way of the Vice President's existing,
+ * unmodified authority to decide directly.
+ */
+describe("§5's endorsement — PD's or DJ's, ahead of the Vice President (#175)", () => {
+  it("moves a pending advance to endorsed and records who", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
+    const pd = await makeUser("admin_manager", ["cash_advance.endorse"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    const result = await endorseCashAdvanceService(actorFor(pd), advance.id);
+    expect(result.status).toBe("endorsed");
+
+    const after = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(after.status).toBe("endorsed");
+    expect(after.endorsedById).toBe(pd.id);
+    expect(after.endorsedAt).not.toBeNull();
+  });
+
+  it("does not release money on its own — an endorsed advance still blocks the gate", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request", "ticket.view"]);
+    const dj = await makeUser("operations_manager", ["cash_advance.endorse"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    await endorseCashAdvanceService(actorFor(dj), advance.id);
+
+    const gate = await cashAdvanceGateForTicket(ticket.id);
+    expect(gate.blocks).toBe(true);
+  });
+
+  it("does not block the Vice President from deciding straight from pending_approval", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
+    const vp = await makeUser("vice_president", ["cash_advance.approve"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    // Nobody endorsed this — the Vice President's existing, direct authority is unchanged.
+    await decideCashAdvanceService(actorFor(vp), vp, {
+      cashAdvanceId: advance.id,
+      decision: "approved",
+    });
+
+    const after = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(after.status).toBe("approved");
+  });
+
+  it("lets the Vice President decide an endorsed advance, which finally releases it", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request", "ticket.view"]);
+    const pd = await makeUser("admin_manager", ["cash_advance.endorse"]);
+    const vp = await makeUser("vice_president", ["cash_advance.approve"]);
+    const finance = await makeUser("finance_officer", ["cash_advance.release"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    await endorseCashAdvanceService(actorFor(pd), advance.id);
+    await decideCashAdvanceService(actorFor(vp), vp, {
+      cashAdvanceId: advance.id,
+      decision: "approved",
+    });
+
+    const after = await db.cashAdvance.findUniqueOrThrow({ where: { id: advance.id } });
+    expect(after.status).toBe("approved");
+
+    // Only now can the money actually move.
+    await releaseCashAdvanceService(actorFor(finance), {
+      cashAdvanceId: advance.id,
+      method: "cash",
+    });
+    const gate = await cashAdvanceGateForTicket(ticket.id);
+    expect(gate.blocks).toBe(false);
+  });
+
+  it("refuses to endorse anything other than a pending advance", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
+    const pd = await makeUser("admin_manager", ["cash_advance.endorse"]);
+    const ticket = await makeTicket(lead);
+    const advance = await requestFor(lead, ticket.id);
+
+    await endorseCashAdvanceService(actorFor(pd), advance.id);
+    await expect(endorseCashAdvanceService(actorFor(pd), advance.id)).rejects.toThrow(
+      /nothing to endorse/,
+    );
   });
 });
 

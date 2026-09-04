@@ -136,10 +136,10 @@ export const orderManifest = defineManifest({
       group: "Orders",
       // PD does the buying. Sales is deliberately absent: raising the customer's order and
       // committing AIES's money are different jobs, and §5 puts an approval between them.
-      // `operations_manager` withdrawn 2026-09-04 — EA's rebuild table names "raise a supplier PO"
-      // explicitly as something DJ cannot do; buying stays PD's alone among the four widened roles.
-      // docs/DECISIONS.md #151.
-      defaultRoles: ["president", "vice_president", "admin_manager"],
+      // `operations_manager` withdrawn 2026-09-04 — EA's rebuild table (#151) names "raise a
+      // supplier PO" explicitly as something DJ cannot do — then restored the same day, EA's own
+      // correction to #151 (docs/DECISIONS.md #175): DJ keeps this alongside PD.
+      defaultRoles: ["president", "vice_president", "admin_manager", "operations_manager"],
     },
     {
       key: "supplier_po.delete",
@@ -157,8 +157,21 @@ export const orderManifest = defineManifest({
       group: "Orders",
       // §5: "the Vice President approves supplier POs, matching quotation approval." The President
       // is here as the fallback Spec.md §4.4 gives every approval, resolved from the rule rather
-      // than from this list.
+      // than from this list. Final authority only — see `supplier_po.endorse` below for PD's own
+      // grant, which is a distinct, earlier, non-final step.
       defaultRoles: ["president", "vice_president"],
+    },
+    {
+      key: "supplier_po.endorse",
+      label: "Endorse a supplier PO ahead of the Vice President",
+      group: "Orders",
+      // EA's own correction to #151 (docs/DECISIONS.md #175): PD's earlier "cannot approve... a
+      // supplier PO" becomes an endorsement, not a final decision — "more akin to endorsement to
+      // KJ" in EA's own words. Endorsing moves the PO to `endorsed`; it still cannot be sent to the
+      // supplier until the Vice President or President separately approves it via the unchanged
+      // flow above. DJ is deliberately absent — #151's DJ paragraph never named supplier PO
+      // approval, only cash advance approval; this stays PD's alone among the four widened roles.
+      defaultRoles: ["admin_manager"],
     },
     {
       key: "procurement.override_downpayment_gate",
@@ -175,10 +188,16 @@ export const orderManifest = defineManifest({
       group: "Orders",
       // Whoever is at the gate when the truck arrives. Wider than inspecting, because counting
       // boxes and certifying paperwork are different acts — see goods-receipt-service.ts.
-      // `operations_manager` withdrawn 2026-09-04 — EA's rebuild table names "record a goods
-      // receipt" explicitly as something DJ cannot do. `goods_receipt.inspect` is untouched: DJ's
-      // list still records QA outcomes, and inspecting is the separate act. docs/DECISIONS.md #151.
-      defaultRoles: ["president", "vice_president", "admin_manager", "technician"],
+      // `operations_manager` withdrawn 2026-09-04 by #151, then restored the same day, EA's own
+      // correction (docs/DECISIONS.md #175). `goods_receipt.inspect` is untouched throughout: DJ's
+      // list still records QA outcomes, and inspecting is the separate act.
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "admin_manager",
+        "operations_manager",
+        "technician",
+      ],
     },
     {
       key: "goods_receipt.inspect",

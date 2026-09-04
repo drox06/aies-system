@@ -56,15 +56,18 @@ export const crmManifest = defineManifest({
       key: "crm.delete",
       label: "Delete CRM records",
       group: "CRM",
-      defaultRoles: ["president", "vice_president"],
+      // `admin_manager` added 2026-09-04 — EA's own correction to #151 (docs/DECISIONS.md #175):
+      // PD's earlier "cannot delete or merge CRM records" is lifted, an outright grant.
+      defaultRoles: ["president", "vice_president", "admin_manager"],
     },
     {
       key: "crm.merge",
       label: "Merge duplicate accounts",
       group: "CRM",
-      // §7's merge repoints every child record and cannot be undone from the UI, so it stays with
-      // the two roles that can already delete.
-      defaultRoles: ["president", "vice_president"],
+      // §7's merge repoints every child record and cannot be undone from the UI, so it stayed with
+      // the two roles that could already delete — `admin_manager` now joins both for the same
+      // reason as `crm.delete` above (docs/DECISIONS.md #175).
+      defaultRoles: ["president", "vice_president", "admin_manager"],
     },
     {
       key: "inquiry.assign",

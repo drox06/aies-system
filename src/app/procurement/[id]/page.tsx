@@ -32,6 +32,9 @@ import { ReceiveGoods } from "./ReceiveGoods";
 const PO_TONE: Record<string, StatusTone> = {
   draft: "draft",
   pending_approval: "pending",
+  // PD's endorsement (docs/DECISIONS.md #175) — still awaiting the Vice President's or President's
+  // own decision, same as `pending_approval`.
+  endorsed: "pending",
   approved: "approved",
   sent: "active",
   acknowledged: "info",
@@ -67,6 +70,7 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
 
   const submit = trpc.order.submitSupplierPoForApproval.useMutation({ onSuccess: refresh });
   const decide = trpc.order.decideSupplierPoApproval.useMutation({ onSuccess: refresh });
+  const endorse = trpc.order.endorseSupplierPo.useMutation({ onSuccess: refresh });
   const send = trpc.order.sendSupplierPo.useMutation({ onSuccess: refresh });
   const acknowledge = trpc.order.acknowledgeSupplierPo.useMutation({ onSuccess: refresh });
   const router = useRouter();
@@ -390,12 +394,33 @@ export default function SupplierPoPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
-            {data.status === "pending_approval" && (
+            {data.status === "pending_approval" &&
+              (me.data?.permissions ?? []).includes("supplier_po.endorse") && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-text-muted">
+                    Endorsing does not approve this PO — it still needs the Vice President&rsquo;s
+                    or President&rsquo;s own decision before it can be sent.
+                  </p>
+                  <Button
+                    size="sm"
+                    disabled={endorse.isPending}
+                    onClick={() =>
+                      void run(() => endorse.mutateAsync({ supplierPOId: id }), "Endorsed.")
+                    }
+                  >
+                    Endorse
+                  </Button>
+                </div>
+              )}
+
+            {(data.status === "pending_approval" || data.status === "endorsed") && (
               <div className="mt-2 space-y-2">
                 <p className="text-xs text-text-muted">
                   {approval.data?.canDecide
                     ? "This is with you."
-                    : "Waiting on the Vice President."}
+                    : data.status === "endorsed"
+                      ? `Endorsed. Waiting on the Vice President.`
+                      : "Waiting on the Vice President."}
                 </p>
                 {approval.data?.canDecide && (
                   <>

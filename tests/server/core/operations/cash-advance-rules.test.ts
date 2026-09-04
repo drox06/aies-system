@@ -76,6 +76,18 @@ describe("§1's Gate 1", () => {
     expect(gate.blocks).toBe(true);
   });
 
+  /**
+   * `endorsed` (docs/DECISIONS.md #175) fell through every branch here on first pass — it matched
+   * neither `released`, `liquidated`, nor the old three-way `pending` find — and the gate reported
+   * "none has been requested" for a ticket that plainly had one. Pinned so it cannot silently regress.
+   */
+  it("blocks on an endorsed advance, and says so rather than claiming none was requested", () => {
+    const gate = cashAdvanceGate({ cashAdvanceRequired: true }, [{ status: "endorsed" }]);
+    expect(gate.blocks).toBe(true);
+    expect(gate.message).toMatch(/endorsed/);
+    expect(gate.message).not.toMatch(/none has been requested/);
+  });
+
   it("clears once the money is released", () => {
     const gate = cashAdvanceGate({ cashAdvanceRequired: true }, [{ status: "released" }]);
     expect(gate.state).toBe("satisfied");

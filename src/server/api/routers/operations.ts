@@ -203,6 +203,7 @@ import {
   cashAdvanceGateForTicket,
   decideCashAdvanceService,
   decideExtensionService,
+  endorseCashAdvanceService,
   getCashAdvanceService,
   liquidateCashAdvanceService,
   listLiquidationsAwaitingCheckService,
@@ -356,6 +357,14 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => decideCashAdvanceService(actorMeta(ctx), ctx.user, input)),
+
+  /**
+   * PD's or DJ's endorsement, ahead of the Vice President's own decision above
+   * (docs/DECISIONS.md #175).
+   */
+  endorseCashAdvance: p("cash_advance.endorse")
+    .input(z.object({ cashAdvanceId: z.string() }))
+    .mutation(({ ctx, input }) => endorseCashAdvanceService(actorMeta(ctx), input.cashAdvanceId)),
 
   releaseCashAdvance: p("cash_advance.release")
     .input(

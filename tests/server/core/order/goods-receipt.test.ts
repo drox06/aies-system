@@ -279,6 +279,23 @@ describe("booking a delivery in", () => {
     ).rejects.toThrow(/has not been sent/);
   }, 60_000);
 
+  /**
+   * `endorsed` (docs/DECISIONS.md #175) fell through this guard on first pass — it matched neither
+   * `draft` nor `pending_approval`, so a PO PD had merely endorsed (not yet approved, let alone
+   * sent) could receive goods against it. Pinned so it cannot silently regress.
+   */
+  it("refuses a receipt against a PO that has only been endorsed, not approved or sent", async () => {
+    const { supplierPO, poLines } = await makeSentPo();
+    await db.supplierPO.update({ where: { id: supplierPO.id }, data: { status: "endorsed" } });
+
+    await expect(
+      createGoodsReceiptService(actor, {
+        supplierPOId: supplierPO.id,
+        lines: [{ supplierPOLineId: poLines[0]!.id, qtyReceived: "1" }],
+      }),
+    ).rejects.toThrow(/has not been sent/);
+  }, 60_000);
+
   it("demands a reason for anything rejected", async () => {
     const { supplierPO, poLines } = await makeSentPo();
 

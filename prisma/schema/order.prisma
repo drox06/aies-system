@@ -194,10 +194,19 @@ model SupplierPO {
   otherCharges Decimal @default(0) @db.Decimal(14, 2)
   total        Decimal @default(0) @db.Decimal(14, 2)
 
-  /// draft | pending_approval | approved | sent | acknowledged | partially_received | received |
-  /// cancelled (§2). `partially_received` and `received` are moved by session 3's goods receipt;
-  /// everything up to `acknowledged` is this session's.
+  /// draft | pending_approval | endorsed | approved | sent | acknowledged | partially_received |
+  /// received | cancelled (§2). `partially_received` and `received` are moved by session 3's goods
+  /// receipt; everything up to `acknowledged` is this session's.
+  ///
+  /// `endorsed` added 2026-09-04, EA's own correction to #151 (docs/DECISIONS.md #175): an
+  /// optional step PD can take from `pending_approval`, ahead of the Vice President's own decision.
+  /// It changes nothing about who can send the PO to the supplier — the PO screen's send action
+  /// still requires `approved` — and it is not required: the Vice President or President can still
+  /// decide straight from `pending_approval`, exactly as before.
   status String @default("draft")
+
+  endorsedById String?
+  endorsedAt   DateTime?
 
   expectedShipDate    DateTime?
   expectedArrivalDate DateTime?

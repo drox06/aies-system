@@ -480,7 +480,13 @@ async function openApproval(
  */
 async function applyRecordedDecision(
   actor: ActorMeta,
-  advance: { id: string; number: string; amountRequested: Prisma.Decimal; requestedById: string },
+  advance: {
+    id: string;
+    number: string;
+    status: string;
+    amountRequested: Prisma.Decimal;
+    requestedById: string;
+  },
   decision: "approved" | "rejected",
   meta: { decidedById: string | null; comment: string | null },
 ) {
@@ -508,7 +514,7 @@ async function applyRecordedDecision(
       summary:
         `Applied the decision already recorded against ${advance.number}: ` +
         `${decision}. The approval was decided earlier and the advance had not caught up.`,
-      diff: { status: { from: "pending_approval", to: decision } },
+      diff: { status: { from: advance.status, to: decision } },
       ip: actor.ip,
       userAgent: actor.userAgent,
       requestId: actor.requestId,
@@ -533,6 +539,75 @@ async function applyRecordedDecision(
   return { status: decision };
 }
 
+// ---- PD's / DJ's endorsement ---------------------------------------------------------------------
+
+/**
+ * PD's or DJ's endorsement (docs/DECISIONS.md #175, EA's own correction to #151).
+ *
+ * Deliberately not a step in the `ApprovalRequest`/`ApprovalWorkflow` engine below: that engine
+ * treats one entity as having exactly one open request with one decision, and this codebase has
+ * already been bitten once by folding two different facts into one commit (AIESCA-260127, see
+ * `applyRecordedDecision`'s doc comment). Endorsement is a second, independent fact about the
+ * advance — a plain status stamp — that never touches the `ApprovalRequest` the Vice President's
+ * own decision still runs through unmodified.
+ *
+ * Optional, not a gate: the Vice President or President can still decide straight from
+ * `pending_approval`, exactly as before this existed. Endorsing only adds a second valid starting
+ * state and a heads-up to whoever decides next — it does not block them and it does not release
+ * anything (`releaseCashAdvanceService` still requires `approved`).
+ */
+export async function endorseCashAdvanceService(actor: ActorMeta, cashAdvanceId: string) {
+  const advance = await db.cashAdvance.findFirst({
+    where: { id: cashAdvanceId, deletedAt: null },
+  });
+  if (!advance) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That cash advance no longer exists." });
+  }
+  if (advance.status !== "pending_approval") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${advance.number} is ${advance.status.replace(/_/g, " ")}, so there is nothing to endorse.`,
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.cashAdvance.update({
+      where: { id: advance.id },
+      data: {
+        status: "endorsed",
+        endorsedById: actor.actorId,
+        endorsedAt: new Date(),
+        version: { increment: 1 },
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "endorsed",
+      entityType: CASH_ADVANCE_ENTITY_TYPE,
+      entityId: advance.id,
+      summary: `Endorsed ${advance.number} — PHP ${advance.amountRequested.toString()}. Still needs the Vice President's approval.`,
+      diff: { status: { from: "pending_approval", to: "endorsed" } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  const request = await findPendingCashAdvanceApproval(advance.id, "advance");
+  if (request) {
+    await notifyCashAdvanceApprovers(
+      request,
+      CASH_ADVANCE_APPROVAL_RULE,
+      `${advance.number} was endorsed by ${actor.actorLabel} — still needs your approval`,
+      `${actor.actorLabel} endorsed this cash advance ahead of you. It cannot be released until you decide it.`,
+    );
+  }
+
+  return { status: "endorsed" as const };
+}
+
 // ---- the Vice President's decision --------------------------------------------------------------
 
 export async function decideCashAdvanceService(
@@ -546,7 +621,9 @@ export async function decideCashAdvanceService(
   if (!advance) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That cash advance no longer exists." });
   }
-  if (advance.status !== "pending_approval") {
+  // `endorsed` is a valid starting state too (docs/DECISIONS.md #175) — PD's or DJ's endorsement
+  // never blocks the Vice President's or President's own decision, it only precedes it optionally.
+  if (advance.status !== "pending_approval" && advance.status !== "endorsed") {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `${advance.number} is ${advance.status.replace(/_/g, " ")}, so there is nothing to decide.`,
@@ -662,7 +739,7 @@ export async function decideCashAdvanceService(
         input.decision === "approved"
           ? `Approved ${advance.number} — PHP ${approvedAmount.toString()}`
           : `Declined ${advance.number} — ${input.reason}`,
-      diff: { status: { from: "pending_approval", to: input.decision } },
+      diff: { status: { from: advance.status, to: input.decision } },
       ip: actor.ip,
       userAgent: actor.userAgent,
       requestId: actor.requestId,

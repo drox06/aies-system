@@ -35,7 +35,9 @@ export const quotationManifest = defineManifest({
       label: "View all quotations, not just their own",
       group: "Quotation",
       // Narrow, so §11's record scoping means something. The VP needs it to run the approval queue.
-      defaultRoles: ["president", "vice_president"],
+      // `operations_manager` added 2026-09-04 — EA's own correction to #151 (docs/DECISIONS.md
+      // #175): DJ's earlier "cannot view... quotations beyond his own" is lifted.
+      defaultRoles: ["president", "vice_president", "operations_manager"],
     },
     {
       key: "quotation.create",

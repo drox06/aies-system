@@ -38,6 +38,9 @@ import { LiquidationPanel } from "./LiquidationPanel";
 const STATUS_TONE: Record<string, StatusTone> = {
   draft: "draft",
   pending_approval: "pending",
+  // PD's or DJ's endorsement (docs/DECISIONS.md #175) — still awaiting the Vice President's or
+  // President's own decision, same as `pending_approval`.
+  endorsed: "pending",
   approved: "info",
   rejected: "cancelled",
   released: "active",
@@ -193,9 +196,14 @@ export default function CashAdvancePage({ params }: { params: Promise<{ id: stri
             )}
           </Card>
 
-          {data.status === "pending_approval" && permissions.includes("cash_advance.approve") && (
-            <DecideCard cashAdvanceId={data.id} onDone={refresh} />
+          {data.status === "pending_approval" && permissions.includes("cash_advance.endorse") && (
+            <EndorseCard cashAdvanceId={data.id} onDone={refresh} />
           )}
+
+          {(data.status === "pending_approval" || data.status === "endorsed") &&
+            permissions.includes("cash_advance.approve") && (
+              <DecideCard cashAdvanceId={data.id} onDone={refresh} />
+            )}
 
           {data.status === "approved" && (
             <ReleaseCard
@@ -269,6 +277,34 @@ export default function CashAdvancePage({ params }: { params: Promise<{ id: stri
         </div>
       </RecordLayout>
     </div>
+  );
+}
+
+/**
+ * PD's or DJ's endorsement, ahead of the Vice President's own decision (docs/DECISIONS.md #175).
+ *
+ * Optional and one-way — there is no "decline to endorse" here. If PD or DJ has concerns, the
+ * money still cannot move until the Vice President or President decides, so nothing is lost by
+ * simply not endorsing.
+ */
+function EndorseCard({ cashAdvanceId, onDone }: { cashAdvanceId: string; onDone: () => void }) {
+  const endorse = trpc.operations.endorseCashAdvance.useMutation({ onSuccess: onDone });
+
+  return (
+    <Card className="p-4">
+      <h2 className="text-sm font-semibold">Endorse</h2>
+      <p className="mt-1 text-xs text-text-muted">
+        This does not approve the advance — it still needs the Vice President&rsquo;s or
+        President&rsquo;s own decision before it can be released. Endorsing lets them know you have
+        looked at it.
+      </p>
+      {endorse.error && <p className="mt-2 text-sm text-danger">{endorse.error.message}</p>}
+      <div className="mt-3">
+        <Button disabled={endorse.isPending} onClick={() => endorse.mutate({ cashAdvanceId })}>
+          Endorse
+        </Button>
+      </div>
+    </Card>
   );
 }
 

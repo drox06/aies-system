@@ -6312,3 +6312,117 @@ order/` + `tests/server/core/finance/` suite: 335/335 passing across 23 files, c
 in the codebase assumed `operations_manager` could still create a goods receipt or a supplier PO. Live
 DB, post-script: `admin_manager` 50 permissions, `operations_manager` 46, `marketing_manager` 27, all
 five named users holding exactly one role each.
+
+---
+
+## #175 — EA's own correction to #151: three of PD's and DJ's "Cannot" clauses become endorsement,
+not withholding
+
+**2026-09-04. Decided and built**, same day as #174, on EA's direct instruction to remove specific
+"Cannot" clauses from PD's and DJ's paragraphs in #151 — but not as an outright grant. EA's own
+words: *"PD and DJ approval are more akin to endorsement to KJ specially if it is related to
+finance. they can approve the works of their future personnel, this will be like a mode of
+endorsement to get KJ's approval."* Three things had to be resolved before any of this could be
+built, each surfaced rather than guessed:
+
+1. **Mechanism.** Does "endorsement" mean a new blocking two-step workflow (PD/DJ's action is
+   provisional until KJ or EA separately approves), or a plain grant with informal oversight?
+   **Answer: the real two-step.** PD's or DJ's decision no longer finalizes anything on its own for
+   the two finance-adjacent approvals named — money still cannot move until the Vice President or
+   President decides separately.
+2. **Scope of the finance qualifier.** Does "specially if it is related to finance" carve out
+   `material_request.approve` (raising/approving materials from stock — operational, not finance)
+   from the endorsement treatment? **Answer, by construction**: yes — material requests stay a
+   plain, final grant for both PD and DJ, unaffected by any endorsement step. Only
+   `cash_advance.approve` and `supplier_po.approve` — the two approvals that commit AIES's money —
+   get the endorsement tier.
+3. **"Their future personnel" scoping.** PD and DJ have no direct reports yet, and the schema has no
+   manager/reports-to field at all. **Answer: no scoping for now** — endorsement is role-based, the
+   same as every other permission in this system, not person-scoped. A manager/reports-to field is
+   left for its own future decision, once real hires exist to assign it to.
+
+**What was built, deliberately outside the `ApprovalRequest`/`ApprovalWorkflow` engine.** That engine
+resolves eligibility per entity from a single open request and a single decision (parallel mode,
+first eligible decision wins) — exactly the shape that let AIESCA-260127 happen when an approval's
+decision and the business record's own status update were ever allowed to be two separate commits
+(see `applyRecordedDecision`'s doc comment in `cash-advance-service.ts`). Folding a second,
+provisional decision into that same request would have reintroduced exactly that class of bug.
+Instead, endorsement is a **plain, independent status stamp** on the business record itself:
+
+- Two new permissions: `cash_advance.endorse` (`admin_manager`, `operations_manager`) and
+  `supplier_po.endorse` (`admin_manager` only — DJ's paragraph in #151 never named supplier PO
+  approval at all, only cash advance approval, so endorsement follows the same line). The existing
+  `cash_advance.approve` / `supplier_po.approve` are untouched: final authority, Vice
+  President/President only, exactly as before.
+- `CashAdvance` and `SupplierPO` each gained `status: "endorsed"` (between `pending_approval` and
+  `approved`) plus `endorsedById`/`endorsedAt` columns — an additive migration
+  (`20260904101532_cash_advance_supplier_po_endorsement`).
+- `endorseCashAdvanceService` / `endorseSupplierPoService`: require `pending_approval`, stamp
+  `endorsed` + who + when, write an audit row, and notify whoever is currently eligible to decide
+  the real `ApprovalRequest` (reusing the existing notify helper) — completely independent of that
+  request, which is untouched and still open.
+- `decideCashAdvanceService` / `decideSupplierPoApprovalService`: their status guard now accepts
+  `endorsed` as well as `pending_approval` as a valid starting point — so the Vice President or
+  President can still decide **directly from `pending_approval`, unchanged**, or from `endorsed`
+  after PD/DJ has looked at it first. Neither path is required; both reach `approved`.
+- Two new router mutations (`operations.endorseCashAdvance`, `order.endorseSupplierPo`), gated on
+  the two new permissions, plus a minimal UI: an "Endorse" card/button on each record page, shown
+  only to a holder of the endorse permission while the record is `pending_approval`, with copy that
+  says plainly that this does not approve — the real decision is still the Vice President's or
+  President's.
+
+**Two real gaps found only by manually auditing every status check in both domains, neither caught
+by a test until one was written for it:**
+
+- `cashAdvanceGate` enumerated `pending_approval | approved | draft` to decide what message to show
+  a blocked mobilization. An `endorsed` advance matched none of them and fell through to "this
+  ticket needs a cash advance and none has been requested" — false, since one plainly existed and
+  was further along than a bare request. Fixed by adding the branch; pinned in
+  `cash-advance-rules.test.ts`.
+- `createGoodsReceiptService` rejected booking goods against `draft | pending_approval`, reasoning
+  "nothing has been sent yet" — but not against `endorsed`, which is equally unsent. A PO PD had
+  only endorsed (not approved, let alone sent) could have goods received against it. Fixed by adding
+  `endorsed` to the rejection; pinned in `goods-receipt.test.ts`.
+
+**A stale test surfaced by the wider `finance.view_cost` grant, unrelated to endorsement itself**:
+`permission-matrix.test.ts`'s original "only president and vice_president can view cost/margin" test
+pinned `finance.view_cost` and the dead `project.view_pl` to one shared expectation map, true only
+until #151 gave PD explicit P&L access and this entry gave DJ the same. Split into two tests — one
+for the still-narrow dead key, one for the real, now-wider one — so the two stop being asserted as
+though they always move together.
+
+**A live-database mistake caught and corrected before it could cause harm**: importing
+`seedRolesAndPermissions` from `prisma/seed.ts` to reuse its exact grant-resolution logic (rather
+than hand-enumerate a grant list a third time, having already once missed `finance.view_cost` by
+hand) inadvertently ran the *entire* seed script — `prisma/seed.ts` invokes its own `main()`
+unconditionally at module scope, so importing anything from the file executes the whole thing.
+Checked every step it touched (`seedUsers`, `seedApprovalRules`, `seedNumberingFormats`,
+`seedRequirementTemplates`, `seedChecklists`, `seedTaskTemplates`) before treating the run as safe:
+`seedUser`'s `upsert` only refreshes `name`/`isDemoUser` on an existing account, never
+`passwordHash`, `mustChangePassword`, or TOTP state, so EA's, KJ's, PD's, DJ's and EM's live
+credentials were untouched; every other step's `update` clause matched values already unchanged this
+session, so nothing else moved either. Confirmed nothing was harmed rather than assumed it.
+
+**Also found, unrelated to this change but caused by it being investigated**: three interrupted
+`vitest` runs earlier the same day (killed via `TaskStop` while mid-test, so their own `afterAll`
+cleanup never ran) had left 78 orphaned test users (`*@test.local`, all created within one 12-minute
+window) plus 29 orphaned cash-advance-test tickets/accounts/advances in this shared dev database.
+The former was the actual cause of several tests in this same investigation timing out — 21 stray
+`vice_president`/`president` test accounts made `notifyCashAdvanceApprovers`'s recipient loop 21
+sequential network round-trips deep, turning a sub-second operation into 20+ seconds against a
+remote Supabase instance. Cleaned up via a script that introspects Postgres's own FK graph for
+everything referencing the orphaned user ids, confirmed safe by construction (a real business record
+predating today cannot reference a user that did not exist until today).
+
+**Verified**: `permission-matrix.test.ts`'s six #151/#175 tests, now covering the endorse/approve
+split explicitly, pass; the split `finance.view_cost`/`project.view_pl` tests pass. New unit tests:
+5 in `cash-advance.test.ts` (endorse moves to `endorsed` and records who; an endorsed advance still
+blocks the gate; the Vice President is never blocked from deciding directly; deciding an endorsed
+advance reaches `approved` and finally releases; endorsing twice refuses) and 5 mirroring them in
+`supplier-po.test.ts`, all passing. The two edge-case fixes each have their own pinned regression
+test. `permissions-are-seeded.test.ts` confirms zero manifest-vs-database drift after the live
+grants were applied. Full runs across `rbac/`, `modules/`, `system-nav`, `approvals/`, `operations/`,
+`order/` and `quotation/` (1135+ tests) pass except for isolated timeouts in two pre-existing,
+unrelated liquidation/overdue-sweep tests — different tests each run, confirmed to pass individually
+in under 15 seconds, consistent with transient contention against the remote database under a large
+parallel suite rather than a real regression. `tsc --noEmit` and `eslint` clean throughout.

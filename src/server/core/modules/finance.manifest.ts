@@ -205,16 +205,24 @@ export const financeManifest = defineManifest({
       /*
         A project P&L shows labour cost, and labour cost divided by hours is close enough to what
         somebody is paid that treating it as an ordinary report would leak pay across the company.
-        §6 gates this explicitly. Operations managers are deliberately out: they own the job, not
-        its margin, and the number they would act on — budget against actual hours — is on the
-        ticket already.
+        §6 gates this explicitly.
 
         `admin_manager` joined 2026-09-04 at EA's explicit instruction: PD's rebuild table names
         "P&L" among the partial-finance grant, alongside a general "cannot see cost or margin" that
         would otherwise read as excluding it — asked directly and confirmed the explicit grant
         controls. docs/DECISIONS.md #151.
+
+        `operations_manager` joined the same day, EA's own correction to #151 (docs/DECISIONS.md
+        #175): DJ's earlier "cannot see cost, margin or project P&L" is lifted, an outright grant —
+        the "own the job, not its margin" reasoning this block used to carry no longer holds.
       */
-      defaultRoles: ["president", "vice_president", "finance_officer", "admin_manager"],
+      defaultRoles: [
+        "president",
+        "vice_president",
+        "finance_officer",
+        "admin_manager",
+        "operations_manager",
+      ],
     },
     {
       key: "ar.view",

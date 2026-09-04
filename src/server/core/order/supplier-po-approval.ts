@@ -244,6 +244,90 @@ async function notifyApprovers(
   }
 }
 
+/**
+ * PD's endorsement (docs/DECISIONS.md #175, EA's own correction to #151).
+ *
+ * Mirrors `endorseCashAdvanceService` exactly, and for the same reason: it is deliberately not a
+ * step in the `ApprovalRequest` engine below, so it can never collide with the Vice President's own
+ * decision the way two commits for one fact once did (AIESCA-260127). It is a second, independent
+ * fact about the PO — a plain status stamp — and it is optional: the Vice President or President can
+ * still decide straight from `pending_approval`. `endorsed` does not unlock sending the PO to the
+ * supplier — that still requires `approved`.
+ */
+export async function endorseSupplierPoService(actor: ActorMeta, supplierPOId: string) {
+  const po = await db.supplierPO.findFirst({
+    where: { id: supplierPOId, deletedAt: null },
+  });
+  if (!po) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That supplier PO no longer exists." });
+  }
+  if (po.status !== "pending_approval") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${po.number} is ${po.status.replace(/_/g, " ")}, so there is nothing to endorse.`,
+    });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.supplierPO.update({
+      where: { id: po.id },
+      data: {
+        status: "endorsed",
+        endorsedById: actor.actorId,
+        endorsedAt: new Date(),
+        version: { increment: 1 },
+      },
+    });
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "endorsed",
+      entityType: SUPPLIER_PO_ENTITY_TYPE,
+      entityId: po.id,
+      summary: `Endorsed ${po.number} — ${po.currency} ${po.total.toString()}. Still needs the Vice President's approval.`,
+      diff: { status: { from: "pending_approval", to: "endorsed" } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  const request = await findPendingSupplierPoApproval(po.id);
+  if (request) {
+    try {
+      const rule = await db.approvalRule.findUnique({
+        where: { key: SUPPLIER_PO_APPROVAL_RULE_KEY },
+      });
+      if (rule) {
+        const { inboxRoles } = resolveApprovalFallback(rule, request.requestedAt);
+        const recipients = await db.user.findMany({
+          where: {
+            isActive: true,
+            deletedAt: null,
+            roles: { some: { role: { key: { in: [...inboxRoles] } } } },
+          },
+          select: { id: true },
+        });
+        for (const recipient of recipients) {
+          await notify({
+            recipientId: recipient.id,
+            type: SUPPLIER_PO_APPROVAL_REQUESTED_NOTIFICATION_TYPE,
+            title: `${po.number} was endorsed by ${actor.actorLabel} — still needs your approval`,
+            body: `${actor.actorLabel} endorsed this supplier PO ahead of you. It cannot be sent until you decide it.`,
+            entityType: SUPPLIER_PO_ENTITY_TYPE,
+            entityId: po.id,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[supplier-po] failed to notify approvers of an endorsement", error);
+    }
+  }
+
+  return { status: "endorsed" as const };
+}
+
 export async function decideSupplierPoApprovalService(
   actor: ActorMeta,
   approver: AuthedUser,
@@ -256,7 +340,9 @@ export async function decideSupplierPoApprovalService(
   if (!po) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That supplier PO no longer exists." });
   }
-  if (po.status !== "pending_approval") {
+  // `endorsed` is a valid starting state too (docs/DECISIONS.md #175) — PD's endorsement never
+  // blocks the Vice President's or President's own decision, it only precedes it optionally.
+  if (po.status !== "pending_approval" && po.status !== "endorsed") {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
@@ -333,7 +419,7 @@ export async function decideSupplierPoApprovalService(
             ? ` as fallback approver, ${elapsedHours.toFixed(1)} working hours after submission`
             : "")
         : `Sent ${po.number} back to draft — ${comment}`,
-      diff: { status: { from: "pending_approval", to: approved ? "approved" : "draft" } },
+      diff: { status: { from: po.status, to: approved ? "approved" : "draft" } },
       ip: actor.ip,
       userAgent: actor.userAgent,
       requestId: actor.requestId,

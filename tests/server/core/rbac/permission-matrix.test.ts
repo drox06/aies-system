@@ -34,8 +34,11 @@ async function permissionsForRole(roleKey: string): Promise<Set<string>> {
 }
 
 describe("permission matrix (against seeded data)", () => {
-  it("only president and vice_president can view cost/margin", async () => {
-    const roleGrantsCost: Record<string, boolean> = {
+  it("only president and vice_president can see project.view_pl", async () => {
+    // Dead and unenforced (grep confirms zero `p("project.view_pl")` gates anywhere in src/) —
+    // kept narrow regardless, since nothing has ever asked to widen the dead key itself, only the
+    // real one below.
+    const roleGrantsPl: Record<string, boolean> = {
       president: true,
       vice_president: true,
       admin_manager: false,
@@ -47,12 +50,34 @@ describe("permission matrix (against seeded data)", () => {
       viewer: false,
     };
 
+    for (const [roleKey, shouldHaveAccess] of Object.entries(roleGrantsPl)) {
+      const permissions = await permissionsForRole(roleKey);
+      expect(permissions.has("project.view_pl"), `project.view_pl for role "${roleKey}"`).toBe(
+        shouldHaveAccess,
+      );
+    }
+  }, 30_000);
+
+  it("gates finance.view_cost — the real cost/margin signal, wider since #151/#175", async () => {
+    // Used to move in lockstep with project.view_pl (the dead key above), true only until #151 gave
+    // PD (admin_manager) explicit P&L access and #175 gave DJ (operations_manager) the same —
+    // docs/DECISIONS.md #151, #175. The two permissions are unrelated keys with unrelated
+    // enforcement; pinning them to one shared map was what let this go stale for a day.
+    const roleGrantsCost: Record<string, boolean> = {
+      president: true,
+      vice_president: true,
+      admin_manager: true,
+      operations_manager: true,
+      marketing_manager: false,
+      technician: false,
+      sales: false,
+      finance_officer: false,
+      viewer: false,
+    };
+
     for (const [roleKey, shouldHaveAccess] of Object.entries(roleGrantsCost)) {
       const permissions = await permissionsForRole(roleKey);
       expect(permissions.has("finance.view_cost"), `finance.view_cost for role "${roleKey}"`).toBe(
-        shouldHaveAccess,
-      );
-      expect(permissions.has("project.view_pl"), `project.view_pl for role "${roleKey}"`).toBe(
         shouldHaveAccess,
       );
     }
@@ -127,10 +152,11 @@ describe("the rebuild's duties table, applied (docs/DECISIONS.md #151)", () => {
       expect(permissions.has(key), key).toBe(true);
     }
     expect(permissions.has("quotation.approve")).toBe(false);
+    // Unaffected by #175 — #151 never named quotation.view_all for PD, only for DJ (see below).
     expect(permissions.has("quotation.view_all")).toBe(false);
   }, 30_000);
 
-  it("gives the admin manager supplier accreditation and partial finance, but not cost", async () => {
+  it("gives the admin manager supplier accreditation, full finance, and CRM deletion (docs/DECISIONS.md #175)", async () => {
     const permissions = await permissionsForRole("admin_manager");
     for (const key of [
       "supplier.approve",
@@ -141,20 +167,43 @@ describe("the rebuild's duties table, applied (docs/DECISIONS.md #151)", () => {
       "invoice.cancel",
       "accounting.export",
       "payables.manage",
-      // Explicitly confirmed against the source's own apparent contradiction ("P&L" granted,
-      // "cannot see cost or margin" stated generally) — the named grant controls.
+      // Explicitly confirmed against #151's own apparent contradiction ("P&L" granted, "cannot see
+      // cost or margin" stated generally) — the named grant controls.
       "pnl.view",
+      // #175, EA's own correction to #151: "cannot see cost or margin" is lifted, an outright
+      // grant — PD's title became Admin Manager *and* Purchaser for exactly this.
+      "finance.view_cost",
+      // #175: "cannot approve a material request" is lifted, a full and final grant — material
+      // requests are operational stock movement, not finance, so no endorsement tier applies.
+      "material_request.approve",
+      // #175: "cannot delete or merge CRM records" is lifted, an outright grant.
+      "crm.delete",
+      "crm.merge",
     ]) {
       expect(permissions.has(key), key).toBe(true);
     }
-    // "Cannot ... see cost or margin" still holds for the one other cost signal in the system.
-    expect(permissions.has("finance.view_cost")).toBe(false);
-    expect(permissions.has("material_request.approve")).toBe(false);
-    expect(permissions.has("cash_advance.approve")).toBe(false);
-    expect(permissions.has("supplier_po.approve")).toBe(false);
   }, 30_000);
 
-  it("gives the operations manager full quotation authorship, but not procurement", async () => {
+  it("gives the admin manager and operations manager an endorsement, not final approval, on cash advances and supplier POs (docs/DECISIONS.md #175)", async () => {
+    const admin = await permissionsForRole("admin_manager");
+    const ops = await permissionsForRole("operations_manager");
+
+    // "PD and DJ approval are more akin to endorsement to KJ" — EA's own words. Endorsing is a real
+    // grant, but the final decision — and the permission that names it — stays with the Vice
+    // President and President alone, unchanged from before #175.
+    expect(admin.has("cash_advance.approve")).toBe(false);
+    expect(ops.has("cash_advance.approve")).toBe(false);
+    expect(admin.has("cash_advance.endorse")).toBe(true);
+    expect(ops.has("cash_advance.endorse")).toBe(true);
+
+    expect(admin.has("supplier_po.approve")).toBe(false);
+    expect(admin.has("supplier_po.endorse")).toBe(true);
+    // DJ is deliberately absent here — #151's DJ paragraph never named supplier PO approval at
+    // all, only cash advance approval. Endorsement follows the same line PD's own grant does.
+    expect(ops.has("supplier_po.endorse")).toBe(false);
+  }, 30_000);
+
+  it("gives the operations manager full quotation authorship, procurement, and cost visibility (docs/DECISIONS.md #175)", async () => {
     const permissions = await permissionsForRole("operations_manager");
     for (const key of [
       "quotation.create",
@@ -163,19 +212,22 @@ describe("the rebuild's duties table, applied (docs/DECISIONS.md #151)", () => {
       "quotation.send",
       "quotation.delete",
       "quotation.view_archive",
+      // #175: "cannot view... quotations beyond his own" is lifted, an outright grant.
+      "quotation.view_all",
+      // #175: "cannot record a goods receipt, raise a supplier PO" is lifted — restored the same
+      // day #151 withdrew it, EA's own correction.
+      "goods_receipt.create",
+      "supplier_po.create",
+      // #175: "cannot see cost, margin or project P&L" is lifted, an outright grant.
+      "finance.view_cost",
+      "pnl.view",
     ]) {
       expect(permissions.has(key), key).toBe(true);
     }
-    // "Cannot: record a goods receipt, raise a supplier PO" — named explicitly, withdrawn from what
-    // operations_manager held before this change.
-    expect(permissions.has("goods_receipt.create")).toBe(false);
-    expect(permissions.has("supplier_po.create")).toBe(false);
-    // Confirmed against the source's own apparent contradiction ("views all... sales orders"
-    // granted, "not... beyond his own" stated generally) — the named grant controls, and this one
-    // is also DJ's pre-existing, unchanged access.
+    // Confirmed against #151's own apparent contradiction ("views all... sales orders" granted,
+    // "not... beyond his own" stated generally) — the named grant controls, and this one is also
+    // DJ's pre-existing, unchanged access.
     expect(permissions.has("sales_order.view_all")).toBe(true);
-    expect(permissions.has("finance.view_cost")).toBe(false);
-    expect(permissions.has("pnl.view")).toBe(false);
   }, 30_000);
 
   it("gives the sales and marketing manager delete and archive, completing the lifecycle he already had", async () => {

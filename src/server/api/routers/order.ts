@@ -28,6 +28,7 @@ import {
 import { buildSupplierPoEmailText } from "@/server/core/order/pdf/render";
 import {
   decideSupplierPoApprovalService,
+  endorseSupplierPoService,
   getSupplierPoApprovalStateService,
   submitSupplierPoForApprovalService,
 } from "@/server/core/order/supplier-po-approval";
@@ -377,6 +378,11 @@ export const orderRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => decideSupplierPoApprovalService(actorMeta(ctx), ctx.user, input)),
+
+  /** PD's endorsement, ahead of the Vice President's own decision above (docs/DECISIONS.md #175). */
+  endorseSupplierPo: p("supplier_po.endorse")
+    .input(z.object({ supplierPOId: z.string() }))
+    .mutation(({ ctx, input }) => endorseSupplierPoService(actorMeta(ctx), input.supplierPOId)),
 
   supplierPoApprovalState: p("supplier_po.create")
     .input(z.object({ supplierPOId: z.string() }))

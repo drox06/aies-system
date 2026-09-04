@@ -42,7 +42,10 @@ const PERMISSIONS: PermissionSeed[] = [
     key: "finance.view_cost",
     label: "View cost & margin",
     group: "Finance",
-    defaultRoles: ["president", "vice_president"],
+    // `admin_manager` and `operations_manager` joined 2026-09-04, EA's own correction to #151
+    // (docs/DECISIONS.md #175): both PD's and DJ's earlier "cannot see cost or margin" are lifted,
+    // outright grants rather than a new gated workflow.
+    defaultRoles: ["president", "vice_president", "admin_manager", "operations_manager"],
   },
   {
     key: "project.view_pl",
@@ -60,7 +63,23 @@ const PERMISSIONS: PermissionSeed[] = [
     key: "cash_advance.approve",
     label: "Approve cash advances",
     group: "Finance",
+    // Final authority only — eligibility for the real decision is resolved from the
+    // `ApprovalRule` row (primaryApproverRole/fallbackApproverRole), not from this list, so this
+    // stays exactly what it always was. `cash_advance.endorse` (below) is PD's and DJ's actual
+    // grant from EA's correction to #151 — a distinct, earlier, non-final step.
     defaultRoles: ["vice_president", "president"],
+  },
+  {
+    key: "cash_advance.endorse",
+    label: "Endorse a cash advance ahead of the Vice President",
+    group: "Finance",
+    // EA's own correction to #151 (docs/DECISIONS.md #175): PD's and DJ's earlier "cannot approve
+    // cash advances" becomes an endorsement, not a final decision — "more akin to endorsement to
+    // KJ" in EA's own words. Endorsing moves the advance to `endorsed`; it still cannot be released
+    // until the Vice President or President separately approves it via the unchanged flow above.
+    // No scoping to "their own personnel" — there is no manager/reports-to field in this schema yet
+    // and EA confirmed role-based (not person-scoped) access is fine until real hires exist.
+    defaultRoles: ["admin_manager", "operations_manager"],
   },
   {
     key: "cash_advance.approve_extension",

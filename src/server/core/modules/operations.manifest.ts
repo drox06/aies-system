@@ -222,7 +222,9 @@ export const operationsManifest = defineManifest({
       key: "material_request.approve",
       label: "Approve a material request",
       group: "Operations",
-      defaultRoles: ["president", "vice_president", "operations_manager"],
+      // `admin_manager` added 2026-09-04 — EA's own correction to #151 (docs/DECISIONS.md #175):
+      // PD's earlier "cannot approve a material request" is lifted, an outright grant.
+      defaultRoles: ["president", "vice_president", "operations_manager", "admin_manager"],
     },
     {
       key: "material_request.issue",

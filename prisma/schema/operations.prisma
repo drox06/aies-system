@@ -279,9 +279,18 @@ model CashAdvance {
   /// are different and nobody currently sees the gap.
   neededBy DateTime
 
-  /// draft | pending_approval | approved | rejected | released | liquidated |
+  /// draft | pending_approval | endorsed | approved | rejected | released | liquidated |
   /// partially_liquidated | overdue_liquidation | extended (§5).
+  ///
+  /// `endorsed` added 2026-09-04, EA's own correction to #151 (docs/DECISIONS.md #175): an
+  /// optional step PD or DJ can take from `pending_approval`, ahead of the Vice President's own
+  /// decision. It changes nothing about who can release the money — see `releaseCashAdvanceService`,
+  /// which still requires `approved` — and it is not required: the Vice President or President can
+  /// still decide straight from `pending_approval`, exactly as before.
   status String @default("draft")
+
+  endorsedById String?
+  endorsedAt   DateTime?
 
   approvedById    String?
   approvedAt      DateTime?

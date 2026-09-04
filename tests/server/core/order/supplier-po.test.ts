@@ -7,6 +7,7 @@ import {
 } from "@/server/core/order/sales-order-service";
 import {
   decideSupplierPoApprovalService,
+  endorseSupplierPoService,
   submitSupplierPoForApprovalService,
 } from "@/server/core/order/supplier-po-approval";
 import {
@@ -366,6 +367,76 @@ describe("§5's approval", () => {
     await expect(
       decideSupplierPoApprovalService(actor, buyer, { supplierPOId: po.id, decision: "approved" }),
     ).rejects.toThrow(/not eligible/);
+  }, 60_000);
+});
+
+/**
+ * PD's endorsement, ahead of the Vice President's own decision (docs/DECISIONS.md #175, EA's own
+ * correction to #151: "PD and DJ approval are more akin to endorsement to KJ").
+ *
+ * Deliberately outside the `ApprovalRequest` engine — see `endorseSupplierPoService`'s doc comment
+ * for why — so what matters here is exactly the boundary that separation creates: endorsing must
+ * never let the PO be sent on its own, and must never get in the way of the Vice President's
+ * existing, unmodified authority to decide directly.
+ */
+describe("§5's endorsement — PD's, ahead of the Vice President (#175)", () => {
+  it("moves a pending PO to endorsed and records who", async () => {
+    const { po } = await makeDraftPo();
+    await submitSupplierPoForApprovalService(actor, { supplierPOId: po.id });
+
+    const result = await endorseSupplierPoService(actor, po.id);
+    expect(result.status).toBe("endorsed");
+
+    const stored = await db.supplierPO.findUniqueOrThrow({ where: { id: po.id } });
+    expect(stored.status).toBe("endorsed");
+    expect(stored.endorsedById).toBe(actor.actorId);
+    expect(stored.endorsedAt).not.toBeNull();
+  }, 60_000);
+
+  it("does not let an endorsed PO be sent — approval is still required", async () => {
+    const { po } = await makeDraftPo();
+    await submitSupplierPoForApprovalService(actor, { supplierPOId: po.id });
+    await endorseSupplierPoService(actor, po.id);
+
+    await expect(sendSupplierPoService(actor, officer, { supplierPOId: po.id })).rejects.toThrow(
+      /Only an approved PO can be sent/,
+    );
+  }, 60_000);
+
+  it("does not block the Vice President from deciding straight from pending_approval", async () => {
+    const { po } = await makeDraftPo();
+    await submitSupplierPoForApprovalService(actor, { supplierPOId: po.id });
+
+    // Nobody endorsed this — the Vice President's existing, direct authority is unchanged.
+    const decided = await decideSupplierPoApprovalService(actor, officer, {
+      supplierPOId: po.id,
+      decision: "approved",
+    });
+    expect(decided.supplierPoStatus).toBe("approved");
+  }, 60_000);
+
+  it("lets the Vice President decide an endorsed PO", async () => {
+    const { po } = await makeDraftPo();
+    await submitSupplierPoForApprovalService(actor, { supplierPOId: po.id });
+    await endorseSupplierPoService(actor, po.id);
+
+    const decided = await decideSupplierPoApprovalService(actor, officer, {
+      supplierPOId: po.id,
+      decision: "approved",
+    });
+    expect(decided.supplierPoStatus).toBe("approved");
+
+    const stored = await db.supplierPO.findUniqueOrThrow({ where: { id: po.id } });
+    expect(stored.status).toBe("approved");
+    expect(stored.endorsedById).toBe(actor.actorId);
+  }, 60_000);
+
+  it("refuses to endorse anything other than a pending PO", async () => {
+    const { po } = await makeDraftPo();
+    await submitSupplierPoForApprovalService(actor, { supplierPOId: po.id });
+    await endorseSupplierPoService(actor, po.id);
+
+    await expect(endorseSupplierPoService(actor, po.id)).rejects.toThrow(/nothing to endorse/);
   }, 60_000);
 });
 

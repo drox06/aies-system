@@ -106,7 +106,10 @@ export async function createGoodsReceiptService(
   if (!po) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That supplier PO no longer exists." });
   }
-  if (po.status === "draft" || po.status === "pending_approval") {
+  // `endorsed` added 2026-09-04 (docs/DECISIONS.md #175) — PD's endorsement, still short of the
+  // Vice President's own approval. An endorsed PO has not been sent any more than a pending one
+  // has, so the same rejection applies.
+  if (po.status === "draft" || po.status === "pending_approval" || po.status === "endorsed") {
     // Goods cannot arrive against an order nobody has placed. If they have, the order was placed
     // outside the system and the fix is to record it, not to receive against a draft.
     throw new TRPCError({
