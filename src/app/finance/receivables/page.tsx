@@ -129,6 +129,19 @@ export default function ReceivablesPage() {
                     arrives.
                   </p>
                 )}
+
+                {/* §3.3/§5's statement of account, per customer, generated on demand rather than
+                    stored — see StatementOfAccountDocument's own note on why. docs/DECISIONS.md #181. */}
+                <p className="mt-2 text-xs">
+                  <a
+                    href={`/api/customer-accounts/${row.accountId}/statement-of-account/pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    {row.accountName}&rsquo;s statement of account
+                  </a>
+                </p>
               </Card>
             ))}
           </div>

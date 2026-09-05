@@ -245,6 +245,30 @@ function StatementRow({ row, onChanged }: { row: Statement; onChanged: () => voi
       </p>
 
       {/*
+        §3's other document — the one this screen is actually named after. issueStatementService used
+        to only flip a status column; there was nothing here a person could open, print or attach to
+        an email. docs/DECISIONS.md #181.
+      */}
+      <p className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs">
+        <a
+          href={`/api/billing-statements/${row.id}/pdf`}
+          target="_blank"
+          rel="noreferrer"
+          className={`underline ${row.status === "cancelled" ? "text-danger" : ""}`}
+        >
+          Download statement PDF
+        </a>
+        <a
+          href={`/api/customer-accounts/${row.accountId}/statement-of-account/pdf`}
+          target="_blank"
+          rel="noreferrer"
+          className="underline text-text-muted"
+        >
+          {row.accountName}&rsquo;s statement of account
+        </a>
+      </p>
+
+      {/*
         §3.2's expected net collectible.
 
         Shown on every withholding customer's statement, because the spec's reason is a human one:

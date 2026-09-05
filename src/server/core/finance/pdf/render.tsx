@@ -11,10 +11,22 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
+// The logo cache and date formatter live with the quotation PDFs, which reached this first — reused
+// here rather than duplicated, so there is one cached read of the ~200kB lockup for the whole process.
+import { logoDataUri } from "@/server/core/quotation/pdf/render";
 import {
   ServiceInvoiceDocument,
   type ServiceInvoiceDocumentProps,
 } from "@/server/core/finance/pdf/ServiceInvoiceDocument";
+import {
+  BillingStatementDocument,
+  type BillingStatementDocumentProps,
+} from "@/server/core/finance/pdf/BillingStatementDocument";
+import {
+  StatementOfAccountDocument,
+  type StatementOfAccountDocumentProps,
+} from "@/server/core/finance/pdf/StatementOfAccountDocument";
+import { ageingBucket, type AgeingBucket } from "@/server/core/finance/invoice-rules";
 
 /**
  * Assembling §3's service invoice from the records it was derived from.
@@ -113,5 +125,170 @@ export async function buildServiceInvoicePdfProps(
 export async function renderServiceInvoicePdf(invoiceId: string): Promise<Buffer> {
   return renderToBuffer(
     <ServiceInvoiceDocument {...await buildServiceInvoicePdfProps(invoiceId)} />,
+  );
+}
+
+/**
+ * Assembling §3's billing statement — the document that asks for the money.
+ *
+ * Unlike the service invoice, nothing here is frozen at a prior moment: a statement can move through
+ * `partially_paid` while more payments arrive, so `amountPaid`/`balance` are read live rather than
+ * carried from when it was issued. That is correct for this document specifically, because it is not
+ * the BIR record — it is allowed to say "here is what is now outstanding."
+ */
+export async function buildBillingStatementPdfProps(
+  statementId: string,
+): Promise<BillingStatementDocumentProps> {
+  const statement = await db.billingStatement.findFirst({
+    where: { id: statementId, deletedAt: null },
+    include: { lines: { orderBy: { lineNo: "asc" } } },
+  });
+  if (!statement) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That statement no longer exists." });
+  }
+
+  const [account, salesOrder] = await Promise.all([
+    db.customerAccount.findUnique({
+      where: { id: statement.accountId },
+      select: {
+        name: true,
+        legalName: true,
+        tin: true,
+        billingAddress: true,
+        withholdsEWT: true,
+      },
+    }),
+    statement.salesOrderId
+      ? db.salesOrder.findUnique({
+          where: { id: statement.salesOrderId },
+          select: { number: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    company: getCompanyDetails(),
+    logoSrc: logoDataUri(),
+    statement: {
+      number: statement.number,
+      type: statement.type,
+      status: statement.status,
+      statementDate: statement.statementDate,
+      dueDate: statement.dueDate,
+      subtotal: statement.subtotal,
+      vatMode: statement.vatMode as BillingStatementDocumentProps["statement"]["vatMode"],
+      vatAmount: statement.vatAmount,
+      total: statement.total,
+      expectedWithholdingAmount: statement.expectedWithholdingAmount,
+      expectedNetCollectible: statement.expectedNetCollectible,
+      amountPaid: statement.amountPaid,
+      amountWithheldCredited: statement.amountWithheldCredited,
+      balance: statement.balance,
+      poReference: statement.poReference,
+      drReferences: statement.drReferences,
+      srReferences: statement.srReferences,
+      tcCertificateRef: statement.tcCertificateRef,
+      notes: statement.notes,
+      terms: statement.terms,
+      cancelledReason: statement.cancelledReason,
+    },
+    salesOrderNumber: salesOrder?.number ?? null,
+    customer: {
+      name: account?.legalName ?? account?.name ?? "Unknown customer",
+      tin: account?.tin ?? null,
+      addressLines: addressLines(account?.billingAddress),
+      withholdsEWT: account?.withholdsEWT ?? false,
+    },
+    lines: statement.lines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity.toString(),
+      unit: line.unit,
+      unitPrice: line.unitPrice,
+      lineTotal: line.lineTotal,
+    })),
+  };
+}
+
+export async function renderBillingStatementPdf(statementId: string): Promise<Buffer> {
+  return renderToBuffer(
+    <BillingStatementDocument {...await buildBillingStatementPdfProps(statementId)} />,
+  );
+}
+
+/**
+ * Assembling §3.3/§5's statement of account — one customer's open statements, aged, generated fresh
+ * on every request rather than read from a stored row (there is no stored row; see the document's own
+ * note on why not).
+ */
+export async function buildStatementOfAccountPdfProps(
+  accountId: string,
+): Promise<StatementOfAccountDocumentProps> {
+  const account = await db.customerAccount.findFirst({
+    where: { id: accountId, deletedAt: null },
+    select: {
+      name: true,
+      legalName: true,
+      tin: true,
+      code: true,
+      billingAddress: true,
+      withholdsEWT: true,
+    },
+  });
+  if (!account) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
+  }
+
+  // The exact filter `receivablesService` uses, scoped to one account: open, unpaid, not a draft
+  // nobody has asked the customer for yet.
+  const statements = await db.billingStatement.findMany({
+    where: {
+      accountId,
+      deletedAt: null,
+      status: { in: ["issued", "partially_paid", "overdue"] },
+      balance: { gt: 0 },
+    },
+    orderBy: { dueDate: "asc" },
+  });
+
+  const now = new Date();
+  const rows = statements.map((statement) => ({
+    number: statement.number,
+    statementDate: statement.statementDate,
+    dueDate: statement.dueDate,
+    total: statement.total,
+    amountPaid: statement.amountPaid,
+    balance: statement.balance,
+    bucket: ageingBucket(statement.dueDate, now),
+  }));
+
+  const buckets: Record<AgeingBucket, number> = {
+    current: 0,
+    "1-30": 0,
+    "31-60": 0,
+    "61-90": 0,
+    "90+": 0,
+  };
+  for (const row of rows) buckets[row.bucket] += row.balance;
+
+  return {
+    company: getCompanyDetails(),
+    logoSrc: logoDataUri(),
+    generatedAt: now,
+    customer: {
+      name: account.legalName ?? account.name,
+      code: account.code,
+      tin: account.tin ?? null,
+      addressLines: addressLines(account.billingAddress),
+      withholdsEWT: account.withholdsEWT,
+    },
+    rows,
+    buckets,
+    totalOutstanding: rows.reduce((sum, row) => sum + row.balance, 0),
+  };
+}
+
+export async function renderStatementOfAccountPdf(accountId: string): Promise<Buffer> {
+  return renderToBuffer(
+    <StatementOfAccountDocument {...await buildStatementOfAccountPdfProps(accountId)} />,
   );
 }

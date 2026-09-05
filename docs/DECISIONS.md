@@ -6687,3 +6687,71 @@ clause survived the round trip unchanged. Caught and fixed one bug in the proces
 arrives from `quotation.get` as a real `Date` object (superjson revives it), not the string
 `page.tsx`'s own type cast had always claimed; `TermsPanel` crashed calling `.slice` on it until
 normalised. `tsc --noEmit` and `eslint` clean.
+
+---
+
+## #181 — Two billing PDFs that never existed: the demand for payment, and the statement of account
+
+**2026-09-06.** Asked directly: *"is there no draft pdf or any document that needs to be sent to the
+customer so they know we are asking them for payment?"* There was not. Tracing §3's two-document model
+against the actual PDF routes in the app (`quotations`, `rfqs`, `supplier-pos`, `tc`, `methodologies`,
+`service-invoices`, `inspections` — no `billing-statements`) confirmed it: `issueStatementService`
+([invoice-service.ts:230](../src/server/core/finance/invoice-service.ts#L230)) only ever flipped
+`BillingStatement.status` from `draft` to `issued` and emitted `billing_statement.issued` to no
+subscriber. Nothing rendered, nothing printable, nothing attachable to an email. Finance could tell a
+customer "your statement has been issued" and had no document to point to. Separately, §3.3 and §5 each
+name, verbatim, a second missing document: *"Statement of account PDF per customer, generated on
+demand."*
+
+**Two documents, not one, because they answer different questions.** A `BillingStatementDocument`
+demands payment for one milestone — the exact record `raiseStatementService` writes. A
+`StatementOfAccountDocument` says what a customer owes *right now*, across every open statement, aged.
+The second has no stored row at all: it is generated fresh from `receivablesService`'s own filter
+(`status: {in: [issued, partially_paid, overdue]}, balance: {gt: 0}`) scoped to one account, because
+there is no version to keep in step with — two requests an hour apart can legitimately disagree, and
+that is correct.
+
+**The statement PDF never shows the invoice's three-way VAT split.** §3.3 says "Invoice PDFs show the
+VAT breakdown" — invoice PDFs specifically. A `BillingStatement` doesn't even store the
+vatable/exempt/zero-rated breakdown `computeStatementTotals` computes (only `subtotal`/`vatAmount`/
+`total` are persisted), and recomputing it from lines at print time would risk a demand document that
+quietly disagreed with the invoice eventually raised against it. The statement prints subtotal, VAT (or
+the VAT treatment's label when the amount is zero), and total — accurate to what is actually stored,
+and correctly scoped to what a *demand* document needs rather than what a *receipt* does.
+
+**Draft and cancelled both render, both say so.** A finance officer previewing a draft before issuing
+it needs to see the real document, watermarked so it can never be mistaken for one already sent. A
+cancelled statement renders with a banner and its reason, rather than refusing — it is retained, not
+deleted (same rule as the invoice series), so it has to remain producible. The withholding-expectation
+note ("Expect PHP X to arrive...") is suppressed on a cancelled statement specifically — caught in the
+live PDF check below, where it printed underneath a banner reading "not a request for payment," which
+is a contradiction nobody should have to notice on their own.
+
+**Gating**: the per-statement PDF route uses `finance.view`, mirroring `service-invoices/[id]/pdf`'s
+own reasoning exactly — reading a copy back to check a figure or resend it is not the same act as
+raising or issuing one, and requiring the heavier permission would push people toward emailing PDFs to
+each other instead. The statement-of-account route uses `ar.view`, matching `finance.receivables`,
+since it is that exact report sliced to one account rather than a general finance read.
+
+**Where the links live**: `/finance/statements` gained "Download statement PDF" per row (next to where
+the existing service-invoice link already sits) and a "‹customer›'s statement of account" link on the
+same row; `/finance/receivables` gained the same statement-of-account link per row, since every row
+there already carries `accountId`. No new screen was built — both are plain `<a href>` tags to route
+handlers, exactly like the service-invoice pattern.
+
+**Verified**: `statement-pdf.test.ts`, 9 new tests against the real database — a statement's props
+carry the right customer, TIN, PO reference and line totals; a withholding account's expected net
+collectible is shown only until something is actually paid; a draft and a cancelled statement both
+render without throwing; a deleted statement or account is refused; the statement-of-account correctly
+excludes a draft, a fully-paid statement and a cancelled one, buckets the remaining one by how overdue
+it is, and renders correctly — including the empty case, printed rather than left blank. All pass, and
+the pre-existing `invoice.test.ts` (18) and `quotation/pdf.test.ts` (9) still pass unchanged. Checked
+live: seeded a real account and statements as a throwaway `vice_president`-scoped user, opened both PDFs
+through the actual route handlers, and read the rendered bytes back page by page — caught and fixed two
+real cosmetic bugs no automated test would have: adjacent table columns (`Qty`/`Unit`, right-aligned
+next to left-aligned with no gap between them) printed as one glued word ("QtyUnit"), and the long-form
+date (`asDate`, "September 6, 2026") overflowed a narrow table column into the next one on the
+statement-of-account's open-statements table — fixed with a `paddingRight` on the first and a new
+compact `shortDate` formatter for the second. Confirmed the "Download statement PDF" and "statement of
+account" links render correctly on both `/finance/statements` and `/finance/receivables`. `tsc --noEmit`
+and `eslint` clean. Verification account, statements and user deleted afterward.
