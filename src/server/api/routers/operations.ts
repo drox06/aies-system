@@ -86,6 +86,7 @@ import {
 } from "@/server/core/operations/field-sync";
 import {
   bookCourierService,
+  closeDeliveryFromFieldService,
   completeDeliveryService,
   deliverableLinesForTicketService,
   todaysDropsService,
@@ -1606,6 +1607,43 @@ export const operationsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => completeDeliveryService(actorMeta(ctx), input)),
+
+  /**
+   * Delivery mode's own "close delivery" — logging the visit and completing it in one queued write,
+   * offline-safe like `logDeliveryAttempt` above and for the same reason: the driver is standing at
+   * the gate, not at a desk with a connection.
+   */
+  closeDeliveryFromField: p("delivery.execute")
+    .input(
+      z.object({
+        ticketId: z.string(),
+        contactPersonSought: z.string().max(200).nullish(),
+        photoFileIds: z.array(z.string()).optional(),
+        geo: z.object({ lat: z.number(), lng: z.number() }).nullish(),
+        notes: z.string().max(5000).nullish(),
+        recipientName: z.string().min(1).max(200),
+        recipientPosition: z.string().max(200).nullish(),
+        signatureFileId: z.string(),
+        clientUuid: z.string().uuid().optional(),
+        capturedAt: z.coerce.date().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { clientUuid, capturedAt, ...close } = input;
+      if (!clientUuid) return closeDeliveryFromFieldService(actorMeta(ctx), close);
+
+      return runFieldWrite({
+        clientUuid,
+        userId: ctx.user.id,
+        operation: "delivery.close",
+        payload: close,
+        capturedAt,
+        run: async () => {
+          const result = await closeDeliveryFromFieldService(actorMeta(ctx), close);
+          return { result, entityType: "DeliveryTicketFlow", entityId: close.ticketId };
+        },
+      });
+    }),
 
   // ---- §15's checklists ---------------------------------------------------------------------
 

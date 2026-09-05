@@ -3,7 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { enqueue } from "@/lib/offline/outbox";
-import { attachPhoto, browserUpload, uploadPending } from "@/lib/offline/attachments";
+import {
+  attachPhoto,
+  browserUpload,
+  uploadPending,
+  uploadPendingSplit,
+} from "@/lib/offline/attachments";
 import { useSync, describeAge } from "@/lib/offline/use-sync";
 import {
   ATTEMPT_FAILURE_CAUSES,
@@ -16,6 +21,14 @@ import type { AppRouter } from "@/server/api/root";
 
 /** Straight off the router, so the screen cannot drift from what the query actually returns. */
 type Drop = inferRouterOutputs<AppRouter>["operations"]["todaysDrops"]["drops"][number];
+
+/**
+ * How the closing signature photo is told apart from the drop's general photos once both are sitting
+ * in the same offline attachment queue — see `uploadPendingSplit`'s own note on why a filename rather
+ * than a new column.
+ */
+const SIGNATURE_PHOTO_FILENAME = "__signed_dr__.jpg";
+const isSignaturePhoto = (filename: string) => filename === SIGNATURE_PHOTO_FILENAME;
 
 /**
  * specs/04-operations-projects.md §14's delivery mode.
@@ -58,11 +71,34 @@ export default function FieldPage() {
   });
 
   const logAttempt = trpc.operations.logDeliveryAttempt.useMutation();
+  const closeDelivery = trpc.operations.closeDeliveryFromField.useMutation();
 
   const sync = useSync(async (item) => {
     try {
       // Photos before the write, always. A write that landed first would reference photographs that
       // may never arrive — a record that looks complete and is not.
+      if (item.operation === "delivery.close") {
+        const payload = item.payload as Parameters<typeof closeDelivery.mutateAsync>[0];
+        const { signatureFileId, photoFileIds } = await uploadPendingSplit(
+          item.clientUuid,
+          browserUpload("DeliveryTicketFlow", payload.ticketId),
+          isSignaturePhoto,
+        );
+        if (!signatureFileId) {
+          // The photo never made it into this browser's queue at all — nothing to retry towards.
+          return { rejected: true, reason: "No photo of the signed receipt was captured." };
+        }
+
+        await closeDelivery.mutateAsync({
+          ...payload,
+          signatureFileId,
+          photoFileIds: photoFileIds.length > 0 ? photoFileIds : undefined,
+          clientUuid: item.clientUuid,
+          capturedAt: new Date(item.capturedAt),
+        });
+        return {};
+      }
+
       const payload = item.payload as Parameters<typeof logAttempt.mutateAsync>[0];
       const photoFileIds = await uploadPending(
         item.clientUuid,
@@ -254,6 +290,11 @@ export default function FieldPage() {
 function DropDetail({ drop, onQueued }: { drop: Drop; onQueued: () => void }) {
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
+  const [closing, setClosing] = useState(false);
+  const [justClosed, setJustClosed] = useState(false);
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientPosition, setRecipientPosition] = useState("");
+  const [signaturePhoto, setSignaturePhoto] = useState<File | null>(null);
 
   const queue = async (payload: Record<string, unknown>) => {
     const clientUuid = await enqueue({
@@ -270,6 +311,68 @@ function DropDetail({ drop, onQueued }: { drop: Drop; onQueued: () => void }) {
     }
     onQueued();
   };
+
+  /**
+   * The one action in Delivery mode that actually finishes the delivery — see
+   * `closeDeliveryFromFieldService`'s own note on why this is the same completion the ticket screen's
+   * "Close delivery" button produces, not a lighter, field-only version of it.
+   *
+   * The signature photo is required client-side too, not only by the server: a driver who has walked
+   * away from the gate cannot go back for it, so the point to catch a missing photo is before the tap
+   * closes this screen, not in a rejection they read later.
+   */
+  const closeDelivery = async () => {
+    if (!signaturePhoto || !recipientName.trim()) return;
+
+    const clientUuid = await enqueue({
+      procedure: "operations.closeDeliveryFromField",
+      operation: "delivery.close",
+      payload: {
+        ticketId: drop.ticketId,
+        notes: notes || null,
+        contactReached: true,
+        recipientName: recipientName.trim(),
+        recipientPosition: recipientPosition.trim() || null,
+      },
+      label: `Close delivery — ${drop.customer ?? drop.ticketNumber} — ${drop.ticketNumber}`,
+    });
+
+    for (const file of photos) {
+      await attachPhoto(clientUuid, file);
+    }
+    // Renamed, not re-encoded — this is how `uploadPendingSplit` tells it apart from the general
+    // photos above once both are sitting in the same queued write.
+    await attachPhoto(
+      clientUuid,
+      new File([signaturePhoto], SIGNATURE_PHOTO_FILENAME, { type: signaturePhoto.type }),
+    );
+
+    setClosing(false);
+    setJustClosed(true);
+  };
+
+  if (justClosed) {
+    return (
+      <div className="border-t-2 border-black p-4">
+        <p className="text-lg font-bold">Delivery closed.</p>
+        {/* The user's own requirement: the app carries an external, paper delivery receipt as far as
+            it can, but the paper itself still has to physically reach the office. A confirmation
+            screen the driver has to actively dismiss is the one place in this screen guaranteed to
+            be read, since it stands between them and closing this drop. */}
+        <p className="mt-3 border-2 border-black p-3 text-base font-semibold">
+          Remember: hand in AIES&rsquo;s signed duplicate copy of the delivery receipt to admin for
+          records.
+        </p>
+        <button
+          type="button"
+          onClick={onQueued}
+          className="mt-4 min-h-14 w-full rounded-lg border-2 border-black bg-black text-lg font-bold text-white active:opacity-80"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="border-t-2 border-black p-4">
@@ -335,13 +438,90 @@ function DropDetail({ drop, onQueued }: { drop: Drop; onQueued: () => void }) {
         />
       </label>
 
-      <button
-        type="button"
-        onClick={() => void queue({ contactReached: true, itemDelivered: true, drSigned: true })}
-        className="mt-4 min-h-14 w-full rounded-lg border-2 border-black bg-black text-lg font-bold text-white active:opacity-80"
-      >
-        Delivered and signed
-      </button>
+      {closing ? (
+        <div className="mt-4 border-2 border-black p-3">
+          <p className="text-base font-bold">Close this delivery</p>
+          <p className="mt-1 text-sm">
+            Needs the signer&rsquo;s name and a photo of the signed delivery receipt — this is what
+            actually closes the delivery and releases billing, the same as the office&rsquo;s own
+            &ldquo;Close delivery&rdquo; step.
+          </p>
+
+          <label className="mt-3 block">
+            <span className="text-sm font-semibold">Signer&rsquo;s name</span>
+            <input
+              type="text"
+              value={recipientName}
+              onChange={(event) => setRecipientName(event.target.value)}
+              className="mt-1 block w-full border-2 border-black p-2 text-base"
+            />
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-sm font-semibold">Position (optional)</span>
+            <input
+              type="text"
+              value={recipientPosition}
+              onChange={(event) => setRecipientPosition(event.target.value)}
+              className="mt-1 block w-full border-2 border-black p-2 text-base"
+            />
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-sm font-semibold">Photo of the signed delivery receipt</span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => setSignaturePhoto(event.target.files?.[0] ?? null)}
+              className="mt-1 block w-full text-base"
+            />
+            {signaturePhoto && (
+              <span className="mt-1 block text-sm font-semibold">Photo captured</span>
+            )}
+          </label>
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              disabled={!signaturePhoto || !recipientName.trim()}
+              onClick={() => void closeDelivery()}
+              className="min-h-14 flex-1 rounded-lg border-2 border-black bg-black text-base font-bold text-white active:opacity-80 disabled:opacity-40"
+            >
+              Close delivery
+            </button>
+            <button
+              type="button"
+              onClick={() => setClosing(false)}
+              className="min-h-14 rounded-lg border-2 border-black px-4 text-base font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => setClosing(true)}
+            className="mt-4 min-h-14 w-full rounded-lg border-2 border-black bg-black text-lg font-bold text-white active:opacity-80"
+          >
+            Delivered and signed — close now
+          </button>
+
+          {/* The honest middle state §13 already tracks: goods handed over, nobody has signed yet.
+              Closing later still goes through the office's own "Close delivery" step, or back here. */}
+          <button
+            type="button"
+            onClick={() =>
+              void queue({ contactReached: true, itemDelivered: true, drSigned: false })
+            }
+            className="mt-2 min-h-14 w-full rounded-lg border-2 border-black text-base font-semibold active:bg-black active:text-white"
+          >
+            Delivered, not signed yet
+          </button>
+        </>
+      )}
 
       <p className="mt-4 text-sm font-semibold">Could not deliver — why?</p>
       <div className="mt-2 grid grid-cols-1 gap-2">

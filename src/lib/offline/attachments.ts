@@ -87,6 +87,44 @@ export async function uploadPending(clientUuid: string, upload: UploadFn): Promi
   return ids;
 }
 
+/**
+ * Like `uploadPending`, but pulls one tagged attachment — the closing signature photo — out from the
+ * rest, so a "close delivery" write can send it as `signatureFileId` and everything else as
+ * `photoFileIds`. Resumes per file exactly as `uploadPending` does; only the grouping differs.
+ *
+ * Matched by filename rather than a new column on the attachments table, so a single photo capture
+ * flow (`attachPhoto`) still serves both cases — the caller tags the one that matters by naming the
+ * `File` before attaching it, and this is the only place that name is read back.
+ */
+export async function uploadPendingSplit(
+  clientUuid: string,
+  upload: UploadFn,
+  isSignature: (filename: string) => boolean,
+): Promise<{ signatureFileId: string | null; photoFileIds: string[] }> {
+  if (!offlineSupported()) return { signatureFileId: null, photoFileIds: [] };
+  const database = offlineDb();
+  const rows = await database.attachments.where("clientUuid").equals(clientUuid).toArray();
+
+  let signatureFileId: string | null = null;
+  const photoFileIds: string[] = [];
+
+  for (const row of rows) {
+    let serverFileId = row.serverFileId;
+    if (!serverFileId) {
+      serverFileId = await upload({
+        blob: row.blob,
+        filename: row.filename,
+        mimeType: row.mimeType,
+      });
+      await database.attachments.update(row.id, { serverFileId });
+    }
+    if (isSignature(row.filename)) signatureFileId = serverFileId;
+    else photoFileIds.push(serverFileId);
+  }
+
+  return { signatureFileId, photoFileIds };
+}
+
 /** What this write is carrying, for the queue list — "3 photos, 780 KB". */
 export async function attachmentSummary(clientUuid: string) {
   if (!offlineSupported()) return { count: 0, bytes: 0, uploaded: 0 };

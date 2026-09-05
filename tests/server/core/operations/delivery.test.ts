@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import {
   bookCourierService,
+  closeDeliveryFromFieldService,
   completeDeliveryService,
   deliverableLinesForTicketService,
   getDeliveryFlowService,
@@ -457,5 +458,118 @@ describe("the escalation that costs money to ignore", () => {
     await sweepUnsignedDeliveryReceipts();
     const twice = await db.deliveryTicketFlow.findUniqueOrThrow({ where: { id: flow!.id } });
     expect(twice.unsignedEscalatedAt?.getTime()).toBe(escalated.unsignedEscalatedAt?.getTime());
+  });
+});
+
+describe("docs/DECISIONS.md #183: a tick is not a file", () => {
+  /**
+   * The bug reported directly: Delivery mode ticks `drSigned` with no file behind it, and the receipt
+   * used to claim `acknowledged` anyway — a signature nobody can produce if the customer disputes it.
+   */
+  it("leaves the receipt delivered, not acknowledged, when drSigned has no file behind it", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    const receipt = await issueFor(ticket.id, order.id);
+    await mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" });
+
+    await logDeliveryAttemptService(actor, {
+      ticketId: ticket.id,
+      contactReached: true,
+      itemDelivered: true,
+      drSigned: true,
+      recipientName: "Ms Reyes",
+    });
+
+    const stored = await db.deliveryReceipt.findUniqueOrThrow({ where: { id: receipt.id } });
+    expect(stored.status).toBe("delivered");
+    expect(stored.signedAt).toBeNull();
+    expect(stored.signatureFileId).toBeNull();
+  });
+
+  it("does acknowledge it when a real signature file is actually provided", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    const receipt = await issueFor(ticket.id, order.id);
+    await mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" });
+
+    await logDeliveryAttemptService(actor, {
+      ticketId: ticket.id,
+      contactReached: true,
+      itemDelivered: true,
+      drSigned: true,
+      recipientName: "Ms Reyes",
+      signatureFileId: await signatureFile(receipt.id),
+    });
+
+    const stored = await db.deliveryReceipt.findUniqueOrThrow({ where: { id: receipt.id } });
+    expect(stored.status).toBe("acknowledged");
+    expect(stored.signedAt).not.toBeNull();
+  });
+});
+
+describe("docs/DECISIONS.md #183: Delivery mode's own close, in one act", () => {
+  /**
+   * The user's own request: Delivery mode should be able to finish a delivery itself, not just log
+   * an attempt and leave the actual close-out to a desk. This is what makes that true — same
+   * completion `completeDeliveryService` already does, reached from the field instead of the office.
+   */
+  it("logs the visit and completes the delivery in one call", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    const receipt = await issueFor(ticket.id, order.id);
+    await mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" });
+
+    const result = await closeDeliveryFromFieldService(actor, {
+      ticketId: ticket.id,
+      recipientName: "Ms Reyes",
+      recipientPosition: "Warehouse supervisor",
+      signatureFileId: await signatureFile(receipt.id),
+    });
+
+    expect(result.goodsDelivered).toBe(true);
+
+    const flow = await getDeliveryFlowService(ticket.id);
+    expect(flow!.status).toBe("completed");
+    // The visit is in the history, not skipped for going straight to completion.
+    expect(flow!.attempts).toHaveLength(1);
+    expect(flow!.attempts[0]!.drSigned).toBe(true);
+
+    const ticketRow = await db.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+    expect(ticketRow.status).toBe("completed");
+
+    const storedReceipt = await db.deliveryReceipt.findUniqueOrThrow({ where: { id: receipt.id } });
+    expect(storedReceipt.status).toBe("acknowledged");
+    expect(storedReceipt.recipientName).toBe("Ms Reyes");
+
+    expect(await goodsDeliveredCount(order.id)).toBe(1);
+  });
+
+  it("still refuses to log the visit before a receipt exists, same as any other attempt", async () => {
+    const { ticket } = await makeDeliveryFlow();
+
+    await expect(
+      closeDeliveryFromFieldService(actor, {
+        ticketId: ticket.id,
+        recipientName: "Ms Reyes",
+        signatureFileId: "clx0000000000000000000000",
+      }),
+    ).rejects.toThrow(/nothing for the customer to sign/);
+  });
+
+  it("refuses to close a delivery that is already complete", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    const receipt = await issueFor(ticket.id, order.id);
+    await mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" });
+
+    await closeDeliveryFromFieldService(actor, {
+      ticketId: ticket.id,
+      recipientName: "Ms Reyes",
+      signatureFileId: await signatureFile(receipt.id),
+    });
+
+    await expect(
+      closeDeliveryFromFieldService(actor, {
+        ticketId: ticket.id,
+        recipientName: "Ms Reyes",
+        signatureFileId: await signatureFile(receipt.id),
+      }),
+    ).rejects.toThrow(/already complete/);
   });
 });

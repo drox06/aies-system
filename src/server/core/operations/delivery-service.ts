@@ -297,6 +297,14 @@ export interface LogAttemptInput {
 export async function logDeliveryAttemptService(actor: ActorMeta, input: LogAttemptInput) {
   const flow = await loadFlow(input.ticketId);
 
+  // §13's attempts lead up to a completion; once one has happened there is nothing left to attempt.
+  // Without this, a redundant call here would compute `statusAfterAttempt` fresh and silently move a
+  // `completed` flow back to `delivered_unsigned` — found while composing `closeDeliveryFromFieldService`
+  // below, where calling this twice on the same delivery reopened it rather than being refused.
+  if (flow.status === "completed") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "This delivery is already complete." });
+  }
+
   const gate = canLeaveForSite(flow);
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
@@ -343,12 +351,18 @@ export async function logDeliveryAttemptService(actor: ActorMeta, input: LogAtte
     });
 
     if (flow.deliveryReceiptId && input.itemDelivered) {
+      // A tick alone is the driver's account of what happened, not evidence of it. §7 holds the
+      // receipt at `delivered` until the signature actually arrives — marking it `acknowledged` on
+      // `drSigned` alone let an attempt with no file attached quietly claim a signature nobody has,
+      // which `completeDeliveryService` (the one place a real file is required) would then have
+      // nothing to reconcile against.
+      const signed = input.drSigned && Boolean(input.signatureFileId);
       await tx.deliveryReceipt.update({
         where: { id: flow.deliveryReceiptId },
         data: {
-          status: input.drSigned ? "acknowledged" : "delivered",
+          status: signed ? "acknowledged" : "delivered",
           deliveredAt: now,
-          ...(input.drSigned
+          ...(signed
             ? {
                 signedAt: now,
                 recipientName: input.recipientName ?? null,
@@ -658,6 +672,62 @@ export async function completeDeliveryService(
     }
 
     return { flow: flowUpdate, receipt, goodsDelivered: outstanding === 0 };
+  });
+}
+
+/**
+ * Delivery mode's own "close delivery" — logging the visit and completing it in one act, because
+ * that is what actually happened at the gate: the driver did not make two trips, one to attempt and
+ * a second to complete.
+ *
+ * ## Why this calls both existing services rather than being a third writer
+ *
+ * `logDeliveryAttemptService` is what puts this visit in §13.3's attempt history — the geo, the
+ * contact sought, the general photos — and, since the caller supplies a real `signatureFileId`,
+ * correctly leaves the receipt `acknowledged` rather than tripping the bug fixed above.
+ * `completeDeliveryService` is the one function in the platform allowed to produce `completed`: it
+ * releases billing (`qtyDelivered`) and closes the ticket. Reimplementing either here would be a
+ * second definition of "what completing a delivery means" to keep in step with the first — the
+ * office's own "Close delivery" button on the ticket screen already is that definition.
+ *
+ * ## Why this is what makes the ticket's close-out "connect" to Delivery mode
+ *
+ * There is no separate wiring to add. Both entry points write to the same `DeliveryTicketFlow` and
+ * `DeliveryReceipt` rows through the same `completeDeliveryService` — closing from Delivery mode *is*
+ * closing the ticket, the moment this syncs.
+ */
+export async function closeDeliveryFromFieldService(
+  actor: ActorMeta,
+  input: {
+    ticketId: string;
+    contactPersonSought?: string | null;
+    photoFileIds?: string[];
+    geo?: { lat: number; lng: number } | null;
+    notes?: string | null;
+    recipientName: string;
+    recipientPosition?: string | null;
+    signatureFileId: string;
+  },
+) {
+  await logDeliveryAttemptService(actor, {
+    ticketId: input.ticketId,
+    contactReached: true,
+    itemDelivered: true,
+    drSigned: true,
+    contactPersonSought: input.contactPersonSought,
+    photoFileIds: input.photoFileIds,
+    geo: input.geo,
+    notes: input.notes,
+    recipientName: input.recipientName,
+    recipientPosition: input.recipientPosition,
+    signatureFileId: input.signatureFileId,
+  });
+
+  return completeDeliveryService(actor, {
+    ticketId: input.ticketId,
+    recipientName: input.recipientName,
+    recipientPosition: input.recipientPosition ?? null,
+    signatureFileId: input.signatureFileId,
   });
 }
 

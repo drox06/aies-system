@@ -6822,3 +6822,78 @@ as the Finance screen would, started the dev server, and let its own 5-second dr
 through the real job queue. The sales order's Finance card read **"Downpayment Received — the downpayment
 is in. Procurement is clear to order"** on its own — no manual click, no direct call. `tsc --noEmit` and
 `eslint` clean. Verification account, order, schedule, statement, payment and user deleted afterward.
+
+---
+
+## #183 — Delivery mode can close a delivery itself, requiring the signer's name and a real photo
+
+**2026-09-06.** Four requests from a live walkthrough of `/field` (Delivery mode), taken together:
+Delivery mode should collect the signer's name to close a delivery; once closed, the driver should be
+reminded to hand in AIES's signed duplicate copy of the paper delivery receipt to admin; closing from
+Delivery mode should close the ticket's own close-out step too; and a photo of the customer-signed
+paper receipt should be required before a delivery is genuinely closed.
+
+**Same completion, reached from a second door — not a lighter version of it.** The office's "Close
+delivery" button on the ticket screen already calls `completeDeliveryService`, the one function
+allowed to produce `DeliveryTicketFlow.status = "completed"`: it releases billing (`qtyDelivered`) and
+closes the `Ticket`. A new `closeDeliveryFromFieldService` calls exactly that, after first calling
+`logDeliveryAttemptService` to keep the visit in §13.3's attempt history (geo, contact sought, general
+photos) the way every other visit is recorded. This is also the entire answer to the third request:
+there is no separate wiring between Delivery mode and the ticket's close-out step to build, because
+both write the same rows through the same function. Closing from the field *is* closing the ticket,
+the moment it syncs.
+
+**Composing two existing services surfaced a real bug neither had alone**: `logDeliveryAttemptService`
+computed `statusAfterAttempt` unconditionally, with no check for a flow already `completed` — so a
+second call (the double-close a driver could trigger by tapping again, or the app retrying after a
+dropped connection) silently reverted `status` from `completed` back to `delivered_unsigned`, and the
+completion that followed re-ran, incrementing `qtyDelivered` a second time. A test written for the new
+function ("refuses to close a delivery that is already complete") caught it directly — the promise
+resolved instead of rejecting. Fixed at the root: `logDeliveryAttemptService` now refuses outright once
+`flow.status === "completed"`, protecting the office's own attempt-log path too, not only the new one.
+
+**A second, independent bug found and fixed while wiring this**: `logDeliveryAttemptService` marked
+`DeliveryReceipt.status = "acknowledged"` with a `signedAt` timestamp whenever `drSigned` was ticked —
+with no file required. Delivery mode's old "Delivered and signed" button ticked exactly that, with no
+signature capture anywhere on the screen, so every field-signed delivery left a receipt claiming
+`acknowledged` with `signatureFileId: null` — a signature nobody could produce if a customer disputed
+it, contradicting the model's own documented rule that a receipt stays `delivered` until a real
+signature arrives. Fixed by requiring an actual `signatureFileId` alongside the tick before the receipt
+is marked acknowledged.
+
+**The signature photo reuses the same offline path as every other field photo, not the ticket screen's
+online-only upload.** Delivery mode's existing photo capture (`attachPhoto` → IndexedDB → uploaded on
+drain) is what already makes this screen usable with no signal; the ticket page's own upload
+(`FileDropzone` → immediate `POST /api/files`) requires a live connection at the moment of capture and
+would defeat the point of a field screen built offline-first. The two kinds of photo — general and
+signature — share one attachment queue per write and are told apart by a filename tag
+(`uploadPendingSplit`, a new sibling to `uploadPending`), because adding a real column for one photo's
+role would be more schema than the fact needs.
+
+**The reminder is a screen, not a notification.** `notify()`/`registerNotificationType` targets a
+specific recipient's inbox — a concept Delivery mode was deliberately built without (its own comment:
+"no notification bell"). The reminder to submit the paper duplicate is instead a confirmation screen
+shown immediately after the close is queued, in the same plain, high-contrast idiom the rest of this
+screen already uses, and it has to be dismissed before the driver can move on — the one place in the
+screen guaranteed to be read.
+
+**The failure-cause and "delivered, not signed yet" paths are unchanged in what they record**, and
+deliberately kept: a driver who cannot get a signature on the spot still needs to log that the goods
+were handed over, and that state (`delivered_unsigned`) is a real, tracked, escalating one — not
+something the new "close" action should force past.
+
+**Verified**: `delivery.test.ts` gained six tests against the real database — the receipt stays
+`delivered` (not falsely `acknowledged`) when `drSigned` has no file behind it, and does acknowledge
+correctly when a real one is provided; `closeDeliveryFromFieldService` logs the visit and completes the
+delivery in one call, with the attempt preserved in history; it still refuses before a receipt exists,
+with the same message any other attempt would get; and it refuses a second close on an
+already-completed delivery — the test that caught the double-billing bug above. All 16 tests in the
+file pass, and the pre-existing `field-sync.test.ts` (10) and `delivery-rules.test.ts` (21) pass
+unchanged. Checked live end to end as a throwaway `vice_president`-scoped user on a mobile viewport:
+opened a real seeded drop in Delivery mode, confirmed "Close delivery" stays disabled with a name but
+no photo, attached a photo and watched it enable, closed it, read the reminder screen, tapped "Send
+now", and confirmed by direct query — not by trusting the UI — that the flow reached `completed`, the
+ticket reached `completed`, the receipt was `acknowledged` with the entered name and a real uploaded
+`signatureFileId`, and `qtyDelivered` incremented by the full ordered quantity. `tsc --noEmit` and
+`eslint` clean. Verification ticket, flow, receipt, order, quotation, account, uploaded file and user
+deleted afterward.
