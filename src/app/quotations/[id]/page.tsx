@@ -15,14 +15,13 @@ import type { VatMode } from "@/server/core/quotation/costing";
 import { formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc/client";
 import { ApprovalPanel } from "./ApprovalPanel";
+import { CustomerReplyPanel } from "./CustomerReplyPanel";
 import { IssuancePanel } from "./IssuancePanel";
 import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
 import { ScopeChangeBanner } from "./ScopeChangeBanner";
-import { NegotiationPanel } from "./NegotiationPanel";
-import { QuotationPoPanel } from "./QuotationPoPanel";
 import { ReusePanel } from "./ReusePanel";
 import { RfqPanel } from "./RfqPanel";
 
@@ -203,11 +202,12 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
               marginPct={data.marginPct}
               stale={dirty}
             />
-            <QuotationPoPanel
+            <CustomerReplyPanel
               quotationId={data.id}
               quotationNumber={data.displayNumber}
               status={data.status}
               currency={data.currency}
+              canSeeCost={canSeeCost}
               // Optional lines are excluded here for the same reason the server excludes them: §7
               // keeps them off the total, so they are not part of what was agreed and must not be
               // reported as "quoted but not ordered".
@@ -218,13 +218,6 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
                   description: line.description,
                   quantity: line.quantity,
                 }))}
-              onRecorded={refresh}
-            />
-            <NegotiationPanel
-              quotationId={data.id}
-              status={data.status}
-              currency={data.currency}
-              canSeeCost={canSeeCost}
               onChanged={refresh}
             />
             <RevisionPanel

@@ -6484,3 +6484,60 @@ itself and the one proving an explicit per-call rate still works. The full `test
 quotation/` suite plus `rbac/field-gating.test.ts` (233 tests, 19 files) passes, confirming the
 newly-serialised field does not leak into a cost-stripped payload and nothing else broke.
 `tsc --noEmit` and `eslint` clean.
+
+---
+
+## #177 — A single "Record customer reply" gate replaces two always-visible blocks on a sent
+quotation
+
+**2026-09-04. Built** on the company's instruction: Customer PO and Negotiation used to sit on a
+sent quotation's screen as two permanently-visible blocks the moment it went out, with nothing on
+screen recording what the customer actually said — a salesperson could jump straight to recording a
+PO or opening a negotiation without the reply itself ever being on the record anywhere. The company
+asked for a single decision point instead: once sent, show **"Record customer reply"** with
+**Quotation approved** / **Quotation rejected**; approved opens the existing PO-recording form;
+rejected offers **Declined** (prompts for a reason immediately) or **Negotiation** (opens the
+existing negotiation flow).
+
+**Nothing new was stored.** There is no status between `sent` and an actual outcome, and none was
+needed — "approved" only means "go open the PO form"; what really moves the record on is the PO
+itself landing (via the existing `customer_po.received` subscriber, which sets `accepted`).
+"Rejected → Negotiation" and "Rejected → Declined" are the same distinction already: the first calls
+the existing `startNegotiation` mutation, unchanged; the second calls the existing `recordRejection`
+mutation, unchanged. The whole feature is client-side routing in front of mutations that already
+existed and already worked — `docs/DECISIONS.md`'s own precedent, `negotiation.test.ts`, is
+untouched and still passes.
+
+**New component `CustomerReplyPanel.tsx`** owns two small pieces of ephemeral state — which top-level
+choice, and which rejected sub-choice — neither persisted, both intentionally: reloading mid-choice
+just asks the question again, which is the right behaviour for a decision nothing has recorded yet.
+It renders the reply-chooser Cards itself, duplicates the small "why was it declined" form (reason
+picklist + competitor + submit — the same `recordRejection` call `NegotiationPanel` already made),
+and renders the **existing, unmodified** `QuotationPoPanel` and `NegotiationPanel` underneath,
+passing each a new boolean:
+
+- `QuotationPoPanel`'s `hideEntryUntilApproved` withholds its "Record customer PO" button only while
+  the quotation is freshly `sent` and "Quotation approved" has not been clicked — it has no effect
+  once the status moves on its own (`under_negotiation`, `accepted`) or a PO already exists, which
+  keep showing exactly as before.
+- `NegotiationPanel`'s `hideEntryUntilRouted` withholds its "Open a negotiation" prompt on the same
+  terms. Its own "The customer declined…" entry point — previously shown alongside "Open a
+  negotiation" any time status was `sent` — was narrowed to `negotiating` only: once
+  `CustomerReplyPanel` owns the "decline straight off a fresh send" path, showing the old button next
+  to the new one was two doors to the same room. It still returns exactly when a negotiation that
+  went nowhere needs to end in a decline, which `CustomerReplyPanel` has no path for and was never
+  asked to.
+
+**Verified live**, not just by reading the diff: started the dev server, created a throwaway
+`vice_president` login (own account, own TOTP secret generated and set directly rather than walking
+the enrollment UI, deleted afterward) to avoid touching any real named user's session, and drove a
+real sent quotation through all three branches in the browser — reset to `sent` between each via a
+one-off script since each branch changes status for real. Approved → the exact existing "Record
+customer PO" form opened, unchanged. Rejected → Declined → the reason form appeared immediately (no
+extra click), submitted, and the status badge read "Rejected" with Customer PO and Negotiation both
+correctly showing nothing further. Rejected → Negotiation → only "Open a negotiation" appeared (the
+redundant decline button confirmed gone after the `showDeclineEntry` fix above), opened it, and
+Customer PO correctly reappeared alongside the now-live Negotiation panel, since a customer can still
+send a PO mid-negotiation. `tsc --noEmit` and `eslint` clean; `negotiation.test.ts` and
+`delete-and-po.test.ts` (20 tests) pass unmodified, confirming the backend this routes to was never
+touched.

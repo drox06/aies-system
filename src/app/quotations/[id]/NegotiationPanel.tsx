@@ -28,12 +28,20 @@ export function NegotiationPanel({
   currency,
   canSeeCost,
   onChanged,
+  hideEntryUntilRouted = false,
 }: {
   quotationId: string;
   status: string;
   currency: string;
   canSeeCost: boolean;
   onChanged: () => void;
+  /**
+   * §8's reply gate (`CustomerReplyPanel`): a freshly-sent quotation has not been routed here yet,
+   * only "Negotiation" does that. Has no effect once a negotiation is already under way or the
+   * quotation has moved past `sent` on its own — that history is a known fact, not a pending
+   * question, and stays visible regardless.
+   */
+  hideEntryUntilRouted?: boolean;
 }) {
   const utils = trpc.useUtils();
   const [target, setTarget] = useState("");
@@ -60,11 +68,17 @@ export function NegotiationPanel({
   const logRound = trpc.quotation.logNegotiationRound.useMutation();
   const reject = trpc.quotation.recordRejection.useMutation();
 
-  const isLive = status === "sent" || status === "under_negotiation";
   const negotiating = status === "under_negotiation";
+  // The "Open a negotiation" prompt only ever applied to a freshly-sent quotation; routing that one
+  // moment through `CustomerReplyPanel` is the entire point of `hideEntryUntilRouted`.
+  const showOpenEntry = status === "sent" && !hideEntryUntilRouted;
+  // Declining straight off a fresh send is `CustomerReplyPanel`'s own "Declined" path now — showing
+  // this button alongside "Open a negotiation" would just be two doors to the same room. This one
+  // is only for the negotiation that went nowhere, which `CustomerReplyPanel` has no path for.
+  const showDeclineEntry = negotiating;
   const list = rounds.data ?? [];
 
-  if (!isLive && list.length === 0) return null;
+  if (!showOpenEntry && !negotiating && list.length === 0) return null;
 
   const refresh = () => {
     void utils.quotation.negotiationRounds.invalidate({ quotationId });
@@ -75,7 +89,7 @@ export function NegotiationPanel({
     <Card className="p-4">
       <h2 className="text-sm font-semibold">Negotiation</h2>
 
-      {status === "sent" && (
+      {showOpenEntry && (
         <>
           <p className="mt-0.5 text-xs text-text-muted">
             With the customer. Open a negotiation when they come back on the price.
@@ -245,7 +259,7 @@ export function NegotiationPanel({
         </ol>
       )}
 
-      {isLive && (
+      {showDeclineEntry && (
         <div className="mt-3 border-t border-border pt-3">
           {!declining ? (
             <Button variant="ghost" size="sm" onClick={() => setDeclining(true)}>

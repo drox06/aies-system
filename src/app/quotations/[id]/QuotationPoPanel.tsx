@@ -29,6 +29,7 @@ export function QuotationPoPanel({
   currency,
   quotationLines,
   onRecorded,
+  hideEntryUntilApproved = false,
 }: {
   quotationId: string;
   quotationNumber: string;
@@ -37,6 +38,13 @@ export function QuotationPoPanel({
   /** Non-optional lines, so §3's quantity check has something to compare the PO against. */
   quotationLines: { lineNo: number; description: string; quantity: string }[];
   onRecorded: () => void;
+  /**
+   * §8's reply gate (`CustomerReplyPanel`): a freshly-sent quotation has not been routed to this
+   * panel yet, only "Quotation approved" does that. Has no effect once the quotation has moved past
+   * `sent` on its own — under negotiation, accepted, or a PO already recorded — since by then the
+   * reply is a known fact, not a pending question.
+   */
+  hideEntryUntilApproved?: boolean;
 }) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
@@ -56,7 +64,9 @@ export function QuotationPoPanel({
 
   const rows = pos.data ?? [];
   // A PO answers a document the customer has. Anything earlier has not reached them.
-  const canRecord = ["sent", "under_negotiation", "accepted"].includes(status);
+  const canRecord =
+    ["sent", "under_negotiation", "accepted"].includes(status) &&
+    !(status === "sent" && hideEntryUntilApproved);
   if (!canRecord && rows.length === 0) return null;
 
   async function submit(e: React.FormEvent) {
