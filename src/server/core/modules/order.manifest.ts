@@ -265,6 +265,30 @@ export const orderManifest = defineManifest({
         );
       },
     },
+    /**
+     * §4's downpayment gate, finally observing the money instead of waiting to be told about it.
+     *
+     * Module 05 emits both when a payment settles a statement without ever knowing which sales
+     * order — or that one exists — the statement happens to belong to; `satisfyDownpaymentGateOn
+     * Payment` does that resolving. Subscribed twice because a cheque only actually settles its
+     * statement at `payment.cleared`, not at `payment.received`. docs/DECISIONS.md #182.
+     */
+    {
+      event: "payment.received",
+      handler: async (payload) => {
+        const { satisfyDownpaymentGateOnPayment } =
+          await import("@/server/core/order/sales-order-service");
+        await satisfyDownpaymentGateOnPayment(payload as { paymentId?: string });
+      },
+    },
+    {
+      event: "payment.cleared",
+      handler: async (payload) => {
+        const { satisfyDownpaymentGateOnPayment } =
+          await import("@/server/core/order/sales-order-service");
+        await satisfyDownpaymentGateOnPayment(payload as { paymentId?: string });
+      },
+    },
   ],
 
   nav: [

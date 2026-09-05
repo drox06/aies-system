@@ -591,3 +591,98 @@ export async function recordDownpaymentService(
 
   return { financeStatus: "downpayment_received" as const };
 }
+
+/**
+ * The swap `recordDownpaymentService`'s own doc comment promised: "when §3's payments land, this
+ * becomes the thing that observes them rather than the thing that is typed."
+ *
+ * ## What was missing
+ *
+ * Recording a payment against a customer's downpayment statement in module 05 never told module 03
+ * — a finance officer who used "Record a payment" on the Statements screen still had to separately
+ * find the sales order and click "Record the downpayment" there, retyping a fact the platform already
+ * held. Reported directly: a supplier PO stayed blocked "waiting for downpayment" against an order
+ * whose downpayment had, in fact, already been paid.
+ *
+ * ## Why this triggers on two events, not one
+ *
+ * `payment.received` fires the moment money is recorded — but for a cheque, `applySettlement` does
+ * not run until it clears, so the statement is not yet `paid` and this correctly finds nothing to do
+ * yet. `payment.cleared` is what actually settles a cheque-paid statement, and has to be able to
+ * trigger the same gate. Both carry `paymentId`, so one handler serves both; called twice for the
+ * same payment (e.g. a subscriber retry) it is a no-op the second time — see below.
+ *
+ * ## Why this is not "any money arrived", but "the statement is now paid"
+ *
+ * §4 gates procurement on *the downpayment*, not on a first instalment toward it — `computeStatement
+ * Totals`/`applySettlement` only mark a statement `paid` once `amountPaid + amountWithheldCredited`
+ * covers its `total`. Opening the gate on a partial payment would let procurement commit money to a
+ * supplier before the downpayment the gate exists to enforce has actually arrived.
+ *
+ * ## Why a settled statement is matched by its milestone's trigger, not its `type`
+ *
+ * `BillingStatement.type` is not a reliable signal — the generic "Ready to bill" screen raises every
+ * milestone's statement as `type: "progress"` regardless of what it is actually billing. The schedule
+ * that produced it knows better: a statement raised against a `BillingMilestone` whose `trigger` is
+ * `on_order` is, by construction, billing the downpayment (`BILLING_TRIGGERS.on_order` is
+ * `sales_order.created` — the event that puts the downpayment on the schedule in the first place).
+ *
+ * ## Why a race or a mismatch is swallowed rather than thrown
+ *
+ * By the time this runs (async, off the outbox), the order may already be `downpayment_received` —
+ * a person clicked the manual button first, or a second settled statement for the same order already
+ * satisfied it. `recordDownpaymentService` refuses in exactly that case, and refusing here too would
+ * turn an already-correct outcome into a job the queue retries forever.
+ */
+export async function satisfyDownpaymentGateOnPayment(payload: {
+  paymentId?: string;
+}): Promise<void> {
+  if (!payload.paymentId) return;
+
+  const payment = await db.payment.findUnique({
+    where: { id: payload.paymentId },
+    select: { number: true, reference: true, receivedAt: true },
+  });
+  if (!payment) return;
+
+  const allocations = await db.paymentAllocation.findMany({
+    where: { paymentId: payload.paymentId },
+    select: { billingStatementId: true },
+  });
+  if (allocations.length === 0) return;
+
+  const settled = await db.billingStatement.findMany({
+    where: {
+      id: { in: allocations.map((allocation) => allocation.billingStatementId) },
+      status: "paid",
+      milestoneId: { not: null },
+    },
+    select: { milestoneId: true },
+  });
+  const milestoneIds = settled
+    .map((statement) => statement.milestoneId)
+    .filter((id): id is string => id !== null);
+  if (milestoneIds.length === 0) return;
+
+  const downpaymentMilestones = await db.billingMilestone.findMany({
+    where: { id: { in: milestoneIds }, trigger: "on_order" },
+    select: { salesOrderId: true },
+  });
+  const salesOrderIds = new Set(downpaymentMilestones.map((milestone) => milestone.salesOrderId));
+
+  for (const salesOrderId of salesOrderIds) {
+    try {
+      await recordDownpaymentService(
+        { actorId: "system", actorLabel: "System (payment received)" },
+        {
+          salesOrderId,
+          reference: payment.reference?.trim() || `Payment ${payment.number}`,
+          receivedAt: payment.receivedAt,
+        },
+      );
+    } catch (error) {
+      if (error instanceof TRPCError && error.code === "BAD_REQUEST") continue;
+      throw error;
+    }
+  }
+}

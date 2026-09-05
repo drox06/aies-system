@@ -6755,3 +6755,70 @@ statement-of-account's open-statements table — fixed with a `paddingRight` on 
 compact `shortDate` formatter for the second. Confirmed the "Download statement PDF" and "statement of
 account" links render correctly on both `/finance/statements` and `/finance/receivables`. `tsc --noEmit`
 and `eslint` clean. Verification account, statements and user deleted afterward.
+
+---
+
+## #182 — Recording a payment in Finance now opens §4's downpayment gate on its own
+
+**2026-09-06. Reported directly**: a supplier PO stayed "blocked, waiting for downpayment" against a
+sales order whose downpayment had, in fact, already been recorded as a payment through Finance. Traced
+to two functions that had never been introduced to each other. `recordPaymentService` (module 05,
+`invoice-service.ts`) settles a `BillingStatement` and issues a `ServiceInvoice`. §4's gate
+(`SalesOrder.financeStatus`) is opened by `recordDownpaymentService` (module 03,
+`sales-order-service.ts`) — a wholly separate, manually-triggered action ("Record the downpayment" on
+the sales order page) that has no idea a payment was ever recorded. A finance officer who used "Record
+a payment" on the Statements screen still had to separately find the sales order and retype the same
+fact.
+
+**This was a documented gap, not a surprise.** `recordDownpaymentService`'s own comment already said
+so: *"When §3's payments land, this becomes the thing that observes them rather than the thing that is
+typed. It is deliberately shaped so that swap is a change of caller, not of meaning."* It was written
+before module 05's payment recording existed, with nothing to observe yet. That payment recording is
+now fully built — this closes the gap the comment always pointed at.
+
+**Wired as a manifest consumer, not a direct call**, matching the codebase's only convention for a
+cross-module reaction (`order.manifest.ts` already consumes `principal.appointed` this way;
+`finance.manifest.ts` consumes `delivery.dr_signed`/`qa.passed`/etc. the same way). `finance.manifest.ts`
+already emits `payment.received` and `payment.cleared`; `order.manifest.ts` now consumes both, calling a
+new `satisfyDownpaymentGateOnPayment` in `sales-order-service.ts`. Async and eventually consistent —
+the same latency class as every other reaction in this system, bounded by the drain cron.
+
+**Subscribed to two events, not one, because a cheque only actually settles at the second one.**
+`applySettlement` (what marks a `BillingStatement` `paid`) runs inside `recordPaymentService` only when
+the payment is immediately collected; for a cheque it does not run until `clearChequeService` clears
+it. `payment.received` alone would silently never open the gate for a downpayment paid by post-dated
+cheque — the exact kind of coordination gap this decision exists to close, so it had to subscribe to
+`payment.cleared` too.
+
+**Gates on the statement being fully `paid`, not on any money arriving.** §4 asks for *the downpayment*,
+and `applySettlement` only marks a statement `paid` once `amountPaid + amountWithheldCredited` covers
+its `total`. Opening procurement's gate on a first instalment would let it commit to a supplier before
+the money the gate exists to require has actually arrived.
+
+**Matched by the milestone's trigger, not the statement's `type`.** `BillingStatement.type` is not
+reliable here — the generic "Ready to bill" screen (`RaiseStatement.tsx`) raises every milestone's
+statement as `type: "progress"` regardless of what it actually bills. The schedule knows better: a
+statement raised against a `BillingMilestone` whose `trigger` is `on_order` is, by construction, billing
+the downpayment (`BILLING_TRIGGERS.on_order` is `sales_order.created`, the same event that puts the
+downpayment on the schedule in the first place).
+
+**A race or a mismatch is swallowed, not thrown.** By the time this runs, the order may already be
+`downpayment_received` — a manual click won the race, or a second settled statement for the same order
+already satisfied it. `recordDownpaymentService` refuses in exactly that case; the subscriber catches
+that specific refusal and moves on, rather than turning an already-correct outcome into a job the queue
+retries forever.
+
+**Verified**: a new `tests/server/core/order/downpayment-gate-payment.test.ts` (4 tests, against the
+real database, driving both halves together rather than in isolation) — the gate opens the moment the
+downpayment statement is paid in full; a token partial payment leaves it untouched; a post-dated cheque
+does not open it until `clearChequeService` actually clears it; calling the handler twice for the same
+settled payment is a no-op, not a failure. All pass, and the pre-existing `sales-order.test.ts` (22),
+`invoice.test.ts` (18), `module-registry.test.ts` (7), `system-nav.test.ts` (7) and `crm-manifest.test.ts`
+(12) all still pass unchanged — confirming the new manifest entries don't break the registry's own
+boot-time validation that every consumed event is actually emitted somewhere. Checked live end to end,
+without calling the new function directly: seeded a real quotation, PO, sales order, billing schedule and
+downpayment statement as a throwaway `vice_president`-scoped user, called `recordPaymentService` exactly
+as the Finance screen would, started the dev server, and let its own 5-second drain relay the event
+through the real job queue. The sales order's Finance card read **"Downpayment Received — the downpayment
+is in. Procurement is clear to order"** on its own — no manual click, no direct call. `tsc --noEmit` and
+`eslint` clean. Verification account, order, schedule, statement, payment and user deleted afterward.
