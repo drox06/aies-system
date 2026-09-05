@@ -90,36 +90,37 @@ export interface RfqSupplierOption {
   contactName: string | null;
   email: string | null;
   productLines: string[];
+  /** So the picker can tell a principal from a regular supplier now that both can appear in it. */
+  isPrincipal: boolean;
 }
 
 /**
- * The principals an RFQ can be raised against: appointed ones only.
+ * The suppliers and principals an RFQ can be raised against: accredited ones only.
  *
- * Not a bar invented here — §5c makes `appointed` the stage at which a distributor agreement is
- * signed, and asking a prospect you have no agreement with for pricing you intend to quote on is
- * how a company ends up committed to a price it cannot buy at.
+ * 2026-09-05 correction: originally `isPrincipal`, on the reasoning that an RFQ goes to "a
+ * manufacturer AIES represents" and a local fabricator is "somebody to buy from, not somebody to
+ * quote a customer's equipment from." That conflated two different things — *who sells what*
+ * (principal vs. supplier, a category) and *can AIES safely commit to their price* (accreditation,
+ * a fact) — and the company's own example broke it: calibrating a principal's flow meter locally is
+ * a regular supplier's service, priced for the same customer quote a principal's equipment is. The
+ * real bar was always accreditation, not the category — the old error message said so itself
+ * ("a supplier with no signed distributor agreement commits AIES to a price it may not be able to
+ * buy at"), and `isApproved` is exactly that fact for *both* categories: a principal gets it the
+ * moment its distributor agreement is signed (`createSupplierFromPrincipalService`), a regular
+ * supplier gets it through clause 8.4's own accreditation. Gating on it here instead of
+ * `isPrincipal` also closes a real hole the old check had: a principal whose agreement has since
+ * expired (`isApproved` false, `isPrincipal` still true) could still be asked for pricing.
  */
 export async function listRfqSuppliersService(): Promise<RfqSupplierOption[]> {
-  /**
-   * Read from module 03's `Supplier` now, not from module 01's `PrincipalProspect`.
-   *
-   * Until module 03 landed there was no supplier model, so an *appointed prospect* stood in for
-   * one and `SupplierQuoteRequest.supplierId` held a prospect id. The directory exists now, the
-   * prospects have been converted, and `supplierId` is a real foreign key — so this reads the
-   * table the column actually points at.
-   *
-   * `isPrincipal` keeps §3's rule intact: an RFQ goes to a manufacturer AIES represents, which is
-   * what an appointment establishes. A local fabricator in the directory is somebody to buy from,
-   * not somebody to quote a customer's equipment from.
-   */
   const suppliers = await db.supplier.findMany({
-    where: { isPrincipal: true, deletedAt: null },
+    where: { isApproved: true, deletedAt: null },
     select: {
       id: true,
       name: true,
       contactName: true,
       email: true,
       productLines: true,
+      isPrincipal: true,
     },
     orderBy: { name: "asc" },
   });
@@ -130,23 +131,33 @@ export async function listRfqSuppliersService(): Promise<RfqSupplierOption[]> {
     contactName: s.contactName,
     email: s.email,
     productLines: s.productLines,
+    isPrincipal: s.isPrincipal,
   }));
 }
 
 async function loadSupplier(supplierId: string) {
   const supplier = await db.supplier.findFirst({
     where: { id: supplierId, deletedAt: null },
-    select: { id: true, name: true, isPrincipal: true, contactName: true, email: true },
+    select: {
+      id: true,
+      name: true,
+      isPrincipal: true,
+      isApproved: true,
+      contactName: true,
+      email: true,
+    },
   });
   if (!supplier) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "That supplier no longer exists." });
   }
-  if (!supplier.isPrincipal) {
+  // Accreditation, not the principal/supplier category, is the real bar — see
+  // `listRfqSuppliersService`'s doc comment for why this changed from `isPrincipal` on 2026-09-05.
+  if (!supplier.isApproved) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        `${supplier.name} is not an appointed principal. Quoting on pricing from a supplier with ` +
-        `no signed distributor agreement commits AIES to a price it may not be able to buy at.`,
+        `${supplier.name} is not an accredited supplier. Quoting on pricing from one with no ` +
+        `signed agreement or accreditation commits AIES to a price it may not be able to buy at.`,
     });
   }
   return supplier;

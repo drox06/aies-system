@@ -202,8 +202,10 @@ export function RfqPanel({
                 sent a valve manufacturer a request for a flowmeter and came back with a zero. */}
             <legend className="text-xs font-medium">Who to ask, and about what *</legend>
             <p className="mb-2 text-xs text-text-muted">
-              Tick a principal, then tick the lines that principal actually supplies. Each gets its
-              own request and none of them is told about the others.
+              Tick a principal or supplier, then tick the lines they actually cover — a
+              supplier&rsquo;s own service (calibration, installation) counts too, not just a
+              principal&rsquo;s equipment. Each gets its own request and none of them is told about
+              the others.
             </p>
 
             <div className="space-y-2">
@@ -227,7 +229,10 @@ export function RfqPanel({
                         onChange={() => toggleSupplier(supplier.id)}
                       />
                       <span>
-                        <span className="font-medium">{supplier.name}</span>
+                        <span className="font-medium">{supplier.name}</span>{" "}
+                        <span className="text-[10px] tracking-wide text-text-muted uppercase">
+                          {supplier.isPrincipal ? "Principal" : "Supplier"}
+                        </span>
                         {supplier.productLines.length > 0 && (
                           <span className="text-text-muted">
                             {" "}
@@ -269,8 +274,9 @@ export function RfqPanel({
               <p className="mt-1 text-xs text-text-muted">
                 {/* Not an empty list with no explanation: the reason is a business rule, and
                     the fix is somewhere else entirely. */}
-                No appointed principals yet. A principal can be asked for pricing once its
-                distributor agreement is signed (§5c).
+                No accredited principals or suppliers yet. A principal is accredited the moment its
+                distributor agreement is signed (§5c); a supplier through the usual accreditation on
+                the Suppliers screen.
               </p>
             )}
           </fieldset>

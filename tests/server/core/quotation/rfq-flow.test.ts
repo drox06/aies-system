@@ -125,7 +125,7 @@ async function raise(quotationId: string, supplierId: string, sourceLineNos?: nu
 }
 
 describe("who can be asked", () => {
-  it("offers appointed principals only", async () => {
+  it("offers accredited principals, not unaccredited ones", async () => {
     // §5c makes `appointed` the stage at which a distributor agreement exists. Quoting on pricing
     // from a supplier you have no agreement with commits AIES to a price it may not be able to buy.
     const appointed = await makePrincipal("appointed");
@@ -136,13 +136,45 @@ describe("who can be asked", () => {
     expect(ids).not.toContain(prospect.id);
   }, 60_000);
 
-  it("refuses to raise one against a principal that is not appointed", async () => {
+  /**
+   * 2026-09-05: the bar was never really "is this a principal" — it was "has AIES verified it can
+   * safely commit to this party's price", which `isApproved` already tracks for both categories
+   * (a principal gets it at appointment, a regular supplier through clause 8.4's own accreditation).
+   * The company's own example is why this matters: calibrating a principal's flow meter locally is
+   * a regular supplier's service, priced for the same customer quote the equipment is on.
+   */
+  it("also offers an accredited supplier that is not a principal", async () => {
+    const supplier = await db.supplier.create({
+      data: {
+        code: `SUP-T${randomUUID().slice(0, 10)}`,
+        name: `Local Calibration Co ${randomUUID().slice(0, 6)}`,
+        isPrincipal: false,
+        isApproved: true,
+        productLines: ["Calibration"],
+      },
+    });
+    principalIds.push(supplier.id);
+    const quotation = await makeQuotation();
+
+    const ids = (await listRfqSuppliersService()).map((s) => s.id);
+    expect(ids).toContain(supplier.id);
+
+    // And it can actually be asked, not merely listed.
+    const rfq = await createSupplierRfqService(actor, {
+      quotationId: quotation.id,
+      supplierId: supplier.id,
+    });
+    rfqIds.push(rfq.id);
+    expect(rfq.status).toBe("draft");
+  }, 60_000);
+
+  it("refuses to raise one against a supplier that is not accredited", async () => {
     const prospect = await makePrincipal("agreement_draft");
     const quotation = await makeQuotation();
 
     await expect(
       createSupplierRfqService(actor, { quotationId: quotation.id, supplierId: prospect.id }),
-    ).rejects.toThrow(/not an appointed principal/);
+    ).rejects.toThrow(/not an accredited supplier/);
   }, 60_000);
 });
 

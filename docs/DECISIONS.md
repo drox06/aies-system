@@ -6583,3 +6583,46 @@ original five-column width. `pdf.test.ts` gained a case computing the exact expe
 hand (7,531 × 1.25 × 2 × 10% = 1,882.75) and asserting a discount-free line's `lineDiscountAmount` is
 `null`, not `"0.00"`; all 9 tests in that file, plus `quotation-flow.test.ts` and
 `field-gating.test.ts` (26 total), pass. `tsc --noEmit` and `eslint` clean.
+
+---
+
+## #179 — Supplier pricing requests can go to any accredited supplier, not principals only
+
+**2026-09-05. Bug reported and fixed**: *"supplier A4O does not show in quotation-supplier pricing."*
+A4O is a real, approved supplier in the live directory — just not a *principal*, and
+`listRfqSuppliersService` filtered on `isPrincipal: true` alone. Investigating surfaced a real
+question the company settled directly, with its own working definitions: a **principal** is an
+equipment manufacturer that authorises AIES to sell its products (mostly foreign); a **supplier** is
+anyone else AIES buys from or gets a service from — local or international, and its offering can
+supplement a principal's, e.g. "buying a flow meter from a principal, then having it calibrated
+locally thru the supplier." The company wants pricing requests raisable against both.
+
+**The conflict raised and how it was resolved.** The old restriction was never really "principal vs.
+supplier" as a category — its own refusal message said so: *"a supplier with no signed distributor
+agreement commits AIES to a price it may not be able to buy at."* That is an accreditation concern,
+and the codebase already tracks accreditation uniformly for both categories via `Supplier.isApproved`
+— set automatically the moment a principal's distributor agreement is signed
+(`createSupplierFromPrincipalService`), and through clause 8.4's own accreditation flow for a regular
+supplier. Put to the company directly: open the list to every supplier regardless of approval, or
+gate on `isApproved` instead of `isPrincipal`, preserving the original safety intent while correctly
+generalising it across both categories. **Chosen: gate on `isApproved`.** This also quietly closes a
+real hole the old check had — a principal whose distributor agreement has since lapsed
+(`isApproved` false, `isPrincipal` still true forever) could still be asked for pricing under the old
+rule; it cannot under this one.
+
+**What changed**: `listRfqSuppliersService`'s `where` moved from `isPrincipal: true` to
+`isApproved: true`; `loadSupplier`'s guard (used when an RFQ is actually raised, not just listed)
+moved the same way, with its refusal message rewritten to name accreditation rather than appointment.
+`RfqSupplierOption` gained `isPrincipal` — not for filtering any more, but so `RfqPanel.tsx` can label
+each entry "Principal" or "Supplier" now that both appear in the same picker together, and its
+empty-state copy and instructions were reworded to stop implying principals are the only option. The
+display split the company also asked for — principals in one table, suppliers in another — already
+existed on the Suppliers screen (`src/app/suppliers/page.tsx`, splitting on the same `isPrincipal`
+column) and needed no change.
+
+**Verified**: `rfq-flow.test.ts`'s "who can be asked" block gained a case creating a genuinely
+non-principal, accredited supplier and confirming it both appears in the list *and* can actually be
+asked (not merely listed) — 30/30 tests in that file pass, including the renamed refusal case now
+matching the new "not an accredited supplier" message. Queried the live database directly:
+`listRfqSuppliersService()` now returns A4O, which it did not before this change. `tsc --noEmit` and
+`eslint` clean.
