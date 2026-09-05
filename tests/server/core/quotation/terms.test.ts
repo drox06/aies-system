@@ -4,12 +4,22 @@ import { db } from "@/lib/db";
 import { getCompanyDetails } from "@/server/core/company";
 import { buildCustomerPdfProps } from "@/server/core/quotation/pdf/render";
 import { createQuotationService } from "@/server/core/quotation/quotation-service";
-import { updateQuotationHeaderService } from "@/server/core/quotation/quotation-line-service";
+import {
+  listActivePaymentTermsService,
+  updateQuotationHeaderService,
+} from "@/server/core/quotation/quotation-line-service";
 import {
   applyCustomerName,
+  CLAUSE_PREFIXES,
   CUSTOMER_TOKEN,
   DEFAULT_TERMS_AND_CONDITIONS,
+  deliveryClause,
+  leadTimeClause,
+  paymentTermsClause,
+  replaceClause,
   termsFromRecord,
+  validityClause,
+  warrantyClause,
 } from "@/server/core/quotation/terms";
 
 /**
@@ -30,6 +40,7 @@ const actor = { actorId: OWNER, actorLabel: "Terms Test" };
 
 const accountIds: string[] = [];
 const quotationIds: string[] = [];
+const paymentTermIds: string[] = [];
 
 async function makeQuotation(customerName = `Maynilad Water ${suffix}`) {
   const account = await db.customerAccount.create({
@@ -56,6 +67,7 @@ afterAll(async () => {
   await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
   await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
+  await db.paymentTerm.deleteMany({ where: { id: { in: paymentTermIds } } });
 });
 
 describe("the standard terms and conditions", () => {
@@ -184,4 +196,139 @@ describe("the company block on the document", () => {
     expect(props.company.addressLines).toHaveLength(2);
     expect(props.company.addressLines[0]).toBe("930 Doña Basilisa Yangco Street,");
   }, 60_000);
+});
+
+describe("the picker's clause templates — one copy of each fact, not a summary of it", () => {
+  it("states payment terms from the term's own milestones, never its internal description", () => {
+    expect(paymentTermsClause(null)).toBe("PAYMENT TERMS. 100% Advance payment.");
+
+    expect(
+      paymentTermsClause({
+        milestones: [
+          { label: "Downpayment", pct: "30", trigger: "on_order" },
+          { label: "Balance on completion", pct: "70", trigger: "on_project_close" },
+        ],
+      }),
+    ).toBe("PAYMENT TERMS. 30% upon order confirmation, 70% upon completion of the works.");
+
+    expect(
+      paymentTermsClause({
+        milestones: [
+          { label: "Full amount", pct: "100", trigger: "net_days_after_close", daysAfter: 45 },
+        ],
+      }),
+    ).toBe("PAYMENT TERMS. 100% 45 days after completion of the works.");
+  });
+
+  it("states the delivery term when one is given, and omits it otherwise", () => {
+    expect(deliveryClause(null)).not.toContain("Delivery term:");
+    expect(deliveryClause(null)).toContain("AIES ELECTROMECHANICAL CORPORATION");
+
+    const withTerm = deliveryClause("DDP site, Mandaluyong");
+    expect(withTerm).toContain("Delivery term: DDP site, Mandaluyong.");
+    expect(withTerm).toContain("AIES ELECTROMECHANICAL CORPORATION");
+  });
+
+  it("carries the entered lead time into the standard paragraph", () => {
+    expect(leadTimeClause(null)).toContain("35-45 working days");
+    expect(leadTimeClause("20-30 working days")).toContain("20-30 working days");
+  });
+
+  it("states validity as the real date the quotation expires on, not a generic '30 days'", () => {
+    expect(validityClause(null)).toContain("valid for 30 days");
+    expect(validityClause(new Date("2026-12-25"))).toContain("25 Dec 2026");
+    expect(validityClause("2026-12-25")).toContain("25 Dec 2026");
+  });
+
+  it("carries the entered warranty period into the standard paragraph", () => {
+    expect(warrantyClause(null)).toBe("WARRANTY. 1 year warranty after completion of works.");
+    expect(warrantyClause("2 years")).toBe("WARRANTY. 2 years warranty after completion of works.");
+  });
+
+  it("replaces the one clause that matches, and appends when a person deleted it", () => {
+    const clauses = [
+      "DELIVERY. Old wording.",
+      "PAYMENT TERMS. 100% Advance payment.",
+      "WARRANTY. 1 year.",
+    ];
+
+    const replaced = replaceClause(
+      clauses,
+      CLAUSE_PREFIXES.paymentTerms,
+      "PAYMENT TERMS. New wording.",
+    );
+    expect(replaced).toEqual([
+      "DELIVERY. Old wording.",
+      "PAYMENT TERMS. New wording.",
+      "WARRANTY. 1 year.",
+    ]);
+
+    const noMatch = replaceClause(
+      ["DELIVERY. Old wording."],
+      CLAUSE_PREFIXES.warranty,
+      "WARRANTY. Added.",
+    );
+    expect(noMatch).toEqual(["DELIVERY. Old wording.", "WARRANTY. Added."]);
+  });
+});
+
+describe("the payment-term picker, which billing depends on", () => {
+  async function makeTerm(name: string, isActive: boolean) {
+    const term = await db.paymentTerm.create({
+      data: {
+        name,
+        isActive,
+        milestones: [
+          { label: "Downpayment", pct: "50", trigger: "on_order" },
+          { label: "Balance", pct: "50", trigger: "on_project_close" },
+        ],
+      },
+    });
+    paymentTermIds.push(term.id);
+    return term;
+  }
+
+  it("offers active terms, not retired ones", async () => {
+    const active = await makeTerm(`Active term ${randomUUID().slice(0, 8)}`, true);
+    const retired = await makeTerm(`Retired term ${randomUUID().slice(0, 8)}`, false);
+
+    const offered = await listActivePaymentTermsService();
+    expect(offered.map((t) => t.id)).toContain(active.id);
+    expect(offered.map((t) => t.id)).not.toContain(retired.id);
+  });
+
+  it("refuses a payment term that does not exist or is no longer active", async () => {
+    const { quotation } = await makeQuotation();
+    const retired = await makeTerm(`Retired for refusal ${randomUUID().slice(0, 8)}`, false);
+
+    await expect(
+      updateQuotationHeaderService(actor, {
+        quotationId: quotation.id,
+        version: quotation.version,
+        paymentTermsId: retired.id,
+      }),
+    ).rejects.toThrow(/does not exist or is no longer active/);
+
+    await expect(
+      updateQuotationHeaderService(actor, {
+        quotationId: quotation.id,
+        version: quotation.version,
+        paymentTermsId: "not-a-real-id",
+      }),
+    ).rejects.toThrow(/does not exist or is no longer active/);
+  });
+
+  it("accepts and stores a real, active payment term", async () => {
+    const { quotation } = await makeQuotation();
+    const term = await makeTerm(`Applied term ${randomUUID().slice(0, 8)}`, true);
+
+    await updateQuotationHeaderService(actor, {
+      quotationId: quotation.id,
+      version: quotation.version,
+      paymentTermsId: term.id,
+    });
+
+    const stored = await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+    expect(stored.paymentTermsId).toBe(term.id);
+  });
 });

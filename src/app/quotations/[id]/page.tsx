@@ -72,7 +72,8 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     fxRate: string;
     revision: number;
     quoteType: string;
-    validUntil: string;
+    // superjson revives this as a real Date on the client, not the string this cast used to claim.
+    validUntil: Date | string;
     scopeOfWork: string;
     total: string;
     subtotal: string;
@@ -84,6 +85,7 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     marginPct?: string;
     deliveryLeadTime: string | null;
     deliveryTermIncoterm: string | null;
+    paymentTermsId: string | null;
     paymentTermsText: string | null;
     warrantyTerms: string | null;
     termsAndConditions: string[];
@@ -331,6 +333,11 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             quotationId={data.id}
             version={data.version}
             editable={editable}
+            paymentTermsId={data.paymentTermsId}
+            deliveryTermIncoterm={data.deliveryTermIncoterm}
+            deliveryLeadTime={data.deliveryLeadTime}
+            validUntil={data.validUntil}
+            warrantyTerms={data.warrantyTerms}
             termsAndConditions={data.termsAndConditions ?? []}
             onSaved={refresh}
           />

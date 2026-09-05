@@ -36,6 +36,10 @@ const UI_SAFE_SERVER_MODULES = [
   "@/server/core/quotation/quotation-number",
   "@/server/core/quotation/quotation-lifecycle",
   "@/server/core/quotation/archive-rules",
+  // Pure clause templates (no Prisma) shared by the PDF and the quotation-terms picker, so the
+  // wording a person sees generated in the editor is exactly what prints — see terms.ts's own note
+  // on why the picker writes the clause rather than a separate summary of it.
+  "@/server/core/quotation/terms",
   // AIES's own registered details. A file of constants behind a getter — no Prisma, no node
   // builtins — and the screens need it for the same reason the PDFs do: the delivery address a
   // buyer sees offered as the default must be the one that will actually print.

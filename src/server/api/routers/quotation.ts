@@ -29,6 +29,7 @@ import {
   type ActorMeta,
 } from "@/server/core/quotation/quotation-service";
 import {
+  listActivePaymentTermsService,
   saveQuotationLinesService,
   updateQuotationHeaderService,
 } from "@/server/core/quotation/quotation-line-service";
@@ -200,6 +201,9 @@ export const quotationRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => updateQuotationHeaderService(actorMeta(ctx), input)),
+
+  /** The picker's options for the payment-term clause. See terms.ts's `paymentTermsClause`. */
+  listPaymentTerms: p("quotation.view").query(() => listActivePaymentTermsService()),
 
   // ---- §6 approval ----------------------------------------------------------------------------
 

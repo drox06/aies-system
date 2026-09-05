@@ -6626,3 +6626,64 @@ asked (not merely listed) — 30/30 tests in that file pass, including the renam
 matching the new "not an accredited supplier" message. Queried the live database directly:
 `listRfqSuppliersService()` now returns A4O, which it did not before this change. `tsc --noEmit` and
 `eslint` clean.
+
+---
+
+## #180 — The quotation's own payment-term picker writes the clause it used to duplicate, instead of being removed
+
+**2026-09-05.** Traced from a real, live block: AIESSO-260419's "Create the billing plan" button
+refused with *"has no payment term, so there is nothing to derive a billing plan from."*
+`generateScheduleService` reads `Quotation.paymentTermsId` — a structured link to one of five named
+`PaymentTerm` rows (50/50, 30/70, 100% on delivery, Net 30 after completion, Progress billing) — and
+nothing had ever set it. §7's TermsPanel used to carry a picker for this and four siblings (delivery
+term, lead time, validity, warranty), removed on 2026-08-16 at the company's request because it
+printed the same fact twice: the picker's value in a summary block, the same value again inside a
+numbered clause below it. That reasoning was right for the summary block, but `paymentTermsId` was
+never print-only — removing its picker also removed the only way to set the one field billing reads,
+which nothing caught until a real order couldn't be billed (already logged once as an open gap,
+finding 2 of #150, and never resolved).
+
+**Why the fix is not "bring the block back."** Bringing back a *second* copy of each fact would
+reintroduce exactly the drift the removal fixed. Instead each picker now **writes its clause
+directly** — there is one copy of the fact (the picker's value), and the numbered clause is simply how
+it is displayed. Concretely: `terms.ts` gained five pure generators (`paymentTermsClause`,
+`deliveryClause`, `leadTimeClause`, `validityClause`, `warrantyClause`) plus `replaceClause`, which
+finds the clause starting with a given label (`"PAYMENT TERMS."`, `"DELIVERY."`, etc.) and replaces it
+— or appends one if a person deleted it. `TermsPanel.tsx` calls the matching generator on every
+picker change and splices the result into the same local `clauses` array the free-text editor already
+owns, so a clause stays a plain editable string a person can still hand-tune afterward; changing the
+picker again just regenerates it from the template, and always wins when used.
+
+**The payment-terms clause is built from the term's milestones, never its `description`.**
+`PaymentTerm.description` carries internal rationale — *"For long jobs where waiting for completion
+would fund the customer's project out of AIES's cash"* — that has no business on a document the
+customer reads. `paymentTermsClause` instead maps each milestone's `pct` and `trigger` (reusing
+`billing-rules.ts`'s own trigger vocabulary) into plain commercial wording, e.g. *"50% upon order
+confirmation, 50% upon completion of the works."*
+
+**A stale or foreign `paymentTermsId` is now refused server-side.** `updateQuotationHeaderService`
+never validated this field before — nothing had ever sent one. It now checks the id resolves to an
+`isActive` `PaymentTerm` and refuses otherwise, so a broken reference surfaces on save rather than
+silently failing `generateScheduleService` weeks later with no traceable cause. A new
+`quotation.listPaymentTerms` query (gated on `quotation.view`, same as `list`/`get`) feeds the
+picker's options, offering only active terms — #130 logged 92 rows in the live database, most of them
+inactive test fixtures.
+
+**What was not done.** AIESSO-260419's own quotation (AIESLQ261413, superseded, and its accepted
+revision AIESLQ261413REV01) is already past `draft` — §5 permits header edits only in draft, same
+rule the picker inherits — so this fix does not by itself unblock that specific stuck order; it needs
+a direct one-time backfill, offered separately. What it does fix is every quotation from here forward:
+the picker is available during quoting, exactly where the company asked for it, and a billing plan
+generated from a new order will always have a real term behind it.
+
+**Verified**: `terms.test.ts` gained unit coverage for all five generators and `replaceClause`
+(including the append-when-deleted case), plus three integration cases against the live database —
+`listActivePaymentTermsService` offers active terms and not retired ones, `updateQuotationHeaderService`
+refuses both a retired and a nonexistent `paymentTermsId`, and accepts and stores a real one — 18/18
+tests in the file pass. Checked live in the browser as a throwaway `sales`-scoped user (created and
+deleted for this): created a real draft quotation, set all five pickers, watched each numbered clause
+update immediately with the exact wording above, saved, hard-reloaded, and confirmed every field and
+clause survived the round trip unchanged. Caught and fixed one bug in the process — `validUntil`
+arrives from `quotation.get` as a real `Date` object (superjson revives it), not the string
+`page.tsx`'s own type cast had always claimed; `TermsPanel` crashed calling `.slice` on it until
+normalised. `tsc --noEmit` and `eslint` clean.

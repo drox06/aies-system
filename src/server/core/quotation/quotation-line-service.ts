@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import { computeCosting, fromCentavos, type VatMode } from "@/server/core/quotation/costing";
 import { isEditable } from "@/server/core/quotation/quotation-lifecycle";
 import type { ActorMeta } from "@/server/core/quotation/quotation-service";
+import type { TermMilestone } from "@/server/core/finance/billing-rules";
 
 /**
  * Writing a quotation's lines and its recomputed totals (specs/02-quotation.md §4).
@@ -365,6 +366,22 @@ export async function updateQuotationHeaderService(
     });
   }
 
+  // The picker sends an id; nothing else ever has, so this path has never been exercised before.
+  // Refusing a stale or foreign one here is cheaper than a billing plan that fails to generate later
+  // for a reason nobody can see from the quotation screen.
+  if (input.paymentTermsId) {
+    const term = await db.paymentTerm.findFirst({
+      where: { id: input.paymentTermsId, isActive: true },
+      select: { id: true },
+    });
+    if (!term) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "That payment term does not exist or is no longer active.",
+      });
+    }
+  }
+
   const data: Prisma.QuotationUpdateInput = { version: { increment: 1 } };
   for (const field of [
     "title",
@@ -414,4 +431,30 @@ export async function updateQuotationHeaderService(
   });
 
   return { ok: true as const };
+}
+
+export interface PaymentTermOption {
+  id: string;
+  name: string;
+  netDays: number;
+  milestones: TermMilestone[];
+}
+
+/**
+ * The payment terms a quotation can be put on — the picker's options.
+ *
+ * Only the active ones. Per docs/DECISIONS.md #130, the live database also holds a large number of
+ * inactive rows left by test fixtures; `isActive` is what keeps those out of a real quoter's dropdown
+ * without having to delete anything a past quotation might still reference by id.
+ */
+export async function listActivePaymentTermsService(): Promise<PaymentTermOption[]> {
+  const terms = await db.paymentTerm.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, netDays: true, milestones: true },
+  });
+  return terms.map((term) => ({
+    ...term,
+    milestones: term.milestones as unknown as TermMilestone[],
+  }));
 }
