@@ -114,6 +114,16 @@ export async function buildCustomerPdfProps(
       line.lineDiscountPct && Number(line.lineDiscountPct) > 0
         ? `${Number(line.lineDiscountPct).toFixed(1).replace(/\.0$/, "")}%`
         : null,
+    // The peso figure the "Disc" column prints (2026-09-05) — `unitPrice × quantity` is the line's
+    // pre-discount gross, exactly the definition `computeCosting` itself uses before applying the
+    // rate, so this reconstructs the same amount rather than inventing a second formula for it.
+    lineDiscountAmount:
+      line.lineDiscountPct && Number(line.lineDiscountPct) > 0
+        ? formatMoneyCode(
+            (Number(line.unitPrice) * Number(line.quantity) - Number(line.lineTotal)).toFixed(2),
+            currency,
+          )
+        : null,
   }));
 
   const discount = quotation.discountAmount.toString();

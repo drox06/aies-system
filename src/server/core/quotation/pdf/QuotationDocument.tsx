@@ -38,14 +38,22 @@ export interface CustomerLine {
   leadTimeDays: number | null;
   isOptional: boolean;
   /**
-   * §8's line-level negotiation, e.g. "10%" — null when this line carries none. Distinct from the
-   * header `discount` in `totals`: that one prints as its own subtotal-to-net step, because reducing
-   * every line amount *and* printing a discount row would show the same reduction twice (see the
-   * totals block below). A line discount has already been folded into `unitPrice`/`lineTotal` by the
-   * time it reaches this document, so without this the customer sees a lower price with no record
-   * that it was ever anything else — asked for by the company on 2026-09-04.
+   * §8's line-level negotiation, e.g. "10%" — null when this line carries none. Kept on the type
+   * even though the table prints `lineDiscountAmount` instead (2026-09-05: the company wants the
+   * peso figure in its own column, not the rate as a note under the description) — several tests
+   * pin this field directly, and it is still the more useful number for anything reading the props
+   * rather than the page.
    */
   lineDiscountPct: string | null;
+  /**
+   * The peso amount that rate actually took off this line — `unitPrice × quantity − lineTotal`,
+   * pre-formatted like every other money field here. Null when the line carries no discount, which
+   * is also what tells `LineTable` whether to print the "Disc" column at all: a column that is
+   * blank on every row is worse than no column, so it only appears once at least one line has
+   * something to put in it. Distinct from the header `discount` in `totals`, which is a separate,
+   * later, whole-quotation rebate — see that field's own comment.
+   */
+  lineDiscountAmount: string | null;
 }
 
 export interface CustomerQuotationPdfProps {
@@ -98,7 +106,10 @@ export interface CustomerQuotationPdfProps {
   standardTerms: string[];
 }
 
-const COLS = { no: 24, desc: 231, qty: 46, unit: 32, price: 88, total: 94 };
+// `disc` only ever prints when at least one line has something to put in it (see `LineTable`), and
+// `desc` gives up exactly the width `disc` needs so the row stays the same total width either way.
+const COLS = { no: 24, desc: 231, qty: 46, unit: 32, price: 88, disc: 80, total: 94 };
+const COLS_WITH_DISCOUNT = { ...COLS, desc: COLS.desc - COLS.disc };
 
 export function QuotationDocument(props: CustomerQuotationPdfProps) {
   const counted = props.lines.filter((line) => !line.isOptional);
@@ -299,15 +310,22 @@ function LineTable({ lines }: { lines: CustomerLine[] }) {
     else groups.push({ label, lines: [line] });
   }
 
+  // The "Disc" column only exists on a table that has something to put in it (2026-09-05) — a
+  // column that is blank on every one of this table's rows is worse than no column, and the
+  // optional-items table often has none even when the counted one does.
+  const showDiscount = lines.some((line) => line.lineDiscountAmount);
+  const cols = showDiscount ? COLS_WITH_DISCOUNT : COLS;
+
   return (
     <View>
       <View style={s.tableHeader} fixed>
-        <Text style={[s.th, { width: COLS.no }]}>#</Text>
-        <Text style={[s.th, { width: COLS.desc }]}>Description</Text>
-        <Text style={[s.th, s.right, { width: COLS.qty }]}>Qty</Text>
-        <Text style={[s.th, { width: COLS.unit }]}>Unit</Text>
-        <Text style={[s.th, s.right, { width: COLS.price }]}>Unit price</Text>
-        <Text style={[s.th, s.right, { width: COLS.total }]}>Amount</Text>
+        <Text style={[s.th, { width: cols.no }]}>#</Text>
+        <Text style={[s.th, { width: cols.desc }]}>Description</Text>
+        <Text style={[s.th, s.right, { width: cols.qty }]}>Qty</Text>
+        <Text style={[s.th, { width: cols.unit }]}>Unit</Text>
+        <Text style={[s.th, s.right, { width: cols.price }]}>Unit price</Text>
+        {showDiscount && <Text style={[s.th, s.right, { width: cols.disc }]}>Disc</Text>}
+        <Text style={[s.th, s.right, { width: cols.total }]}>Amount</Text>
       </View>
 
       {groups.map((group, groupIndex) => (
@@ -319,8 +337,8 @@ function LineTable({ lines }: { lines: CustomerLine[] }) {
           )}
           {group.lines.map((line) => (
             <View key={line.lineNo} style={s.tr} wrap={false}>
-              <Text style={{ width: COLS.no }}>{line.lineNo}</Text>
-              <View style={{ width: COLS.desc }}>
+              <Text style={{ width: cols.no }}>{line.lineNo}</Text>
+              <View style={{ width: cols.desc }}>
                 <Text>{line.description}</Text>
                 {(line.manufacturer || line.modelNumber) && (
                   <Text style={[s.small, s.muted]}>
@@ -333,14 +351,14 @@ function LineTable({ lines }: { lines: CustomerLine[] }) {
                 {line.leadTimeDays !== null && (
                   <Text style={[s.small, s.muted]}>Lead time {line.leadTimeDays} days</Text>
                 )}
-                {line.lineDiscountPct && (
-                  <Text style={[s.small, s.muted]}>{line.lineDiscountPct} discount applied</Text>
-                )}
               </View>
-              <Text style={[s.right, { width: COLS.qty }]}>{line.quantity}</Text>
-              <Text style={{ width: COLS.unit }}>{line.unit}</Text>
-              <Text style={[s.right, { width: COLS.price }]}>{line.unitPrice}</Text>
-              <Text style={[s.right, { width: COLS.total }]}>{line.lineTotal}</Text>
+              <Text style={[s.right, { width: cols.qty }]}>{line.quantity}</Text>
+              <Text style={{ width: cols.unit }}>{line.unit}</Text>
+              <Text style={[s.right, { width: cols.price }]}>{line.unitPrice}</Text>
+              {showDiscount && (
+                <Text style={[s.right, { width: cols.disc }]}>{line.lineDiscountAmount ?? ""}</Text>
+              )}
+              <Text style={[s.right, { width: cols.total }]}>{line.lineTotal}</Text>
             </View>
           ))}
         </View>

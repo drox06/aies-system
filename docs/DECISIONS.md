@@ -6541,3 +6541,45 @@ Customer PO correctly reappeared alongside the now-live Negotiation panel, since
 send a PO mid-negotiation. `tsc --noEmit` and `eslint` clean; `negotiation.test.ts` and
 `delete-and-po.test.ts` (20 tests) pass unmodified, confirming the backend this routes to was never
 touched.
+
+---
+
+## #178 — A line's own discount prints as a peso amount in its own "Disc" column, not a rate as a
+note
+
+**2026-09-05. Built** as the direct follow-up to #173's line-discount note, after that note caused
+the exact confusion #177's investigation diagnosed: a line showing "15% discount applied" sat next to
+the header's unrelated "Less discount (6.3%)" in the same test document, and the company read the two
+percentages as one figure disagreeing with itself. They were never the same figure — a line's rate is
+what was used to price that specific item, the header's is a separate flat rebate expressed as a
+percentage of the subtotal purely for readability (see #177's own explanation, given in chat, for the
+full reasoning) — but a text note reading like a headline number invited exactly that comparison. The
+company's own fix, once the two were told apart: stop printing the line's *rate* at all, and print
+what it actually took off *in pesos*, in a column of its own that cannot be mistaken for the header's
+row two inches below it.
+
+**`CustomerLine` gained `lineDiscountAmount`** — `unitPrice × quantity − lineTotal`, the same
+pre-discount-gross-minus-post-discount-total arithmetic `computeCosting` itself already does before
+applying the rate, so this reconstructs the identical number rather than inventing a second formula
+for it. `lineDiscountPct` stays on the type unchanged — `pdf.test.ts` and anything else reading props
+rather than the page still gets the rate — it simply stopped being the thing rendered.
+
+**The column only exists when a table has something to put in it.** `LineTable` (called once for
+counted lines, once for optional ones) checks `lines.some((l) => l.lineDiscountAmount)` and only then
+adds the "Disc" header cell and widens the row by one column; a table with no discounted line renders
+exactly as it did before this entry, five columns, not six with an empty one. `COLS_WITH_DISCOUNT`
+takes its 80pt from `desc` rather than shrinking every column, so the numeric columns keep the widths
+that already fit their content on one line — the first version used 56pt, which was enough for
+"13,931.38" alone but wrapped "PHP" onto its own line above every value, and got the wider figure
+after one real render caught it.
+
+**Verified with a real render, not just the props.** Rendered the actual quotation the earlier
+confusion came from (real 15% line discount, header discount now cleared) and read the resulting PDF
+back: the row prints `92,875.88 | 13,931.38 | 78,944.50` under `Unit price | Disc | Amount`, all on
+one line — `92,875.88 − 13,931.38 = 78,944.50` and `13,931.38 ÷ 92,875.88 ≈ 15%`, so the new peso
+figure is provably the same 15% cut, just expressed the way the company asked for. A second render of
+a quotation with no line discount confirmed the column disappears entirely and the row returns to its
+original five-column width. `pdf.test.ts` gained a case computing the exact expected peso figure by
+hand (7,531 × 1.25 × 2 × 10% = 1,882.75) and asserting a discount-free line's `lineDiscountAmount` is
+`null`, not `"0.00"`; all 9 tests in that file, plus `quotation-flow.test.ts` and
+`field-gating.test.ts` (26 total), pass. `tsc --noEmit` and `eslint` clean.
