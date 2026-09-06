@@ -1,15 +1,24 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import {
+  COLLECTIONS_MATURED_NOTIFICATION_TYPE,
+  COLLECTIONS_TIMELINE_MISSED_NOTIFICATION_TYPE,
+  COLLECTIONS_TIMELINE_NEEDED_NOTIFICATION_TYPE,
+  COLLECTIONS_WEEKLY_NOTIFICATION_TYPE,
   collectionHistoryService,
   collectionWorklistService,
   creditExposureService,
   logCollectionActivityService,
-  setRemindersEnabledService,
-  sweepCollectionRemindersService,
+  setExpectedPaymentDateService,
+  sweepDunningCycleService,
   sweepOverdueStatementsService,
 } from "@/server/core/finance/collection-service";
+import {
+  DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE,
+  DUNNING_GRACE_DAYS,
+  DUNNING_WEEKLY_INTERVAL_DAYS,
+} from "@/server/core/finance/collection-rules";
 import {
   issueStatementService,
   raiseStatementService,
@@ -18,9 +27,11 @@ import {
 /**
  * specs/05-finance-billing.md §5, against the real database.
  *
- * The property that matters most is the reminder sweep being **idempotent**. A nightly job that
- * finds the +7 reminder due every night from day seven onwards sends the same demand daily, and a
- * customer who receives that stops reading any of them — which costs more than never having chased.
+ * docs/DECISIONS.md #188's dunning cycle is the property pure functions cannot prove on their own:
+ * that `sweepDunningCycleService` actually creates the `CollectionCycle` row, actually writes real
+ * notifications real people would see, and stays idempotent when the same night's sweep runs twice —
+ * a nightly job that fires the maturity notice again on every re-run sends the same demand daily,
+ * and a customer (or in this case a colleague) who sees that stops reading any of them.
  */
 
 const suffix = randomUUID().slice(0, 8);
@@ -54,11 +65,23 @@ async function statement(accountId: string, unitPrice: number, dueDate: Date) {
   return raised;
 }
 
-const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-const daysAhead = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS);
+const daysAhead = (days: number) => new Date(Date.now() + days * DAY_MS);
+
+/**
+ * `sweepDunningCycleService`'s own "still open" half deliberately reads every open `CollectionCycle`
+ * row in the database, unscoped — that is exactly what lets a statement paid weeks after it went
+ * quiet still get closed on the next real nightly run. In this file that same query means every test
+ * that leaves a cycle open gets re-processed, and renotified, by every later test's sweep calls —
+ * strictly a test-hygiene problem, not the production design, but one that turns a handful of tests
+ * quadratic. Closing the loop after each test keeps the table empty between them.
+ */
+afterEach(async () => {
+  await db.collectionCycle.deleteMany({ where: { statementId: { in: statementIds } } });
+});
 
 afterAll(async () => {
-  await db.collectionReminder.deleteMany({ where: { statementId: { in: statementIds } } });
   await db.collectionActivity.deleteMany({ where: { statementId: { in: statementIds } } });
   await db.billingStatementLine.deleteMany({ where: { statementId: { in: statementIds } } });
   await db.billingStatement.deleteMany({ where: { id: { in: statementIds } } });
@@ -178,64 +201,213 @@ describe("logging a follow-up", () => {
   });
 });
 
-describe("the reminder sweep", () => {
-  /**
-   * The property the whole design turns on. Without a recorded row, a nightly job finds the +7
-   * reminder due every night from day seven onwards.
-   */
-  it("schedules each interval once, however many times it runs", async () => {
-    const account = await makeAccount();
-    const raised = await statement(account.id, 100_000, daysAgo(20));
-
-    const first = await sweepCollectionRemindersService();
-    const mine = first.due.filter((row) => row.statementId === raised.id);
-    // -3, 0, +7 and +15 have all passed; +30 has not.
-    expect(mine.map((row) => row.offsetDays).sort((a, b) => a - b)).toEqual([-3, 0, 7, 15]);
-
-    const second = await sweepCollectionRemindersService();
-    expect(second.due.filter((row) => row.statementId === raised.id)).toEqual([]);
-
-    const rows = await db.collectionReminder.findMany({ where: { statementId: raised.id } });
-    expect(rows).toHaveLength(4);
-  });
-
-  it("does not schedule one whose time has not come", async () => {
+describe("docs/DECISIONS.md #188's dunning cycle", () => {
+  it("does nothing for a statement not yet due", async () => {
     const account = await makeAccount();
     const raised = await statement(account.id, 100_000, daysAhead(30));
 
-    const result = await sweepCollectionRemindersService();
-    expect(result.due.filter((row) => row.statementId === raised.id)).toEqual([]);
-  });
+    await sweepDunningCycleService();
 
-  /**
-   * §5's off switch. Suppression is **recorded** rather than skipped: "we did not chase them, and
-   * here is why" is a different fact from "nobody looked", and only one of them is defensible.
-   */
-  it("records a suppression for an account with reminders switched off", async () => {
+    expect(await db.collectionCycle.findUnique({ where: { statementId: raised.id } })).toBeNull();
+  }, 60000);
+
+  it("creates the cycle and notifies finance the day a statement matures", async () => {
     const account = await makeAccount();
-    await setRemindersEnabledService(actor, {
-      accountId: account.id,
-      enabled: false,
-      reason: "Handled by phone only at the customer's request.",
+    const dueDate = new Date();
+    const raised = await statement(account.id, 100_000, dueDate);
+
+    const since = new Date();
+    await sweepDunningCycleService(dueDate);
+
+    const cycle = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(cycle.state).toBe("matured");
+    expect(cycle.maturedNotifiedAt).not.toBeNull();
+
+    const notified = await db.notification.count({
+      where: { type: COLLECTIONS_MATURED_NOTIFICATION_TYPE, createdAt: { gte: since } },
+    });
+    expect(notified).toBeGreaterThan(0);
+  }, 90000);
+
+  /** The property the whole design turns on: a second sweep on the same night sends nothing twice. */
+  it("is idempotent within the same tick", async () => {
+    const account = await makeAccount();
+    const dueDate = new Date();
+    const raised = await statement(account.id, 100_000, dueDate);
+
+    await sweepDunningCycleService(dueDate);
+    const afterFirst = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
     });
 
-    const raised = await statement(account.id, 100_000, daysAgo(20));
-    const result = await sweepCollectionRemindersService();
+    await sweepDunningCycleService(dueDate);
+    const afterSecond = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
 
-    expect(result.due.filter((row) => row.statementId === raised.id)).toEqual([]);
+    expect(afterSecond.maturedNotifiedAt).toEqual(afterFirst.maturedNotifiedAt);
+    expect(afterSecond.state).toBe("matured");
+  }, 90000);
 
-    const rows = await db.collectionReminder.findMany({ where: { statementId: raised.id } });
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((row) => row.suppressedAt !== null)).toBe(true);
-    expect(rows[0]!.suppressedReason).toMatch(/switched off/);
-  });
-
-  it("insists on a reason before switching reminders off", async () => {
+  it("moves into weekly dunning once the grace period passes, and back out once paid", async () => {
     const account = await makeAccount();
+    const dueDate = new Date();
+    const raised = await statement(account.id, 100_000, dueDate);
+
+    await sweepDunningCycleService(dueDate);
+    const graceDay = new Date(dueDate.getTime() + DUNNING_GRACE_DAYS * DAY_MS);
+    const since = new Date();
+    await sweepDunningCycleService(graceDay);
+
+    const cycle = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(cycle.state).toBe("dunning");
+    expect(cycle.weeklyNotifiedCount).toBe(1);
+
+    const weeklyNotices = await db.notification.count({
+      where: { type: COLLECTIONS_WEEKLY_NOTIFICATION_TYPE, createdAt: { gte: since } },
+    });
+    expect(weeklyNotices).toBeGreaterThan(0);
+
+    // Paid in full — the cycle closes on the next sweep regardless of where it was.
+    await db.billingStatement.update({ where: { id: raised.id }, data: { balance: 0 } });
+    await sweepDunningCycleService(graceDay);
+    const closed = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(closed.state).toBe("closed");
+    expect(closed.closedAt).not.toBeNull();
+  }, 150000);
+
+  it("opens the timeline prompt after the threshold, and the worklist shows it needs one", async () => {
+    const account = await makeAccount();
+    const dueDate = new Date();
+    const raised = await statement(account.id, 100_000, dueDate);
+
+    await sweepDunningCycleService(dueDate);
+    const graceDay = new Date(dueDate.getTime() + DUNNING_GRACE_DAYS * DAY_MS);
+    await sweepDunningCycleService(graceDay);
+    const nextWeek = new Date(graceDay.getTime() + DUNNING_WEEKLY_INTERVAL_DAYS * DAY_MS);
+    const since = new Date();
+    await sweepDunningCycleService(nextWeek);
+
+    const cycle = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(cycle.state).toBe("awaiting_timeline");
+    expect(cycle.timelinePromptOpenedAt).not.toBeNull();
+
+    const opened = await db.notification.count({
+      where: { type: COLLECTIONS_TIMELINE_NEEDED_NOTIFICATION_TYPE, createdAt: { gte: since } },
+    });
+    expect(opened).toBeGreaterThan(0);
+
+    const rows = await collectionWorklistService({ accountId: account.id });
+    const row = rows.find((r) => r.id === raised.id)!;
+    expect(row.cycle?.state).toBe("awaiting_timeline");
+    expect(row.cycle?.needsTimeline).toBe(true);
+  }, 150000);
+});
+
+describe("answering docs/DECISIONS.md #188's 'when is payment expected?' prompt", () => {
+  /** Drives a fresh statement to `awaiting_timeline` with no date set yet. */
+  async function awaitingTimeline(accountId: string) {
+    const dueDate = new Date();
+    const raised = await statement(accountId, 100_000, dueDate);
+    await sweepDunningCycleService(dueDate);
+    const graceDay = new Date(dueDate.getTime() + DUNNING_GRACE_DAYS * DAY_MS);
+    await sweepDunningCycleService(graceDay);
+    const nextWeek = new Date(graceDay.getTime() + DUNNING_WEEKLY_INTERVAL_DAYS * DAY_MS);
+    await sweepDunningCycleService(nextWeek);
+    return raised;
+  }
+
+  it("refuses a date when nothing is asking for one", async () => {
+    const account = await makeAccount();
+    const raised = await statement(account.id, 100_000, daysAgo(1));
+
     await expect(
-      setRemindersEnabledService(actor, { accountId: account.id, enabled: false, reason: "no" }),
-    ).rejects.toThrow(/Say why/);
-  });
+      setExpectedPaymentDateService(actor, { statementId: raised.id, expectedDate: daysAhead(5) }),
+    ).rejects.toThrow(/not currently waiting/);
+  }, 30000);
+
+  it("records the date, then refuses a second one for the same round", async () => {
+    const account = await makeAccount();
+    const raised = await awaitingTimeline(account.id);
+
+    await setExpectedPaymentDateService(actor, {
+      statementId: raised.id,
+      expectedDate: daysAhead(7),
+      notes: "Accounts team says next Friday.",
+    });
+
+    const cycle = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(cycle.expectedPaymentDate).not.toBeNull();
+    expect(cycle.expectedPaymentSetById).toBe(actor.actorId);
+
+    const log = await db.auditLog.findFirst({
+      where: { entityId: cycle.id, action: "expected_payment_date_set" },
+    });
+    expect(log?.summary).toMatch(/Accounts team says next Friday/);
+
+    await expect(
+      setExpectedPaymentDateService(actor, {
+        statementId: raised.id,
+        expectedDate: daysAhead(14),
+      }),
+    ).rejects.toThrow(/already on file/);
+  }, 180000);
+
+  it("refuses a date that has already passed", async () => {
+    const account = await makeAccount();
+    const raised = await awaitingTimeline(account.id);
+
+    await expect(
+      setExpectedPaymentDateService(actor, { statementId: raised.id, expectedDate: daysAgo(2) }),
+    ).rejects.toThrow(/has not already passed/);
+  }, 150000);
+
+  /** "if no payment prompt is opened again, cycle repeats until payment is received." */
+  it("reopens the prompt and counts the miss once a promised date passes unpaid", async () => {
+    const account = await makeAccount();
+    const raised = await awaitingTimeline(account.id);
+
+    const promised = daysAhead(5);
+    await setExpectedPaymentDateService(actor, { statementId: raised.id, expectedDate: promised });
+
+    const checkpoint = new Date(
+      promised.getTime() + DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE * DAY_MS,
+    );
+    const since = new Date();
+    await sweepDunningCycleService(checkpoint);
+
+    const cycle = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(cycle.state).toBe("awaiting_timeline");
+    expect(cycle.expectedPaymentDate).toBeNull();
+    expect(cycle.missedDateCount).toBe(1);
+
+    const missed = await db.notification.count({
+      where: { type: COLLECTIONS_TIMELINE_MISSED_NOTIFICATION_TYPE, createdAt: { gte: since } },
+    });
+    expect(missed).toBeGreaterThan(0);
+
+    // The loop closes: a fresh date can be set again for the new round.
+    await setExpectedPaymentDateService(actor, {
+      statementId: raised.id,
+      expectedDate: daysAhead(3),
+    });
+    const after = await db.collectionCycle.findUniqueOrThrow({
+      where: { statementId: raised.id },
+    });
+    expect(after.expectedPaymentDate).not.toBeNull();
+  }, 200000);
 });
 
 describe("the overdue sweep", () => {

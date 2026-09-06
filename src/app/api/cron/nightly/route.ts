@@ -1,5 +1,5 @@
 import {
-  sweepCollectionRemindersService,
+  sweepDunningCycleService,
   sweepOverdueStatementsService,
 } from "@/server/core/finance/collection-service";
 import { NextResponse } from "next/server";
@@ -68,12 +68,13 @@ async function handle(request: Request) {
   /**
    * specs/05-finance-billing.md §5's two collection sweeps.
    *
-   * The overdue sweep runs **first**: it sets the status that the reminder sweep, the worklist and
-   * the ageing report all read. Running them the other way round would chase on yesterday's picture
-   * for one night — harmless once, and exactly the kind of ordering nobody re-derives later.
+   * The overdue sweep runs **first**: it sets the status that the dunning cycle, the worklist and the
+   * ageing report all read. Running them the other way round would chase on yesterday's picture for
+   * one night — harmless once, and exactly the kind of ordering nobody re-derives later.
    *
-   * Neither sends anything. The reminder sweep records which reminders are due, which is what makes
-   * it safe to run twice; module 10 owns the transport.
+   * docs/DECISIONS.md #188's dunning cycle sends real in-app notifications (unlike the
+   * `CollectionReminder` sweep it replaced, which only ever recorded a decision for module 10's never
+   * -built email transport to act on) — see `sweepDunningCycleService` for the cycle itself.
    */
   try {
     results.overdueStatements = await sweepOverdueStatementsService();
@@ -83,10 +84,10 @@ async function handle(request: Request) {
   }
 
   try {
-    results.collectionReminders = await sweepCollectionRemindersService();
+    results.dunningCycle = await sweepDunningCycleService();
   } catch (error) {
-    console.error("[cron/nightly] collection reminder sweep failed:", error);
-    results.collectionReminders = { error: String(error) };
+    console.error("[cron/nightly] dunning cycle sweep failed:", error);
+    results.dunningCycle = { error: String(error) };
   }
 
   try {

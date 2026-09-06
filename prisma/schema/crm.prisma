@@ -55,15 +55,12 @@ model CustomerAccount {
   // credit limit that is off by a centavo and a customer who disputes it.
   creditLimit    Decimal? @db.Decimal(14, 2)
 
-  /// §5 of module 05: "an off switch per account — some customers must be handled by phone only."
-  ///
-  /// A default of true with an explicit way off, rather than opt-in: a customer nobody chases is a
-  /// customer who does not pay, and the failure mode of forgetting to switch reminders *on* is
-  /// silent. Switching them off is a deliberate act somebody takes for a named reason.
-  collectionRemindersEnabled   Boolean @default(true)
-  /// Why they are off, when they are. A switch with no reason is one nobody dares turn back on.
-  collectionRemindersOffReason String?
-  currency                     String  @default("PHP")
+  /// docs/DECISIONS.md #188 retired the per-account off switch that used to live here. It gated a
+  /// reminder sweep that never sent a real email in the first place — module 10's transport was
+  /// never built — so "handled by phone only" was already true of every account, silently. The new
+  /// dunning cycle is entirely internal and staff-facing (in-app notifications to finance and admin,
+  /// never the customer directly), so there is nothing left for an account-level switch to turn off.
+  currency String @default("PHP")
 
   ownerId String
   // active | dormant | blacklisted

@@ -7124,3 +7124,119 @@ else already green. Clicked "Mobilise anyway," entered a reason, and confirmed t
 "Ready to mobilise" with the exact reason attributed on the readiness line, matching the audit trail.
 Verification account, contact, site, quotation, PO, file, order, line, ticket, project and mobilisation
 deleted afterward.
+
+---
+
+## #187 — Term 7 corrected: "Net N days" bills through the same exchange as terms 4-6, not on its own
+
+**2026-09-06.** Building Phase D's collections cycle meant reading term 7's original spec sentence
+again — *"finance can trigger 'are we ready to bill?' and operations can trigger 'we can bill this'"*
+— and it did not match what #184 shipped. That build read the term's name literally and gave it
+`net_days_after_close`: the milestone fires itself the instant the project closes, no person involved
+at all. Asked which was right, EA confirmed the sentence: term 7 bills through the same manual
+exchange #185 built for terms 4 through 6, and "Net N days" is the customer's payment window *after*
+release, not a delay before billing starts.
+
+**The fix needed no new mechanism, only the right trigger.** `getOrCreateNetDaysTermService` now
+creates `{ trigger: "manual" }` rather than `{ trigger: "net_days_after_close", daysAfter: days }`.
+Everything else was already built: `askMilestoneReadinessService` and `replyMilestoneReadinessService`
+apply to any plain `manual` milestone, and a `manual` milestone's due date is already
+`readyAt + the term's own netDays` — precisely what `dueDateFor` already computes for every other
+`manual` milestone, and precisely what "Net N days" was asking for the whole time.
+
+**Verified**: a new `quotation-line-service.test.ts` (3 tests) — the term is created with a `manual`
+milestone rather than an automatic one, is idempotent by day count and reactivates a retired row, and
+refuses a non-positive or non-whole day count. All pass, and `tsc --noEmit`/`eslint` are clean. No live
+walkthrough beyond the automated suite: the UI path this term now takes (the "Are we ready to bill
+this?" / "we can bill this" exchange on a `manual` milestone) is the exact path #185 already verified
+live for terms 4 through 6 — term 7 is a new *caller* of that mechanism, not a new screen.
+
+---
+
+## #188 — Phase D: the dunning cycle, replacing a reminder sweep that never sent a real reminder
+
+**2026-09-06.** Closing out the payment-terms conversation that opened with #184. EA asked for the
+whole of §5's collections to be rebuilt on one specific cycle, in her own words, quoted here in full
+because every constant in the build below is a literal reading of this sentence:
+
+*"once billed, maturity is tracked then finance is notified upon maturity, if closing is not done
+within 5 days, it triggers tracking of due collectibles, notification is sent every week until
+payment is received. when 2 notifications is sent and still no payment, it opens a when is payment
+expected prompt, which is filled by admin. 2 days after the set date of expected to receive payment
+notif is sent to finance and admin again if this is collected. if no payment prompt is opened again,
+cycle repeats until payment is received."*
+
+Four of her own follow-up decisions shaped the rest: age-based audience escalation (finance alone,
+then finance and admin together); the existing ageing buckets stay exactly as they are; the "when is
+payment expected" answer is mandatory, escalated daily while unfilled, with missed dates counted
+rather than merely repeated; and the account-level "reminders off" switch is retired outright.
+
+**The switch being retired was already inert, which made the decision easy.** Tracing it confirmed
+what #183's own investigation had already found in passing: `sweepCollectionRemindersService` never
+sent a real reminder to a customer — module 10's outbound email transport was never built, so the old
+sweep only ever recorded that a reminder *would* have gone out. The new cycle is honest about what it
+actually is: real in-app notifications to AIES's own people, never the customer directly. There was
+nothing left for a per-account switch to turn off.
+
+**One pure function is the whole cycle.** `advanceDunningCycle` (collection-rules.ts) takes a
+`CollectionCycle` snapshot and the current time and returns exactly one step — `notify_matured`,
+`start_dunning_and_notify`, `send_weekly_notice`, `open_timeline_prompt`, `escalate_unfilled_timeline`,
+`record_missed_date_and_reopen`, or `close` — named constants (`DUNNING_GRACE_DAYS`,
+`DUNNING_WEEKLY_INTERVAL_DAYS`, `DUNNING_NOTICES_BEFORE_TIMELINE`,
+`DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE`) standing in for the day counts in EA's own sentence. The
+service (`sweepDunningCycleService`) is deliberately thin: read the snapshot, ask the function, write
+the one step, send the one notification. "Paid, at any stage" is checked first and overrides every
+other branch — "until payment is received" is not a detail of one state, it is the whole cycle's exit
+condition, so it is the first thing the function reads rather than something each branch has to
+remember to check.
+
+**The reminder that reaches the threshold *is* the prompt, not a second message behind it.** EA's
+sentence names both "the second notification" and "opens a prompt" as if they might be separate
+events; read as two real messages on the same day, a customer's contact (or in this build, a
+colleague reading a notification) gets pinged twice for one fact. The weekly notice that reaches
+`DUNNING_NOTICES_BEFORE_TIMELINE` carries both: it *is* the moment the prompt opens, one notification
+naming both facts. `send_weekly_notice` still exists as a distinct step and is exercised directly in
+`collection-rules.test.ts` against the general mechanism — today's threshold of 2, with dunning's own
+first reminder already sent on entry, means every real run reaches the threshold on its very next
+weekly check, so the "ordinary" branch is proven correct without ever firing in the deployed schedule.
+
+**Escalation is a permission swap, not a second recipient list to keep in step with the first.** The
+maturity notice and ordinary weekly reminders reach `billing_schedule.manage` holders — finance alone.
+The moment a prompt opens, and every notification after, reaches `ar.view` holders instead — the same
+permission that already includes `admin_manager` alongside finance by #151's own decision, so widening
+the audience *is* querying the wider permission, not maintaining a parallel "and also admin" list that
+could silently drift from the first.
+
+**Two real bugs, both found by database tests, not by the pure function.** First: `sweepDunningCycleService`
+queried only statements matching `dueDate <= now` in the live-billing statuses — the exact query that
+excludes a statement the instant it is paid in full, since a full payment moves `status` off that list
+and `balance` to zero in the same write. A cycle's own "closed" step could never fire for the case
+that matters most. Fixed by also re-fetching every still-open `CollectionCycle` regardless of the
+statement's current status, so a payment is seen and closed on the very next sweep. Second: sending to
+several real recipients sequentially (`for (const id of ids) await notify(...)`) turned out to be the
+dominant cost of the whole cycle once tested against this environment's real network latency to a
+live database — parallelised with `Promise.all`, since each recipient's write is independent and there
+was never a reason to serialise them.
+
+**Verified**: `collection-rules.test.ts` gained a full describe block for `advanceDunningCycle` (22
+tests total in the file) — closes at any state and stage the moment the balance reaches zero; notifies
+on maturity before anything else; waits out the five-day grace period; waits out the weekly interval;
+opens the timeline prompt on the reminder that reaches the threshold, and separately proves the
+ordinary-notice branch against the general mechanism; escalates once a day while unanswered, deduped
+to the calendar day; waits the full two days past a promised date before checking it; and counts
+missed dates correctly across repeated rounds. `collections.test.ts` (19 tests) proves what only a
+real database run can: a cycle is created and a real notification written the day a statement matures;
+a second sweep in the same tick sends nothing twice; a statement moves into weekly dunning after the
+grace period and — the bug above, caught here — closes correctly once paid, from any state; the
+timeline prompt opens after the threshold and the worklist reflects it; `setExpectedPaymentDateService`
+refuses a date when nothing is asking for one, refuses a second date for an already-answered round,
+refuses a date already in the past, and — "if no payment prompt is opened again, cycle repeats" —
+reopens the prompt and counts the miss once a promised date passes unpaid, correctly across repeated
+rounds. All 79 tests across the five touched suites pass, and `tsc --noEmit`/`eslint` are clean.
+Checked live: drove a real issued statement through maturity, the grace period and the weekly
+threshold with real sweep calls, confirmed the Collections screen showed "Two reminders sent, still
+unpaid — when is payment expected?" exactly as designed, set a date through the real form, and
+confirmed by direct query — not by trusting the UI — that the row carried the exact date and notes
+entered, attributed to the real signed-in account, with an audit log entry reading "Expected payment
+on AIESBS-260194 by 2026-10-20 — Accounts team promised via email." Verification account, statement
+and cycle deleted afterward.

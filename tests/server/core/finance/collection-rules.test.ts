@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  REMINDER_OFFSETS_DAYS,
+  DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE,
+  DUNNING_GRACE_DAYS,
+  DUNNING_WEEKLY_INTERVAL_DAYS,
+  advanceDunningCycle,
   checkCreditLimit,
   collectionPriority,
   daysOverdue,
   suggestChase,
+  type CollectionCycleSnapshot,
 } from "@/server/core/finance/collection-rules";
 
 /**
@@ -112,10 +116,148 @@ describe("the next move", () => {
   });
 });
 
-describe("the reminder schedule", () => {
-  /** §5: "3 days before due, on due date, +7, +15, +30". */
-  it("is the five intervals the spec names, in order", () => {
-    expect([...REMINDER_OFFSETS_DAYS]).toEqual([-3, 0, 7, 15, 30]);
+describe("docs/DECISIONS.md #188's dunning cycle", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const dueDate = new Date("2026-06-01T00:00:00.000Z");
+
+  const CLEAR: CollectionCycleSnapshot = {
+    state: "matured",
+    dueDate,
+    balance: 100_000,
+    maturedNotifiedAt: null,
+    weeklyNotifiedCount: 0,
+    lastWeeklyNotifiedAt: null,
+    expectedPaymentDate: null,
+    lastEscalationNotifiedAt: null,
+    missedDateCount: 0,
+  };
+
+  /** "until payment is received" overrides every other rule, at any stage. */
+  it("closes the moment the balance reaches zero, regardless of state", () => {
+    for (const state of ["matured", "dunning", "awaiting_timeline"] as const) {
+      expect(advanceDunningCycle({ ...CLEAR, state, balance: 0 }, dueDate)).toEqual({
+        action: "close",
+      });
+    }
+  });
+
+  it("does nothing more once closed", () => {
+    expect(advanceDunningCycle({ ...CLEAR, state: "closed" }, dueDate)).toEqual({
+      action: "none",
+    });
+  });
+
+  describe("matured: EA's 'finance is notified upon maturity'", () => {
+    it("notifies the moment it matures, before anything else happens", () => {
+      expect(advanceDunningCycle(CLEAR, dueDate)).toEqual({ action: "notify_matured" });
+    });
+
+    it("waits out the five-day grace period once notified", () => {
+      const notified = { ...CLEAR, maturedNotifiedAt: dueDate };
+      const day4 = new Date(dueDate.getTime() + 4 * DAY_MS);
+      expect(advanceDunningCycle(notified, day4)).toEqual({ action: "none" });
+
+      const day5 = new Date(dueDate.getTime() + DUNNING_GRACE_DAYS * DAY_MS);
+      expect(advanceDunningCycle(notified, day5)).toEqual({ action: "start_dunning_and_notify" });
+    });
+  });
+
+  describe("dunning: 'notification is sent every week until payment is received'", () => {
+    const started = {
+      ...CLEAR,
+      state: "dunning" as const,
+      maturedNotifiedAt: dueDate,
+      weeklyNotifiedCount: 1,
+      lastWeeklyNotifiedAt: new Date(dueDate.getTime() + DUNNING_GRACE_DAYS * DAY_MS),
+    };
+
+    it("waits out the week between reminders", () => {
+      const day3 = new Date(started.lastWeeklyNotifiedAt.getTime() + 3 * DAY_MS);
+      expect(advanceDunningCycle(started, day3)).toEqual({ action: "none" });
+    });
+
+    /**
+     * The threshold is 2, and the first reminder was the one that started dunning — so the very
+     * next weekly check is already the second, and EA's own rule fires: the notice that reaches the
+     * threshold *is* the moment the prompt opens, not a third, separate message.
+     */
+    it("opens the timeline prompt on the reminder that reaches the threshold", () => {
+      const nextWeek = new Date(
+        started.lastWeeklyNotifiedAt.getTime() + DUNNING_WEEKLY_INTERVAL_DAYS * DAY_MS,
+      );
+      expect(advanceDunningCycle(started, nextWeek)).toEqual({ action: "open_timeline_prompt" });
+    });
+
+    /**
+     * Exercised directly against the general mechanism (an unreached count in the deployed
+     * schedule, since the threshold is 2 and the first reminder already happens on entry) — proving
+     * `send_weekly_notice` fires correctly if the threshold is ever loosened, not merely that today's
+     * exact numbers happen to skip past it.
+     */
+    it("sends an ordinary weekly notice below the threshold", () => {
+      const belowThreshold = { ...started, weeklyNotifiedCount: 0 };
+      const nextWeek = new Date(
+        belowThreshold.lastWeeklyNotifiedAt.getTime() + DUNNING_WEEKLY_INTERVAL_DAYS * DAY_MS,
+      );
+      expect(advanceDunningCycle(belowThreshold, nextWeek)).toEqual({
+        action: "send_weekly_notice",
+        count: 1,
+      });
+    });
+  });
+
+  describe("awaiting_timeline: 'a when is payment expected prompt, which is filled by admin'", () => {
+    const opened = {
+      ...CLEAR,
+      state: "awaiting_timeline" as const,
+      weeklyNotifiedCount: 2,
+      timelinePromptOpenedAt: dueDate,
+    };
+
+    it("escalates once a day while nobody has answered", () => {
+      expect(advanceDunningCycle(opened, dueDate)).toEqual({
+        action: "escalate_unfilled_timeline",
+      });
+
+      const sameDayLater = new Date(dueDate.getTime() + 6 * 60 * 60 * 1000);
+      expect(
+        advanceDunningCycle({ ...opened, lastEscalationNotifiedAt: dueDate }, sameDayLater),
+      ).toEqual({ action: "none" });
+
+      const nextDay = new Date(dueDate.getTime() + DAY_MS);
+      expect(
+        advanceDunningCycle({ ...opened, lastEscalationNotifiedAt: dueDate }, nextDay),
+      ).toEqual({ action: "escalate_unfilled_timeline" });
+    });
+
+    it("waits until two days past a set date before checking it", () => {
+      const promised = new Date("2026-07-01T00:00:00.000Z");
+      const withDate = { ...opened, expectedPaymentDate: promised };
+
+      const dayAfter = new Date(promised.getTime() + DAY_MS);
+      expect(advanceDunningCycle(withDate, dayAfter)).toEqual({ action: "none" });
+
+      const checkpoint = new Date(
+        promised.getTime() + DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE * DAY_MS,
+      );
+      expect(advanceDunningCycle(withDate, checkpoint)).toEqual({
+        action: "record_missed_date_and_reopen",
+        missedCount: 1,
+      });
+    });
+
+    /** "if no payment prompt is opened again, cycle repeats until payment is received." */
+    it("counts up missed dates across repeated rounds", () => {
+      const promised = new Date("2026-07-01T00:00:00.000Z");
+      const secondRound = { ...opened, expectedPaymentDate: promised, missedDateCount: 3 };
+      const checkpoint = new Date(
+        promised.getTime() + DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE * DAY_MS,
+      );
+      expect(advanceDunningCycle(secondRound, checkpoint)).toEqual({
+        action: "record_missed_date_and_reopen",
+        missedCount: 4,
+      });
+    });
   });
 });
 

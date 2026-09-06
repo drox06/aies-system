@@ -96,7 +96,7 @@ async function main() {
     { label: "service invoices", run: () => db.serviceInvoice.deleteMany({}) },
     { label: "payments", run: () => db.payment.deleteMany({}) },
     { label: "collection activity", run: () => db.collectionActivity.deleteMany({}) },
-    { label: "collection reminders", run: () => db.collectionReminder.deleteMany({}) },
+    { label: "collection cycles", run: () => db.collectionCycle.deleteMany({}) },
     { label: "billing statement lines", run: () => db.billingStatementLine.deleteMany({}) },
     { label: "billing statements", run: () => db.billingStatement.deleteMany({}) },
     { label: "billing milestones", run: () => db.billingMilestone.deleteMany({}) },

@@ -467,6 +467,13 @@ export async function listActivePaymentTermsService(): Promise<PaymentTermOption
  * asks for the same count rather than growing a fresh, functionally identical term every time
  * somebody types "30" again. Upserts by name for the same reason `seed-payment-terms.ts` does: the
  * name is what makes calling this twice for the same count idempotent.
+ *
+ * docs/DECISIONS.md #187 corrected the milestone's own trigger: EA's original words for this term —
+ * *"finance can trigger 'are we ready to bill?' and operations can trigger 'we can bill this'"* — are
+ * the same exchange #184/#185 built for terms 4 through 6, not the automatic `net_days_after_close`
+ * this first shipped with. The project closing no longer bills itself; "Net N days" is what `days`
+ * becomes once release happens — the term's own `netDays`, read by `dueDateFor` the same way every
+ * other `manual` milestone's due date already is.
  */
 export async function getOrCreateNetDaysTermService(days: number): Promise<PaymentTermOption> {
   if (!Number.isInteger(days) || days <= 0) {
@@ -477,16 +484,16 @@ export async function getOrCreateNetDaysTermService(days: number): Promise<Payme
   }
 
   const name = `Net ${days} days after completion`;
-  const milestones: TermMilestone[] = [
-    { label: "Full amount", pct: "100", trigger: "net_days_after_close", daysAfter: days },
-  ];
+  const milestones: TermMilestone[] = [{ label: "Full amount", pct: "100", trigger: "manual" }];
 
   const term = await db.paymentTerm.upsert({
     where: { name },
     update: { isActive: true },
     create: {
       name,
-      description: `Nothing up front, everything ${days} day${days === 1 ? "" : "s"} after the project closes.`,
+      description:
+        `Nothing up front. Finance asks "are we ready to bill this?" once the work is done; ` +
+        `operations confirms, and the customer then has ${days} day${days === 1 ? "" : "s"} to pay.`,
       netDays: days,
       milestones: milestones as unknown as object[],
       isActive: true,

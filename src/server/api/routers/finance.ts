@@ -60,7 +60,7 @@ import {
   collectionWorklistService,
   creditExposureService,
   logCollectionActivityService,
-  setRemindersEnabledService,
+  setExpectedPaymentDateService,
 } from "@/server/core/finance/collection-service";
 import {
   COLLECTION_ACTIVITY_TYPES,
@@ -309,15 +309,20 @@ export const financeRouter = router({
     )
     .mutation(({ ctx, input }) => logCollectionActivityService(actorMeta(ctx), input)),
 
-  setRemindersEnabled: p("billing_statement.issue")
+  /**
+   * docs/DECISIONS.md #188's prompt — "when is payment expected?" — filled in by whoever at finance
+   * or admin has spoken to the customer. Gated on `ar.view`, the same permission that already reaches
+   * both audiences the cycle escalates to.
+   */
+  setExpectedPaymentDate: p("ar.view")
     .input(
       z.object({
-        accountId: z.string(),
-        enabled: z.boolean(),
-        reason: z.string().max(500).nullish(),
+        statementId: z.string(),
+        expectedDate: z.coerce.date(),
+        notes: z.string().max(1000).nullish(),
       }),
     )
-    .mutation(({ ctx, input }) => setRemindersEnabledService(actorMeta(ctx), input)),
+    .mutation(({ ctx, input }) => setExpectedPaymentDateService(actorMeta(ctx), input)),
 
   /** §5's credit limit check, for the screen that raises an order. Warns; never blocks. */
   creditExposure: p("finance.view")

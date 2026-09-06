@@ -40,7 +40,7 @@ export const financeManifest = defineManifest({
     "BillingMilestone",
     "BillingStatement",
     "CollectionActivity",
-    "CollectionReminder",
+    "CollectionCycle",
     "BillingStatementLine",
     "ServiceInvoice",
     "Payment",

@@ -142,12 +142,13 @@ export default function CollectionsPage() {
                   </div>
                 )}
 
-                {/* §5: some customers must be handled by phone only, and the screen should say so. */}
-                {!row.remindersEnabled && (
-                  <p className="mt-2 text-xs text-amber-900">
-                    Automatic reminders are off for this customer
-                    {row.remindersOffReason ? ` — ${row.remindersOffReason}` : ""}. Chase by hand.
-                  </p>
+                {/* docs/DECISIONS.md #188's automatic cycle, running alongside the human log below. */}
+                {row.cycle && row.cycle.state !== "closed" && (
+                  <CycleStatus
+                    statementId={row.id}
+                    cycle={row.cycle}
+                    onDone={() => void utils.finance.collectionWorklist.invalidate()}
+                  />
                 )}
 
                 {openId === row.id ? (
@@ -260,6 +261,113 @@ export default function CollectionsPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+interface CycleInfo {
+  state: string;
+  weeklyNotifiedCount: number;
+  timelinePromptOpenedAt: string | Date | null;
+  expectedPaymentDate: string | Date | null;
+  missedDateCount: number;
+  needsTimeline: boolean;
+}
+
+/**
+ * docs/DECISIONS.md #188's cycle, read on the same row the human worklist already occupies. The
+ * automatic notifications are the platform doing the part nobody should have to remember; this is
+ * where the one manual step in the whole cycle — answering "when is payment expected?" — happens.
+ */
+function CycleStatus({
+  statementId,
+  cycle,
+  onDone,
+}: {
+  statementId: string;
+  cycle: CycleInfo;
+  onDone: () => void;
+}) {
+  const [date, setDate] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const setExpected = trpc.finance.setExpectedPaymentDate.useMutation({
+    onSuccess: () => {
+      setDate("");
+      setNotes("");
+      onDone();
+    },
+  });
+
+  if (cycle.state === "matured") {
+    return (
+      <p className="mt-2 text-xs text-text-muted">
+        Matured. Five days of grace before this enters the weekly collections cycle.
+      </p>
+    );
+  }
+
+  if (cycle.state === "dunning") {
+    return (
+      <p className="mt-2 text-xs text-text-muted">
+        In the collections cycle — reminder {cycle.weeklyNotifiedCount} sent.
+      </p>
+    );
+  }
+
+  // awaiting_timeline
+  if (cycle.expectedPaymentDate) {
+    return (
+      <p className="mt-2 text-xs text-text-muted">
+        Expected <DateCell value={cycle.expectedPaymentDate} />
+        {cycle.missedDateCount > 0 && (
+          <span className="text-amber-900">
+            {" "}
+            — {cycle.missedDateCount} promised date{cycle.missedDateCount === 1 ? "" : "s"} missed
+            before this one.
+          </span>
+        )}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2.5">
+      <p className="text-xs text-amber-900">
+        Two reminders sent, still unpaid — when is payment expected?
+        {cycle.missedDateCount > 0 &&
+          ` (${cycle.missedDateCount} date${cycle.missedDateCount === 1 ? "" : "s"} missed already.)`}
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <div>
+          <Label htmlFor={`expected-${statementId}`}>Expected by</Label>
+          <Input
+            id={`expected-${statementId}`}
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
+        </div>
+        <div className="flex-1 basis-40">
+          <Label htmlFor={`expected-notes-${statementId}`}>Notes</Label>
+          <Input
+            id={`expected-notes-${statementId}`}
+            value={notes}
+            placeholder="Who said so"
+            onChange={(event) => setNotes(event.target.value)}
+          />
+        </div>
+        <Button
+          size="sm"
+          disabled={setExpected.isPending || !date}
+          onClick={() =>
+            setExpected.mutate({ statementId, expectedDate: new Date(date), notes: notes || null })
+          }
+        >
+          {setExpected.isPending ? "Saving…" : "Set date"}
+        </Button>
+      </div>
+      {setExpected.error && <p className="mt-1 text-xs text-danger">{setExpected.error.message}</p>}
     </div>
   );
 }

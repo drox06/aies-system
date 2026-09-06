@@ -44,33 +44,55 @@ model CollectionActivity {
   @@index([promisedDate])
 }
 
-/// A reminder that was sent, so it is not sent twice.
+/// docs/DECISIONS.md #188. EA's own dunning cycle, replacing the fixed-offset `CollectionReminder`
+/// sweep entirely — that one sent five scheduled reminders and stopped; this one runs, by name,
+/// "until payment is received."
 ///
-/// §5 asks for reminders "at configurable intervals (default: 3 days before due, on due date, +7,
-/// +15, +30)". The interval is what makes a row unique: without recording which one was sent, a
-/// nightly sweep would send the +7 reminder every night from day seven onwards, and a customer who
-/// receives the same demand daily stops reading any of them.
+/// One row per statement, created the moment it matures (its due date arrives) and closed the moment
+/// its balance reaches zero. Everything in between is EA's own words, verbatim:
 ///
-/// Module 10 owns the sending. This records the decision to send, which is what makes the sweep
-/// idempotent whether or not an email ever leaves.
-model CollectionReminder {
+/// *"once billed, maturity is tracked then finance is notified upon maturity, if closing is not done
+/// within 5 days, it triggers tracking of due collectibles, notification is sent every week until
+/// payment is received. when 2 notifications is sent and still no payment, it opens a when is payment
+/// expected prompt, which is filled by admin. 2 days after the set date of expected to receive
+/// payment notif is sent to finance and admin again if this is collected. if no payment prompt is
+/// opened again, cycle repeats until payment is received."*
+///
+/// `state` is one of: `matured` (day 0-4, waiting to see if it closes on time) | `dunning` (day 5+,
+/// weekly reminders) | `awaiting_timeline` (two reminders sent and unpaid — a person has to say when
+/// to expect it, and the cycle stays here through as many missed dates as it takes) | `closed` (paid).
+model CollectionCycle {
   id          String @id @default(cuid())
-  statementId String
+  statementId String @unique
   accountId   String
 
-  /// The interval this reminder is for, in days relative to the due date: -3, 0, 7, 15, 30.
-  offsetDays Int
+  state String @default("matured")
 
-  scheduledFor     DateTime
-  sentAt           DateTime?
-  /// Set when the sweep decided not to send after all — an account with reminders switched off, or a
-  /// statement paid between scheduling and sending. Recorded rather than deleted: "we did not chase
-  /// them, and here is why" is a different fact from "nobody looked".
-  suppressedAt     DateTime?
-  suppressedReason String?
+  maturedNotifiedAt DateTime?
+
+  weeklyNotifiedCount Int       @default(0)
+  lastWeeklyNotifiedAt DateTime?
+
+  /// When the "when is payment expected" prompt most recently opened — first after two weekly
+  /// reminders, then again every time a promised date passes unpaid. Sits open, un-nulled, for as
+  /// long as `expectedPaymentDate` is null: that gap is what the daily escalation reads to decide
+  /// whether anybody has answered it yet.
+  timelinePromptOpenedAt DateTime?
+  expectedPaymentDate    DateTime?
+  expectedPaymentSetAt   DateTime?
+  expectedPaymentSetById String?
+  /// How many promised dates have come and gone unpaid. Not a threshold anything acts on by itself —
+  /// it is what turns "notif sent to finance and admin" from a fact into a pattern somebody can see.
+  missedDateCount        Int       @default(0)
+  /// Dedupes the daily "still nobody has said when" nudge to once per calendar day, the same way
+  /// `lastWeeklyNotifiedAt` dedupes the weekly ones.
+  lastEscalationNotifiedAt DateTime?
+
+  closedAt DateTime?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([statementId, offsetDays])
-  @@index([scheduledFor, sentAt])
+  @@index([state])
+  @@index([accountId, state])
 }

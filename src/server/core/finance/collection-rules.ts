@@ -4,23 +4,108 @@
  * Ageing says what is late. This says what to do about it first, and when to have said it.
  */
 
-/**
- * §5's reminder schedule: "3 days before due, on due date, +7, +15, +30".
- *
- * Days relative to the due date, so a negative number is before it. The one before the due date is
- * the most valuable and the least used: a customer who has genuinely lost the statement can still
- * pay on time if you tell them on the Friday, and nothing about the relationship is spent.
- */
-export const REMINDER_OFFSETS_DAYS = [-3, 0, 7, 15, 30] as const;
-export type ReminderOffset = (typeof REMINDER_OFFSETS_DAYS)[number];
+export type CollectionCycleState = "matured" | "dunning" | "awaiting_timeline" | "closed";
 
-export const REMINDER_LABELS: Readonly<Record<number, string>> = {
-  [-3]: "Three days before it is due",
-  0: "On the due date",
-  7: "A week overdue",
-  15: "A fortnight overdue",
-  30: "A month overdue",
-};
+/**
+ * docs/DECISIONS.md #188's dunning schedule — the numbers out of EA's own cycle, named so the state
+ * machine below reads as her sentence rather than a pile of day counts:
+ *
+ * *"once billed, maturity is tracked then finance is notified upon maturity, if closing is not done
+ * within 5 days, it triggers tracking of due collectibles, notification is sent every week until
+ * payment is received. when 2 notifications is sent and still no payment, it opens a when is payment
+ * expected prompt, which is filled by admin. 2 days after the set date of expected to receive payment
+ * notif is sent to finance and admin again if this is collected. if no payment prompt is opened
+ * again, cycle repeats until payment is received."*
+ */
+export const DUNNING_GRACE_DAYS = 5;
+export const DUNNING_WEEKLY_INTERVAL_DAYS = 7;
+export const DUNNING_NOTICES_BEFORE_TIMELINE = 2;
+export const DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE = 2;
+
+export interface CollectionCycleSnapshot {
+  state: CollectionCycleState;
+  dueDate: Date;
+  balance: number;
+  maturedNotifiedAt: Date | null;
+  weeklyNotifiedCount: number;
+  lastWeeklyNotifiedAt: Date | null;
+  expectedPaymentDate: Date | null;
+  lastEscalationNotifiedAt: Date | null;
+  missedDateCount: number;
+}
+
+/** What the sweep should do on this tick — one step, never a batch, so a night that gets interrupted
+ *  loses nothing: the next run reads the same snapshot and reaches the same decision. */
+export type DunningStep =
+  | { action: "close" }
+  | { action: "notify_matured" }
+  | { action: "start_dunning_and_notify" }
+  | { action: "send_weekly_notice"; count: number }
+  | { action: "open_timeline_prompt" }
+  | { action: "escalate_unfilled_timeline" }
+  | { action: "record_missed_date_and_reopen"; missedCount: number }
+  | { action: "none" };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysBetween = (from: Date, to: Date) => Math.floor((to.getTime() - from.getTime()) / DAY_MS);
+const sameCalendarDay = (a: Date, b: Date) =>
+  a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+
+/**
+ * One tick of EA's cycle. See the constants above for the schedule and finance-collections.prisma's
+ * `CollectionCycle` for the model it reads and the states it moves between.
+ *
+ * Pure on purpose: the nightly sweep is the only writer of a `CollectionCycle` row, and "what happens
+ * next" has to be provably right without a database in front of it — a wrong branch here would either
+ * chase a customer who already paid or, worse, go quiet on one who has not. Never mutates its input
+ * and never knows what a notification looks like; it names the step, the service sends it.
+ */
+export function advanceDunningCycle(
+  cycle: CollectionCycleSnapshot,
+  now: Date = new Date(),
+): DunningStep {
+  // Paid, at any stage of the cycle, ends it — "until payment is received" is the one condition
+  // that overrides every other rule here.
+  if (cycle.balance <= 0) return { action: "close" };
+  if (cycle.state === "closed") return { action: "none" };
+
+  if (cycle.state === "matured") {
+    if (!cycle.maturedNotifiedAt) return { action: "notify_matured" };
+    if (daysBetween(cycle.dueDate, now) >= DUNNING_GRACE_DAYS) {
+      return { action: "start_dunning_and_notify" };
+    }
+    return { action: "none" };
+  }
+
+  if (cycle.state === "dunning") {
+    const since = cycle.lastWeeklyNotifiedAt ?? cycle.dueDate;
+    if (daysBetween(since, now) < DUNNING_WEEKLY_INTERVAL_DAYS) return { action: "none" };
+
+    const count = cycle.weeklyNotifiedCount + 1;
+    // The Nth reminder that reaches the threshold *is* the moment the prompt opens — one notice
+    // carrying both facts, not two separate messages on the same day.
+    if (count >= DUNNING_NOTICES_BEFORE_TIMELINE) return { action: "open_timeline_prompt" };
+    return { action: "send_weekly_notice", count };
+  }
+
+  // awaiting_timeline: either nobody has answered yet, or somebody's answer just came due.
+  if (!cycle.expectedPaymentDate) {
+    // Once a day, not once a sweep — the sweep can run more than once a night in dev, and the
+    // escalation reads as noise the moment it fires twice for the same unanswered day.
+    if (!cycle.lastEscalationNotifiedAt || !sameCalendarDay(cycle.lastEscalationNotifiedAt, now)) {
+      return { action: "escalate_unfilled_timeline" };
+    }
+    return { action: "none" };
+  }
+
+  const checkpoint = new Date(
+    cycle.expectedPaymentDate.getTime() + DUNNING_CHECKPOINT_DAYS_AFTER_PROMISE * DAY_MS,
+  );
+  if (now.getTime() < checkpoint.getTime()) return { action: "none" };
+  // Still unpaid two days past the date somebody promised — the cycle's own repeat. The state stays
+  // `awaiting_timeline`; only the date itself resets, waiting for a new one.
+  return { action: "record_missed_date_and_reopen", missedCount: cycle.missedDateCount + 1 };
+}
 
 export const COLLECTION_ACTIVITY_TYPES = [
   "call",
