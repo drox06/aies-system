@@ -7065,3 +7065,62 @@ replied "we can bill this," and confirmed both the supply-and-delivery and insta
 reached `ready to bill` with the release correctly attributed — this same walkthrough is what surfaced
 and then confirmed the fix for the cross-panel staleness bug above. `tsc --noEmit` and `eslint` clean.
 Verification account, quotation, PO, file, order, lines and schedule deleted afterward.
+
+---
+
+## #186 — Phase C: module 03's downpayment gate now reaches mobilisation, not just procurement
+
+**2026-09-06.** EA confirmed the execution-payment gate discussed while designing term 5: *"yes, this
+is a new gate. it prevents aies to do actions if we are not paid."* Module 05's own file already says
+the shape of the problem plainly — "None of them waits for the others," about finance, procurement and
+execution's three independent status tracks. A downpayment gate has existed since module 03, but it
+only ever stopped a supplier PO from being sent; nothing stopped a crew from being dispatched to a job
+whose customer had paid nothing at all. This closes that gap the same way #184 and #185 closed theirs:
+by asking an existing, correct answer rather than inventing a second one.
+
+**No new business rule, only a second enforcement point for the one that already exists.** §8's
+mobilisation readiness check already composes three gates built in earlier sessions — cash advance,
+methodology, materials — each "built and left inert" for exactly this file to ask. `downpaymentGate()`
+(module 03) is the fourth, asked through a new `downpaymentGateForTicket` that resolves a ticket to its
+sales order and calls the same pure function `supplierPoGatesService` already calls before a PO may
+leave draft. A ticket with no sales order behind it — a standalone warranty callback, a callout with
+no PO — is exempt, the identical reasoning `supplierPoGatesService` already applies to a PO raised the
+same way. This is why `mobilization.test.ts`'s entire pre-existing fixture (every ticket standalone)
+needed no changes at all to keep passing: the new gate is inert for exactly the population it should be.
+
+**Its own permission, not reuse of procurement's.** `operations.override_downpayment_gate` joins
+`operations.override_ca_gate` and `operations.override_methodology_gate` as module 04's third
+mobilisation-specific override, president and vice-president only. Deliberately not
+`procurement.override_downpayment_gate`: same underlying fact, but "order before the customer paid"
+and "send a crew before the customer paid" are different sentences an auditor reads months later, and
+each gate already answers for its own reason rather than borrowing one that reads oddly out of context.
+
+**The override lives on the ticket's own mobilisation panel, not a new screen.** Cash advance and
+methodology each have a dedicated panel on the ticket page that hosts its own override control;
+downpayment has no equivalent, because the fact belongs to the sales order, not the ticket. Rather than
+inventing a fifth panel, the readiness item's title links out to the sales order (a new `order` kind
+added to `MobilizationPanel`'s existing `Destination` union, alongside `panel`/`here`/`record`), and
+the override control sits inline under the item itself — the fact is the order's, but the *decision* to
+send this particular crew anyway is scoped to this ticket, which is where §8's other decisions live.
+
+**Verified**: `mobilization-rules.test.ts` gained a downpayment case in the existing "blocks on each
+gate in turn" test (renamed from "three" to reflect the count) and its own override test, mirroring
+the cash-advance one exactly — 17 tests, all pass. A new `mobilization-downpayment-gate.test.ts` (3
+tests) proves what only a real database run can: a ticket generated from a real sales order awaiting
+its 30% downpayment is blocked with the correct percentage and amount in the message, the block clears
+the moment `financeStatus` changes with no cache to invalidate, a ticket with no sales order is exempt
+with the exemption message rather than merely passing silently, and the new override actually opens
+the check (and correctly refuses a second override once the gate is no longer blocking, since the
+override never touches `financeStatus` itself — it only lets one ticket past a gate that keeps
+truthfully reporting the money has not arrived). One pre-existing test
+(`mobilization.test.ts`'s liquidation-deadline case) needed a longer timeout, not a fix — one more
+database round trip per readiness check, from the fourth gate now being asked every time. All 28 tests
+across the four touched files pass, and `tsc --noEmit`/`eslint` are clean. Checked live as the seeded
+`e2e@e2e.local` account (`president`, holding the new permission the moment `npm run seed` synced it):
+built a real sales order awaiting a 30% downpayment with an execution line, generated its installation
+ticket, cleared every other gate, and confirmed the ticket page showed exactly one blocker —
+"Customer's downpayment received," ₱3,000,000.00, 30%, linking to the sales order — with everything
+else already green. Clicked "Mobilise anyway," entered a reason, and confirmed the panel flipped to
+"Ready to mobilise" with the exact reason attributed on the readiness line, matching the audit trail.
+Verification account, contact, site, quotation, PO, file, order, line, ticket, project and mobilisation
+deleted afterward.

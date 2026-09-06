@@ -316,6 +316,8 @@ describe("§8 — going and coming back", () => {
    * because the real demobilisation date did not exist. This is where it does.
    */
   it("corrects the cash advance liquidation deadline from the real demobilisation date", async () => {
+    // Several sequential round-trips against the real database, one more than before
+    // docs/DECISIONS.md #186 added a fourth gate to every readiness check — not a hang.
     const lead = await makeUser("technician", ["cash_advance.request"]);
     const vp = await makeUser("vice_president", ["cash_advance.approve"]);
     const finance = await makeUser("finance_officer", ["cash_advance.release"]);
@@ -361,7 +363,7 @@ describe("§8 — going and coming back", () => {
       expected.toISOString().slice(0, 10),
     );
     expect(result.advances).toContain(advance.number);
-  });
+  }, 30000);
 
   /** §7's tools are due back on demobilisation, which until now was a proxy too. */
   it("reports what did not come back and corrects the tool return date", async () => {

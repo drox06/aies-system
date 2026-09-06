@@ -152,6 +152,7 @@ import {
   departService,
   getMobilizationService,
   listMobilizationsService,
+  overrideMobilizationDownpaymentGateService,
   planMobilizationService,
   readinessForTicketService,
   startWorkService,
@@ -957,6 +958,13 @@ export const operationsRouter = router({
   startWork: p("ticket.dispatch")
     .input(z.object({ mobilizationId: z.string() }))
     .mutation(({ ctx, input }) => startWorkService(actorMeta(ctx), input.mobilizationId)),
+
+  /** docs/DECISIONS.md #186's `operations.override_downpayment_gate`, the fourth of its kind. */
+  overrideMobilizationDownpaymentGate: p("operations.override_downpayment_gate")
+    .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) =>
+      overrideMobilizationDownpaymentGateService(actorMeta(ctx), input),
+    ),
 
   /** Closes §5's liquidation deadline and §7's tool-return date onto the real demobilisation date. */
   demobilize: p("ticket.dispatch")

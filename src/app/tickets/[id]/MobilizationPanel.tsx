@@ -17,8 +17,8 @@ import { trpc } from "@/lib/trpc/client";
  *
  * So it is a list, not a verdict. A single red badge saying "not ready" tells a dispatcher nothing
  * they can act on; the point of the list is that every line names the person who has to do something
- * and the thing they have to do. The three gate lines are the same verdicts §5, §6.2 and §7 show on
- * their own panels — asked here, never recomputed.
+ * and the thing they have to do. The gate lines are the same verdicts module 03, §5, §6.2 and §7
+ * show on their own screens — asked here, never recomputed.
  */
 
 const ITEM_TONE: Record<string, StatusTone> = {
@@ -46,7 +46,10 @@ const ITEM_LABEL: Record<string, string> = {
  * `null` means the gate is cleared by editing the mobilisation row below, which is already in view.
  */
 type Destination =
-  { kind: "panel"; panel: string } | { kind: "here"; anchor: string } | { kind: "record" };
+  | { kind: "panel"; panel: string }
+  | { kind: "here"; anchor: string }
+  | { kind: "record" }
+  | { kind: "order" };
 
 /**
  * Where each readiness item is answered.
@@ -57,15 +60,19 @@ type Destination =
  * separate "open the materials panel" link beside the title, which is what this had first: two
  * things to read where one would do, and the one people reach for is the words naming the problem.
  *
- * Three kinds of destination, because there are three kinds of answer:
+ * Four kinds of destination, because there are four kinds of answer:
  *
  * - `panel` — a different panel on this same ticket. Opens it and scrolls.
  * - `here` — a field on the mobilisation row further down this panel. Scrolls, no reload.
  * - `record` — another module's screen entirely. "Customer contact confirmed" is read from the
  *   site's contact list (see mobilization-service), and sites live on the account record, so that
  *   is where this one goes.
+ * - `order` — docs/DECISIONS.md #186's downpayment gate. The evidence is the sales order's own
+ *   `Finance` panel, not anything on this ticket — a ticket can outlive the order's billing plan
+ *   changing underneath it, so this links out rather than duplicating what Billing already shows.
  */
 const GATE_DESTINATION: Record<string, Destination> = {
+  downpayment: { kind: "order" },
   cash_advance: { kind: "panel", panel: "cash-advance" },
   methodology: { kind: "panel", panel: "methodology" },
   materials: { kind: "panel", panel: "materials" },
@@ -105,7 +112,9 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
   const [showPlan, setShowPlan] = useState(false);
 
-  const canDispatch = (me.data?.permissions ?? []).includes("ticket.dispatch");
+  const permissions = me.data?.permissions ?? [];
+  const canDispatch = permissions.includes("ticket.dispatch");
+  const canOverrideDownpayment = permissions.includes("operations.override_downpayment_gate");
 
   const plan = trpc.operations.planMobilization.useMutation({
     onSuccess: () => {
@@ -159,6 +168,7 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
               item={item}
               ticketId={ticketId}
               accountId={data.accountId}
+              salesOrderId={data.salesOrderId}
               destination={GATE_DESTINATION[item.key]}
             />
             {!item.mandatory && item.state !== "pass" && (
@@ -167,6 +177,9 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
             )}
 
             <span className="w-full text-xs text-text-muted">{item.detail}</span>
+            {item.key === "downpayment" && item.state === "fail" && canOverrideDownpayment && (
+              <DownpaymentOverride ticketId={ticketId} onDone={refresh} />
+            )}
           </li>
         ))}
       </ul>
@@ -210,11 +223,13 @@ function ItemTitle({
   item,
   ticketId,
   accountId,
+  salesOrderId,
   destination,
 }: {
   item: { key: string; label: string; state: string; mandatory: boolean };
   ticketId: string;
   accountId: string | null;
+  salesOrderId: string | null;
   destination: Destination | undefined;
 }) {
   const weight = item.mandatory ? "font-medium" : "";
@@ -234,6 +249,18 @@ function ItemTitle({
     );
   }
 
+  if (destination.kind === "order") {
+    if (!salesOrderId) return <span className={weight}>{item.label}</span>;
+    return (
+      <a
+        className={`${weight} underline decoration-dotted underline-offset-2`}
+        href={`/sales-orders/${salesOrderId}`}
+      >
+        {item.label} &rarr;
+      </a>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -246,6 +273,70 @@ function ItemTitle({
     >
       {item.label} &rarr;
     </button>
+  );
+}
+
+/**
+ * docs/DECISIONS.md #186's `operations.override_downpayment_gate` — the fourth of its kind, same
+ * shape as §5's cash advance override on its own panel. This one lives here rather than on a
+ * dedicated panel of its own: the fact being overridden is the sales order's, but the *decision* —
+ * send this particular crew anyway — is scoped to this ticket, so it sits on the screen that
+ * decides mobilisation, not the one that shows the money.
+ */
+function DownpaymentOverride({ ticketId, onDone }: { ticketId: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const override = trpc.operations.overrideMobilizationDownpaymentGate.useMutation({
+    onSuccess: () => {
+      setOpen(false);
+      setReason("");
+      onDone();
+    },
+  });
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" className="mt-1" onClick={() => setOpen(true)}>
+        Mobilise anyway
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-1 w-full rounded-md border border-amber-300 bg-amber-50 p-3">
+      <p className="text-sm text-amber-900">
+        This sends a crew to site before the customer has paid. Say why — an officer will read this
+        later.
+      </p>
+      <Textarea
+        className="mt-2"
+        rows={2}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Long-standing client, VP approved by phone, PO number..."
+      />
+      {reason.trim().length < 10 && (
+        <p className="mt-1 text-xs text-amber-900">
+          {reason.trim().length === 0
+            ? "Write the reason before you can override — at least 10 characters."
+            : `${10 - reason.trim().length} more character${10 - reason.trim().length === 1 ? "" : "s"} before you can override.`}
+        </p>
+      )}
+      {override.error && <p className="mt-2 text-sm text-danger">{override.error.message}</p>}
+      <div className="mt-2 flex gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={override.isPending || reason.trim().length < 10}
+          onClick={() => override.mutate({ ticketId, reason })}
+        >
+          {override.isPending ? "Overriding…" : "Override the gate"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

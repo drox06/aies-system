@@ -9,6 +9,7 @@ import { liquidationDueFrom } from "./cash-advance-rules";
 import { materialGateForTicket } from "./material-request-service";
 import { outstandingCustody, custodyOutstandingQty } from "./material-request-rules";
 import { methodologyGateForTicket } from "./methodology-service";
+import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
 import {
   CLEARANCE_STATES,
   MOBILIZATION_ENTITY_TYPE,
@@ -178,12 +179,55 @@ export async function updateMobilizationService(actor: ActorMeta, input: UpdateM
 // ---- §8's readiness check -----------------------------------------------------------------------
 
 /**
- * The green/red list, assembled from the three gates and the mobilisation record.
+ * docs/DECISIONS.md #186 — module 03's downpayment gate, asked for one ticket.
  *
- * The overrides are read from the **audit log**, which is where sessions 2 and 4 wrote them. That is
- * deliberate rather than convenient: an override is a decision somebody made and signed, and the
- * audit row is the signed copy. Mirroring it into a column on the ticket would create a second
- * answer to "was this overridden", and the two would eventually disagree.
+ * A ticket with no sales order behind it (a standalone warranty callback, a callout with no PO) has
+ * no customer downpayment to wait for — the same reasoning `supplierPoGatesService` already applies
+ * to a supplier PO raised the same way.
+ */
+async function downpaymentGateForTicket(ticketId: string) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: ticketId, deletedAt: null },
+    select: {
+      id: true,
+      number: true,
+      salesOrder: {
+        select: {
+          financeStatus: true,
+          downpaymentPct: true,
+          currency: true,
+          downpaymentAmount: true,
+        },
+      },
+    },
+  });
+  if (!ticket) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
+  }
+
+  if (!ticket.salesOrder) {
+    return {
+      blocks: false,
+      message: "This ticket has no sales order behind it, so no customer downpayment applies.",
+    };
+  }
+
+  const gate = downpaymentGate({
+    financeStatus: ticket.salesOrder.financeStatus,
+    downpaymentPct: Number(ticket.salesOrder.downpaymentPct),
+    currency: ticket.salesOrder.currency,
+    downpaymentAmount: Number(ticket.salesOrder.downpaymentAmount),
+  });
+  return { blocks: gate.blocks, message: gate.message };
+}
+
+/**
+ * The green/red list, assembled from the four gates and the mobilisation record.
+ *
+ * The overrides are read from the **audit log**, which is where sessions 2 and 4 wrote them (and
+ * #186 followed the same rule). That is deliberate rather than convenient: an override is a decision
+ * somebody made and signed, and the audit row is the signed copy. Mirroring it into a column on the
+ * ticket would create a second answer to "was this overridden", and the two would eventually disagree.
  */
 export async function readinessForTicketService(ticketId: string) {
   const ticket = await db.ticket.findFirst({
@@ -196,38 +240,52 @@ export async function readinessForTicketService(ticketId: string) {
       assignedUserIds: true,
       accountId: true,
       siteId: true,
+      salesOrderId: true,
     },
   });
   if (!ticket) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That ticket no longer exists." });
   }
 
-  const [cashAdvance, materials, methodology, mobilization, overrideLogs] = await Promise.all([
-    cashAdvanceGateForTicket(ticket.id),
-    materialGateForTicket(ticket.id),
-    methodologyGateForTicket(ticket.id),
-    db.mobilization.findFirst({
-      where: {
-        ticketId: ticket.id,
-        type: "mobilization",
-        deletedAt: null,
-        status: { not: "cancelled" },
-      },
-    }),
-    db.auditLog.findMany({
-      where: {
-        entityType: TICKET_ENTITY_TYPE,
-        entityId: ticket.id,
-        action: { in: ["cash_advance_gate_overridden", "methodology_gate_overridden"] },
-      },
-      orderBy: { at: "desc" },
-      select: { action: true, summary: true },
-    }),
-  ]);
+  const [downpayment, cashAdvance, materials, methodology, mobilization, overrideLogs] =
+    await Promise.all([
+      downpaymentGateForTicket(ticket.id),
+      cashAdvanceGateForTicket(ticket.id),
+      materialGateForTicket(ticket.id),
+      methodologyGateForTicket(ticket.id),
+      db.mobilization.findFirst({
+        where: {
+          ticketId: ticket.id,
+          type: "mobilization",
+          deletedAt: null,
+          status: { not: "cancelled" },
+        },
+      }),
+      db.auditLog.findMany({
+        where: {
+          entityType: TICKET_ENTITY_TYPE,
+          entityId: ticket.id,
+          action: {
+            in: [
+              "cash_advance_gate_overridden",
+              "methodology_gate_overridden",
+              "downpayment_gate_overridden",
+            ],
+          },
+        },
+        orderBy: { at: "desc" },
+        select: { action: true, summary: true },
+      }),
+    ]);
 
-  const overrides: Partial<Record<"cash_advance" | "methodology", string>> = {};
+  const overrides: Partial<Record<"cash_advance" | "methodology" | "downpayment", string>> = {};
   for (const log of overrideLogs) {
-    const key = log.action === "cash_advance_gate_overridden" ? "cash_advance" : "methodology";
+    const key =
+      log.action === "cash_advance_gate_overridden"
+        ? "cash_advance"
+        : log.action === "methodology_gate_overridden"
+          ? "methodology"
+          : "downpayment";
     // Newest first, so the first one seen for a key is the one that stands.
     if (!overrides[key]) overrides[key] = log.summary;
   }
@@ -255,6 +313,7 @@ export async function readinessForTicketService(ticketId: string) {
 
   const readiness = mobilizationReadiness({
     ticketType: ticket.type,
+    downpayment,
     cashAdvance,
     materials,
     methodology,
@@ -279,9 +338,67 @@ export async function readinessForTicketService(ticketId: string) {
     // account record, and that is also where the contacts are added. Linking to a route that does
     // not exist would have been the same bug in a new place.
     accountId: ticket.accountId ?? null,
+    // Where the downpayment gate's own evidence lives, for the same reason `accountId` is returned —
+    // a gate whose fix is on another screen has to name that screen.
+    salesOrderId: ticket.salesOrderId ?? null,
     mobilizationId: mobilization?.id ?? null,
     mobilizationStatus: mobilization?.status ?? null,
   };
+}
+
+/**
+ * docs/DECISIONS.md #186's `operations.override_downpayment_gate` — the fourth of its kind, and
+ * deliberately its own permission rather than reuse of procurement's `procurement.override_downpayment_gate`.
+ * Same underlying fact, same two people, but a different decision: "order before the customer paid" and
+ * "send a crew before the customer paid" are not the same sentence to have to justify to an auditor.
+ *
+ * Mirrors `overrideCashAdvanceGateService` exactly, for the reason given there: this only writes the
+ * justification, because §8 already reads the audit log before letting a crew leave.
+ */
+export async function overrideMobilizationDownpaymentGateService(
+  actor: ActorMeta,
+  input: { ticketId: string; reason: string },
+) {
+  if (input.reason.trim().length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "An override needs a reason somebody can read months later.",
+    });
+  }
+
+  const gate = await downpaymentGateForTicket(input.ticketId);
+  if (!gate.blocks) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Nothing is blocking this ticket, so there is nothing to override.",
+    });
+  }
+
+  const ticket = await db.ticket.findFirstOrThrow({
+    where: { id: input.ticketId },
+    select: { id: true, number: true, status: true },
+  });
+
+  await db.$transaction(async (tx) => {
+    await tx.ticket.update({
+      where: { id: ticket.id },
+      data: { status: "ready_to_mobilize", version: { increment: 1 } },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "downpayment_gate_overridden",
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticket.id,
+      summary: `Cleared ${ticket.number} to mobilize before the customer's downpayment arrived — ${input.reason.trim()}`,
+      diff: { status: { from: ticket.status, to: "ready_to_mobilize" } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { status: "ready_to_mobilize" as const };
 }
 
 // ---- going, and coming back ---------------------------------------------------------------------

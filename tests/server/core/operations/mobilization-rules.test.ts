@@ -15,6 +15,7 @@ import {
 
 const CLEAR: ReadinessInput = {
   ticketType: "installation",
+  downpayment: { blocks: false, message: "received" },
   cashAdvance: { blocks: false, message: "released" },
   materials: { blocks: false, message: "issued" },
   methodology: { blocks: false, message: "approved" },
@@ -37,8 +38,8 @@ describe("§8's readiness check", () => {
     expect(readiness.blockers).toEqual([]);
   });
 
-  it("blocks on each of the three gates in turn", () => {
-    for (const gate of ["cashAdvance", "materials"] as const) {
+  it("blocks on each of the unconditional gates in turn", () => {
+    for (const gate of ["downpayment", "cashAdvance", "materials"] as const) {
       const readiness = mobilizationReadiness({
         ...CLEAR,
         [gate]: { blocks: true, message: "not yet" },
@@ -83,6 +84,21 @@ describe("§8's readiness check", () => {
     const item = overridden.items.find((entry) => entry.key === "cash_advance")!;
     expect(item.state).toBe("pass");
     expect(item.detail).toMatch(/Typhoon repair/);
+  });
+
+  /** docs/DECISIONS.md #186's own escape hatch, the same shape as the other three. */
+  it("lets an officer's downpayment override clear the gate it was made against", () => {
+    const blocked = { ...CLEAR, downpayment: { blocks: true, message: "awaiting downpayment" } };
+    expect(mobilizationReadiness(blocked).ready).toBe(false);
+
+    const overridden = mobilizationReadiness({
+      ...blocked,
+      overrides: { downpayment: "Long-standing client; VP approved sending the crew ahead." },
+    });
+    expect(overridden.ready).toBe(true);
+    const item = overridden.items.find((entry) => entry.key === "downpayment")!;
+    expect(item.state).toBe("pass");
+    expect(item.detail).toMatch(/Long-standing client/);
   });
 
   it("does not let a cash advance override clear the methodology gate", () => {

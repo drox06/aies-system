@@ -372,6 +372,15 @@ export const operationsManifest = defineManifest({
       // people to site on their own money, and it should sit with somebody who can answer for it.
       defaultRoles: ["president", "vice_president"],
     },
+    {
+      key: "operations.override_downpayment_gate",
+      label: "Mobilize a crew before the customer's downpayment has arrived",
+      group: "Operations",
+      // docs/DECISIONS.md #186. Its own key rather than reuse of `procurement.override_downpayment_gate` —
+      // same underlying fact, but "order before the customer paid" and "send a crew before the
+      // customer paid" are different sentences to have to justify, and each gate answers for its own.
+      defaultRoles: ["president", "vice_president"],
+    },
   ],
 
   /**

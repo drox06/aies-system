@@ -4,10 +4,11 @@
  * Pure — no Prisma, no node builtins — so the screen shows exactly what the server enforces. On
  * `UI_SAFE_SERVER_MODULES` in eslint.config.mjs.
  *
- * This is where the previous four sessions converge. §5's cash advance gate, §6.2's methodology gate
- * and §7's material gate were each built and left inert, returning a verdict rather than throwing,
- * specifically so that this file could ask them rather than re-deciding what they already decided.
- * Every one of them is called here and none of their logic is repeated.
+ * This is where several sessions converge. §5's cash advance gate, §6.2's methodology gate and §7's
+ * material gate were each built and left inert, returning a verdict rather than throwing, specifically
+ * so that this file could ask them rather than re-deciding what they already decided. Module 03's
+ * downpayment gate joined the same list at docs/DECISIONS.md #186 — built for procurement, inert for
+ * mobilisation until asked. Every one of them is called here and none of their logic is repeated.
  */
 
 import { methodStatementRequiredFor } from "./methodology-rules";
@@ -66,6 +67,13 @@ export interface Readiness {
 
 export interface ReadinessInput {
   ticketType: string;
+  /**
+   * docs/DECISIONS.md #186. Module 03's own gate, asked here rather than reimplemented — the same
+   * verdict `supplierPoGatesService` reads before a supplier PO may be sent, this time before a crew
+   * may leave. `blocks: false` covers both "paid" and "no downpayment was ever agreed"; the message
+   * says which.
+   */
+  downpayment: { blocks: boolean; message: string };
   /** The verdicts from §5, §6.2 and §7, passed in rather than recomputed. */
   cashAdvance: { blocks: boolean; message: string };
   materials: { blocks: boolean; message: string };
@@ -78,7 +86,7 @@ export interface ReadinessInput {
    * escape hatch that does not open anything is worse than none, because somebody uses it and
    * believes they are through.
    */
-  overrides?: Partial<Record<"cash_advance" | "methodology", string>>;
+  overrides?: Partial<Record<"cash_advance" | "methodology" | "downpayment", string>>;
   crewIds: readonly string[];
   gatePassStatus: string;
   permitStatus: string;
@@ -109,6 +117,22 @@ export interface ReadinessInput {
  */
 export function mobilizationReadiness(input: ReadinessInput): Readiness {
   const items: ReadinessItem[] = [];
+
+  /**
+   * docs/DECISIONS.md #186 — the fourth gate, the same shape as the other three: built in module 03,
+   * left inert until now, asked here rather than reimplemented. First on the list because it is the
+   * earliest of the four in a job's actual life — money is what the other three are spent against.
+   */
+  const downpaymentOverride = input.overrides?.downpayment;
+  items.push({
+    key: "downpayment",
+    label: "Customer's downpayment received",
+    state: !input.downpayment.blocks ? "pass" : downpaymentOverride ? "pass" : "fail",
+    mandatory: true,
+    detail: downpaymentOverride
+      ? `Overridden by an officer — ${downpaymentOverride}`
+      : input.downpayment.message,
+  });
 
   const caOverride = input.overrides?.cash_advance;
   items.push({
