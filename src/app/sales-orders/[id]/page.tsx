@@ -10,6 +10,7 @@ import { Card, PageHeader, RecordLayout } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
 import { BillingPanel } from "./BillingPanel";
+import { BillingReadinessPanel } from "./BillingReadinessPanel";
 import { formatMoney } from "@/lib/format";
 import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
@@ -101,6 +102,7 @@ export default function SalesOrderPage({ params }: { params: Promise<{ id: strin
       />
 
       <BillingPanel salesOrderId={data.id} />
+      <BillingReadinessPanel salesOrderId={data.id} />
 
       <RecordLayout
         aside={

@@ -6997,3 +6997,71 @@ trusting the UI — that a real `delivery`-type ticket was generated with the en
 `requiredByDate`, and the milestone carried the confirmation timestamp, date and notes. `tsc --noEmit`
 and `eslint` clean. Verification account, quotation, PO, file, order, schedule, statement and ticket
 deleted afterward; the `e2e@e2e.local` account itself is a permanent fixture and was left in place.
+
+---
+
+## #185 — Phase B: the finance/operations "are we ready to bill this?" exchange for terms 4-6
+
+**2026-09-06.** #184 shipped terms 4 through 6 selectable with a correct downpayment, but explicitly
+left their later balances unable to actually release — "manual" milestones with nothing wired to ask
+about them. EA's own words on why 30/70's installation balance does not simply reuse `on_installation`
+(the trigger that already exists for exactly this fact, since QA passing is what that milestone
+fires on): *"the installation balance when operations confirms the work is actually done."* QA is a
+customer's signature; whether that adds up to the whole balance being billable is a judgement EA
+wants a person making on purpose. This is that mechanism — the piece #184 named Phase B and deferred.
+
+**One exchange, going the same two directions for every affected milestone.** `askMilestoneReadinessService`
+is finance's half — it refuses a milestone whose trigger isn't `manual` (nothing to ask about) and,
+more specifically, refuses the one `manual` milestone with `autoRaiseOnRelease` set (#184's "100%
+Payment on Delivery" — that one releases on finance's own say-so, asking operations would be asking
+the wrong department). `replyMilestoneReadinessService` is operations' half: "accomplished" delegates
+straight to the existing `releaseMilestoneService` — releasing *is* what "we can bill this" means, so
+the race guard, the audit trail and the notification to finance are all the ones that function already
+has, not a second copy of them. "Not yet" instead records `readinessPercentComplete`,
+`readinessEstimatedDate` and `readinessNotes` on the milestone — the latest state of the question, not
+a timeline of one, the same choice #184 made for the customer's delivery reply.
+
+**The exchange has a direction, enforced server-side, not just implied by the UI.** A reply is refused
+unless `readinessAskedAt` is set and no `readinessRepliedAt` since is at least as recent — operations
+cannot answer a question finance never asked, and cannot answer the *same* ask twice. Concretely: once
+operations says "not yet," a second "accomplished" click on the same unrefreshed ask is refused with
+*"Nobody at finance has asked about \[milestone] yet"* until finance clicks "Ask again." This was not a
+hypothetical worth guarding against — it is exactly what happened during this entry's own live
+verification (see below), and the refusal is what caught it rather than silently mis-releasing.
+
+**Operations gets its own panel because it cannot see the one finance already has.** `BillingPanel`
+sits entirely behind `finance.view`, and `project.manage` — the permission that already gates planning
+a project and signing off its site inspection, reused here rather than inventing a new one — does not
+imply it on purpose (§19 keeps contract value off a technician's screen, and a milestone's amount is
+exactly that). A new `BillingReadinessPanel` on the same sales-order page reads a new
+`billingReadinessForOrder` query gated on `project.manage`, scoped to milestones finance has actually
+asked about — an order nobody has asked about shows nothing, the same restraint `NoSchedule` already
+takes on an order with no plan at all.
+
+**A live walkthrough caught a real staleness bug the automated tests could not.** `BillingPanel` and
+`BillingReadinessPanel` are sibling components with independent query caches. Operations answering
+"we can bill this" updated its own panel but left finance's copy of the same milestone showing the old
+"no reply yet" until the page was reloaded — and the reverse: a fresh ask from finance did not appear
+on operations' panel without one either. Fixed by having each mutation's success handler invalidate the
+other panel's query through `trpc.useUtils()` (`utils.finance.schedule.invalidate` and
+`utils.finance.billingReadinessForOrder.invalidate`, both scoped to the order) alongside its own
+refetch. No unit test would have found this — every service-level assertion was already correct; the
+bug was purely that two screens showing the same fact did not agree without a reload.
+
+**Verified**: `billing-milestone-readiness.test.ts`, 8 new tests against the real database —
+`askMilestoneReadinessService` refuses a non-`manual` trigger, refuses the `autoRaiseOnRelease`
+milestone, refuses a milestone that is not `pending`, and correctly marks the ask so it appears on
+operations' list. `replyMilestoneReadinessService` refuses a reply when nobody has asked, releases the
+milestone (through `releaseMilestoneService`) when the answer is "accomplished," insists on both a
+percentage and a date together for "not yet," records that state correctly, and refuses a second
+"accomplished" without a fresh ask in between — the exchange-direction guard, exercised end to end. All
+pass, and the pre-existing `billing-schedule.test.ts` (19), `billing-milestone-release.test.ts` (9),
+`billing-rules.test.ts` (17) and `terms.test.ts` (18) pass unchanged. Checked live as the seeded
+`e2e@e2e.local` account (which holds `president`, carrying both `billing_schedule.manage` and
+`project.manage` — both sides of the exchange from one login): created a real order on "30% Downpayment,
+70% Progress Billing" with a goods line and an execution line, asked about the installation balance,
+replied "not yet" with 60%/a date/notes and watched it appear correctly on both panels, asked again,
+replied "we can bill this," and confirmed both the supply-and-delivery and installation balances
+reached `ready to bill` with the release correctly attributed — this same walkthrough is what surfaced
+and then confirmed the fix for the cross-panel staleness bug above. `tsc --noEmit` and `eslint` clean.
+Verification account, quotation, PO, file, order, lines and schedule deleted afterward.

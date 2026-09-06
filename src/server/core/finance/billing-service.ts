@@ -56,6 +56,23 @@ registerNotificationType({
   defaultChannels: { inApp: true, email: false, digest: true },
 });
 
+export const BILLING_READINESS_ASKED_NOTIFICATION_TYPE = "billing.readiness_asked";
+export const BILLING_READINESS_REPLIED_NOTIFICATION_TYPE = "billing.readiness_replied";
+
+registerNotificationType({
+  key: BILLING_READINESS_ASKED_NOTIFICATION_TYPE,
+  label: "Finance is asking if a milestone is ready to bill",
+  // Not urgent enough to page anyone the instant it lands, but not a digest item either — nobody
+  // finds a question by scanning yesterday's summary. In-app, immediate, no email transport yet.
+  defaultChannels: { inApp: true, email: false, digest: false },
+});
+
+registerNotificationType({
+  key: BILLING_READINESS_REPLIED_NOTIFICATION_TYPE,
+  label: "Operations replied that a milestone isn't ready yet",
+  defaultChannels: { inApp: true, email: false, digest: true },
+});
+
 export const BILLING_SCHEDULE_ENTITY_TYPE = "BillingSchedule";
 export const BILLING_MILESTONE_ENTITY_TYPE = "BillingMilestone";
 
@@ -563,6 +580,196 @@ export async function recordCustomerBillingReplyService(
 }
 
 /**
+ * docs/DECISIONS.md #185 — the finance/operations exchange terms 4 through 6 need.
+ *
+ * §2's own stated purpose is "finance never has to ask operations whether a project is done", which
+ * holds for every automatic trigger. It deliberately does not hold for these: EA's own words on why
+ * 30/70's installation balance is `manual` rather than `on_installation` (the trigger that already
+ * exists for exactly this fact) — *"the installation balance when operations confirms the work is
+ * actually done."* QA passing is a customer's signature; whether that adds up to the whole balance
+ * being billable is a judgement EA wants a person making on purpose, not a side effect of a gate
+ * built for a different milestone.
+ */
+export async function askMilestoneReadinessService(
+  actor: ActorMeta,
+  input: { milestoneId: string },
+) {
+  const milestone = await db.billingMilestone.findFirst({
+    where: { id: input.milestoneId, deletedAt: null },
+    include: { schedule: true },
+  });
+  if (!milestone) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That milestone no longer exists." });
+  }
+  if (milestone.trigger !== "manual") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${milestone.label} becomes billable on its own — there is nothing to ask about.`,
+    });
+  }
+  if (milestone.status !== "pending") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${milestone.label} is already ${milestone.status.replace(/_/g, " ")}.`,
+    });
+  }
+
+  const snapshot = asTermMilestones(milestone.schedule.termSnapshot);
+  if (snapshot[milestone.sequence - 1]?.autoRaiseOnRelease) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${milestone.label} releases on finance's own say-so — there is nobody to ask.`,
+    });
+  }
+
+  await db.billingMilestone.update({
+    where: { id: milestone.id },
+    data: { readinessAskedAt: new Date(), version: { increment: 1 } },
+  });
+
+  await writeAuditLog(db, {
+    actorId: actor.actorId,
+    actorLabel: actor.actorLabel,
+    action: "readiness_asked",
+    entityType: BILLING_MILESTONE_ENTITY_TYPE,
+    entityId: milestone.id,
+    summary: `${actor.actorLabel} asked whether ${milestone.label} is ready to bill.`,
+    ip: actor.ip,
+    userAgent: actor.userAgent,
+    requestId: actor.requestId,
+  });
+
+  const recipients = await db.user.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      roles: {
+        some: { role: { permissions: { some: { permission: { key: "project.manage" } } } } },
+      },
+    },
+    select: { id: true },
+  });
+  const order = await db.salesOrder.findUnique({
+    where: { id: milestone.salesOrderId },
+    select: { number: true, account: { select: { name: true } } },
+  });
+  for (const recipient of recipients) {
+    await notify({
+      recipientId: recipient.id,
+      type: BILLING_READINESS_ASKED_NOTIFICATION_TYPE,
+      title: `Finance is asking: is ${milestone.label} ready to bill?`,
+      body: `${order?.account?.name ?? "A customer"} — ${order?.number ?? "an order"}, ${(milestone.amount / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`,
+      entityType: "SalesOrder",
+      entityId: milestone.salesOrderId,
+    });
+  }
+
+  return { milestoneId: milestone.id, askedAt: new Date() };
+}
+
+/**
+ * Operations' half of the same exchange. "Accomplished" delegates straight to
+ * `releaseMilestoneService` — releasing *is* what "we can bill this" means, and that function
+ * already does the right thing for a plain `manual` milestone (readies it, tells finance, and does
+ * not auto-raise anything, since only the customer-delivery term sets that flag). "Not yet" instead
+ * records where the work stands, for finance to see without having to ask again.
+ */
+export async function replyMilestoneReadinessService(
+  actor: ActorMeta,
+  input: {
+    milestoneId: string;
+    accomplished: boolean;
+    percentComplete?: number | null;
+    estimatedDate?: Date | null;
+    notes?: string | null;
+  },
+) {
+  const milestone = await db.billingMilestone.findFirst({
+    where: { id: input.milestoneId, deletedAt: null },
+  });
+  if (!milestone) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That milestone no longer exists." });
+  }
+  const asked = milestone.readinessAskedAt;
+  const alreadyAnswered =
+    milestone.readinessRepliedAt && (!asked || milestone.readinessRepliedAt >= asked);
+  if (!asked || alreadyAnswered) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Nobody at finance has asked about ${milestone.label} yet.`,
+    });
+  }
+
+  if (input.accomplished) {
+    return releaseMilestoneService(actor, { milestoneId: milestone.id });
+  }
+
+  if (input.percentComplete == null || !input.estimatedDate) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Say how much is done and when the rest is expected — both, not one or the other.",
+    });
+  }
+  if (input.percentComplete < 0 || input.percentComplete > 100) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Percentage complete has to be 0 to 100.",
+    });
+  }
+
+  const updated = await db.billingMilestone.update({
+    where: { id: milestone.id },
+    data: {
+      readinessRepliedAt: new Date(),
+      readinessPercentComplete: input.percentComplete,
+      readinessEstimatedDate: input.estimatedDate,
+      readinessNotes: input.notes?.trim() || null,
+      version: { increment: 1 },
+    },
+  });
+
+  await writeAuditLog(db, {
+    actorId: actor.actorId,
+    actorLabel: actor.actorLabel,
+    action: "readiness_not_yet",
+    entityType: BILLING_MILESTONE_ENTITY_TYPE,
+    entityId: milestone.id,
+    summary:
+      `${actor.actorLabel} says ${milestone.label} is not ready — ${input.percentComplete}% done, ` +
+      `expected ${input.estimatedDate.toISOString().slice(0, 10)}.` +
+      (input.notes?.trim() ? ` ${input.notes.trim()}` : ""),
+    ip: actor.ip,
+    userAgent: actor.userAgent,
+    requestId: actor.requestId,
+  });
+
+  const recipients = await db.user.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      roles: {
+        some: {
+          role: { permissions: { some: { permission: { key: "billing_schedule.manage" } } } },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  for (const recipient of recipients) {
+    await notify({
+      recipientId: recipient.id,
+      type: BILLING_READINESS_REPLIED_NOTIFICATION_TYPE,
+      title: `Not ready yet: ${milestone.label}`,
+      body: `${input.percentComplete}% done, expected ${input.estimatedDate.toISOString().slice(0, 10)}.`,
+      entityType: "SalesOrder",
+      entityId: milestone.salesOrderId,
+    });
+  }
+
+  return { milestone: updated };
+}
+
+/**
  * The subscriber side: an event arrives naming a record, and whichever schedules it touches advance.
  *
  * Takes the sales order ids rather than resolving them, because how an event maps to an order is the
@@ -603,6 +810,8 @@ export async function getScheduleService(salesOrderId: string) {
   });
   if (!schedule) return null;
 
+  const snapshot = asTermMilestones(schedule.termSnapshot);
+
   return {
     id: schedule.id,
     salesOrderId: schedule.salesOrderId,
@@ -625,8 +834,50 @@ export async function getScheduleService(salesOrderId: string) {
       customerConfirmedAt: milestone.customerConfirmedAt,
       customerPreferredDeliveryDate: milestone.customerPreferredDeliveryDate,
       customerReplyNotes: milestone.customerReplyNotes,
+      // §185: only a plain `manual` milestone goes through the ask/reply exchange — the one with
+      // this flag releases directly on finance's own say-so, same as term 3.
+      autoRaiseOnRelease: snapshot[milestone.sequence - 1]?.autoRaiseOnRelease ?? false,
+      readinessAskedAt: milestone.readinessAskedAt,
+      readinessRepliedAt: milestone.readinessRepliedAt,
+      readinessPercentComplete: milestone.readinessPercentComplete?.toString() ?? null,
+      readinessEstimatedDate: milestone.readinessEstimatedDate,
+      readinessNotes: milestone.readinessNotes,
     })),
   };
+}
+
+/**
+ * §185's exchange, from operations' side of one order.
+ *
+ * `BillingPanel` already shows finance the same fields — this exists because operations cannot see
+ * that panel at all (it sits behind `finance.view`, which `project.manage` does not imply, on
+ * purpose: §19 keeps contract value off a technician's screen, and a milestone's amount is exactly
+ * that). Scoped to milestones finance has actually asked about — operations answers a question here,
+ * it does not go looking for one nobody has raised yet.
+ */
+export async function billingReadinessForOrderService(salesOrderId: string) {
+  const milestones = await db.billingMilestone.findMany({
+    where: {
+      salesOrderId,
+      deletedAt: null,
+      status: "pending",
+      trigger: "manual",
+      readinessAskedAt: { not: null },
+    },
+    orderBy: { sequence: "asc" },
+  });
+
+  return milestones.map((milestone) => ({
+    id: milestone.id,
+    label: milestone.label,
+    pct: milestone.pct.toString(),
+    amount: milestone.amount,
+    readinessAskedAt: milestone.readinessAskedAt,
+    readinessRepliedAt: milestone.readinessRepliedAt,
+    readinessPercentComplete: milestone.readinessPercentComplete?.toString() ?? null,
+    readinessEstimatedDate: milestone.readinessEstimatedDate,
+    readinessNotes: milestone.readinessNotes,
+  }));
 }
 
 /**

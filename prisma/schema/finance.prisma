@@ -86,6 +86,20 @@ model BillingMilestone {
   customerPreferredDeliveryDate DateTime?
   customerReplyNotes            String?
 
+  /// docs/DECISIONS.md #185's finance/operations exchange, for the `manual` milestones that need
+  /// it — terms 4 through 6's balances, never the `autoRaiseOnRelease` one (that releases on
+  /// finance's own say-so, nobody to ask). Finance asks by setting `readinessAskedAt`; operations
+  /// answers either by releasing the milestone directly (`replyMilestoneReadinessService`'s
+  /// "accomplished" branch — nothing further to store, the status change is the record) or by
+  /// filling the three fields below, which is what "not yet" looks like. A later ask overwrites
+  /// them again rather than accumulating history: this build tracks the latest state of a
+  /// question, not a timeline of one, the same choice made for the customer reply above.
+  readinessAskedAt         DateTime?
+  readinessRepliedAt       DateTime?
+  readinessPercentComplete Decimal?  @db.Decimal(5, 2)
+  readinessEstimatedDate   DateTime?
+  readinessNotes           String?
+
   version   Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

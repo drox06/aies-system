@@ -29,12 +29,15 @@ import { EXPORT_DATASETS, EXPORT_PRESETS } from "@/server/core/finance/export-ru
 import { p, router, type Context } from "@/server/api/trpc";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import {
+  askMilestoneReadinessService,
   billableMilestonesService,
+  billingReadinessForOrderService,
   cancelMilestoneService,
   generateScheduleService,
   getScheduleService,
   recordCustomerBillingReplyService,
   releaseMilestoneService,
+  replyMilestoneReadinessService,
 } from "@/server/core/finance/billing-service";
 import {
   bounceChequeService,
@@ -126,6 +129,41 @@ export const financeRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => recordCustomerBillingReplyService(actorMeta(ctx), input)),
+
+  /**
+   * docs/DECISIONS.md #185 — finance's half of the "are we ready to bill this?" exchange terms 4
+   * through 6 need. Gated the same as every other schedule decision, not the issue permission:
+   * asking is not billing.
+   */
+  askMilestoneReadiness: p("billing_schedule.manage")
+    .input(z.object({ milestoneId: z.string() }))
+    .mutation(({ ctx, input }) => askMilestoneReadinessService(actorMeta(ctx), input)),
+
+  /**
+   * Operations' half of the same exchange. `project.manage` rather than a finance permission —
+   * this is the one place in the schedule an operations decision-maker can act, and it is the same
+   * permission that already gates planning a project and signing off its site inspection.
+   */
+  replyMilestoneReadiness: p("project.manage")
+    .input(
+      z.object({
+        milestoneId: z.string(),
+        accomplished: z.boolean(),
+        percentComplete: z.number().min(0).max(100).nullish(),
+        estimatedDate: z.coerce.date().nullish(),
+        notes: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => replyMilestoneReadinessService(actorMeta(ctx), input)),
+
+  /**
+   * The read side for operations — `BillingPanel` shows finance the same fields, but that screen
+   * sits behind `finance.view`, which an operations manager does not hold. Scoped to one order and
+   * gated on `project.manage`, same as the reply.
+   */
+  billingReadinessForOrder: p("project.manage")
+    .input(z.object({ salesOrderId: z.string() }))
+    .query(({ input }) => billingReadinessForOrderService(input.salesOrderId)),
 
   // ---- §3's two documents -----------------------------------------------------------------------
 

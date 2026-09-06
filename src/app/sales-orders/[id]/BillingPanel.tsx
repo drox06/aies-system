@@ -39,8 +39,16 @@ const pesos = (centavos: number) =>
   `₱${(centavos / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 
 export function BillingPanel({ salesOrderId }: { salesOrderId: string }) {
+  const utils = trpc.useUtils();
   const schedule = trpc.finance.schedule.useQuery({ salesOrderId }, { retry: false });
   const gate = trpc.finance.finalBillingGate.useQuery({ salesOrderId }, { retry: false });
+
+  const onScheduleChanged = () => {
+    void schedule.refetch();
+    // `BillingReadinessPanel` is operations' own copy of the same milestone, in a sibling component
+    // with its own query cache — without this, a fresh ask would not appear there until reloaded.
+    void utils.finance.billingReadinessForOrder.invalidate({ salesOrderId });
+  };
 
   // Absent rather than erroring for anybody without `finance.view`: an operations manager opening a
   // sales order should not be told a billing plan exists and is being withheld.
@@ -98,13 +106,26 @@ export function BillingPanel({ salesOrderId }: { salesOrderId: string }) {
                   )}
                 </p>
 
-                {milestone.trigger === "manual" && milestone.status === "pending" && (
-                  <ReleaseMilestone
-                    milestoneId={milestone.id}
-                    label={milestone.label}
-                    onDone={() => void schedule.refetch()}
-                  />
-                )}
+                {milestone.trigger === "manual" &&
+                  milestone.status === "pending" &&
+                  (milestone.autoRaiseOnRelease ? (
+                    <ReleaseMilestone
+                      milestoneId={milestone.id}
+                      label={milestone.label}
+                      onDone={() => void schedule.refetch()}
+                    />
+                  ) : (
+                    <AskMilestoneReadiness
+                      milestoneId={milestone.id}
+                      label={milestone.label}
+                      askedAt={milestone.readinessAskedAt}
+                      repliedAt={milestone.readinessRepliedAt}
+                      percentComplete={milestone.readinessPercentComplete}
+                      estimatedDate={milestone.readinessEstimatedDate}
+                      notes={milestone.readinessNotes}
+                      onDone={onScheduleChanged}
+                    />
+                  ))}
 
                 {milestone.trigger === "manual" && milestone.status === "invoiced" && (
                   <CustomerBillingReply
@@ -279,6 +300,73 @@ function ReleaseMilestone({
     >
       {release.isPending ? "Releasing…" : "Are we ready to bill this?"}
     </Button>
+  );
+}
+
+/**
+ * docs/DECISIONS.md #185 — finance's side of the "are we ready to bill this?" exchange, for a
+ * `manual` milestone that is not term 3's auto-raise one. Unlike `ReleaseMilestone`, clicking this
+ * does not bill anything: it asks operations, who answer through their own screen
+ * (`BillingReadinessPanel`, on the same order) — finance cannot see contract amounts blocked from
+ * them, but they can see whether operations answered.
+ */
+function AskMilestoneReadiness({
+  milestoneId,
+  label,
+  askedAt,
+  repliedAt,
+  percentComplete,
+  estimatedDate,
+  notes,
+  onDone,
+}: {
+  milestoneId: string;
+  label: string;
+  askedAt: Date | string | null;
+  repliedAt: Date | string | null;
+  percentComplete: string | null;
+  estimatedDate: Date | string | null;
+  notes: string | null;
+  onDone: () => void;
+}) {
+  const ask = trpc.finance.askMilestoneReadiness.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Asked operations whether ${label} is ready to bill.`);
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  // Answered since the last ask — a reply is waiting to be acted on by operations again, or the
+  // most recent word is "not yet" and nothing has moved since.
+  const answered = askedAt && repliedAt && new Date(repliedAt) >= new Date(askedAt);
+
+  return (
+    <div className="mt-1.5">
+      {askedAt && (
+        <p className="text-xs text-text-muted">
+          {answered ? (
+            <>
+              Operations says not ready — {percentComplete}% done, expected{" "}
+              <DateCell value={estimatedDate!} />.{notes && <> {notes}</>}
+            </>
+          ) : (
+            <>
+              Asked operations <DateCell value={askedAt} withTime /> — no reply yet.
+            </>
+          )}
+        </p>
+      )}
+      <Button
+        size="sm"
+        variant="secondary"
+        className="mt-1"
+        disabled={ask.isPending}
+        onClick={() => ask.mutate({ milestoneId })}
+      >
+        {ask.isPending ? "Asking…" : askedAt ? "Ask again" : "Are we ready to bill this?"}
+      </Button>
+    </div>
   );
 }
 
