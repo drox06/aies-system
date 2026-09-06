@@ -6,6 +6,11 @@ import type { ActorMeta } from "@/server/core/crm/account-service";
 import { emit } from "@/server/core/events/emit";
 import { notify } from "@/server/core/notify/notify";
 import { registerNotificationType } from "@/server/core/notify/registry";
+import { issueStatementService, raiseStatementService } from "./invoice-service";
+import {
+  generateTicketsService,
+  proposeTicketsForSalesOrderService,
+} from "@/server/core/operations/ticket-service";
 import {
   BILLING_TRIGGERS,
   BILLING_TRIGGER_LABELS,
@@ -323,6 +328,241 @@ async function notifyFinance(salesOrderId: string, count: number, reason: string
 }
 
 /**
+ * Releases one `manual` milestone by hand — docs/DECISIONS.md #184's eight terms, three of which
+ * (30/70's two balances, both 50/50s' balance, "100% Payment on Delivery") bill on a judgement call
+ * nobody's status field can prove, rather than on a domain event.
+ *
+ * ## Why this is not `applyTriggerToSchedule` with a different event name
+ *
+ * That function advances *every* pending milestone a schedule owns that matches the event — right for
+ * a real event, which has no way to mean "just this one." A schedule can hold two `manual` milestones
+ * at once (30/70's supply-and-delivery balance and its installation balance), each ready at a
+ * different, unrelated moment; releasing one must never touch the other. So this targets exactly one
+ * milestone by id, and refuses outright if it is not `manual` or not still `pending` — a status
+ * transition an event proves is not one a click gets to shortcut.
+ *
+ * ## Why `autoRaiseOnRelease` is read from the frozen snapshot, not the live `PaymentTerm`
+ *
+ * `BillingSchedule.termSnapshot` is what the order actually agreed to; the live term could have been
+ * edited since. Reading anywhere else risks releasing a milestone under one deal's rules and billing
+ * it under another's.
+ */
+export async function releaseMilestoneService(actor: ActorMeta, input: { milestoneId: string }) {
+  const milestone = await db.billingMilestone.findFirst({
+    where: { id: input.milestoneId, deletedAt: null },
+    include: { schedule: { include: { paymentTerm: { select: { netDays: true } } } } },
+  });
+  if (!milestone) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That milestone no longer exists." });
+  }
+  if (milestone.trigger !== "manual") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${milestone.label} becomes billable on its own — ` +
+        `${BILLING_TRIGGER_LABELS[milestone.trigger as BillingTrigger]}. There is nothing to release.`,
+    });
+  }
+  if (milestone.status !== "pending") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${milestone.label} is already ${milestone.status.replace(/_/g, " ")}.`,
+    });
+  }
+
+  const readyAt = new Date();
+  const reason = `Released by ${actor.actorLabel}`;
+  const dueDate = dueDateFor(readyAt, milestone.schedule.paymentTerm.netDays, {
+    trigger: "manual",
+    daysAfter: null,
+  });
+
+  await db.$transaction(async (tx) => {
+    // Guarded on `status: "pending"` in the WHERE clause, same reason `applyTriggerToSchedule` is —
+    // two clicks racing must produce one release, not a milestone billed twice.
+    const { count } = await tx.billingMilestone.updateMany({
+      where: { id: milestone.id, status: "pending", deletedAt: null },
+      data: {
+        status: "ready_to_bill",
+        readyAt,
+        readyReason: reason,
+        dueDate,
+        version: { increment: 1 },
+      },
+    });
+    if (count === 0) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `${milestone.label} was just released by somebody else.`,
+      });
+    }
+
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "ready_to_bill",
+      entityType: BILLING_MILESTONE_ENTITY_TYPE,
+      entityId: milestone.id,
+      summary: `${milestone.label} released manually — ${reason}.`,
+      diff: { status: { from: "pending", to: "ready_to_bill" } },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+
+    await emit(
+      tx,
+      "milestone.ready_to_bill",
+      {
+        milestoneId: milestone.id,
+        salesOrderId: milestone.salesOrderId,
+        label: milestone.label,
+        amount: milestone.amount,
+        trigger: milestone.trigger,
+        dueDate: dueDate.toISOString(),
+      },
+      { actorId: actor.actorId },
+    );
+  });
+
+  await notifyFinance(milestone.salesOrderId, 1, reason);
+
+  const snapshot = asTermMilestones(milestone.schedule.termSnapshot);
+  const original = snapshot[milestone.sequence - 1];
+  if (!original?.autoRaiseOnRelease) {
+    return { milestoneId: milestone.id, statement: null };
+  }
+
+  // §14's "100% Payment on Delivery": releasing this one milestone *is* finance's answer to "are we
+  // ready to bill this", so the statement goes out in the same act rather than waiting for a second
+  // person to notice it is ready.
+  const order = await db.salesOrder.findUniqueOrThrow({
+    where: { id: milestone.salesOrderId },
+    select: { accountId: true },
+  });
+  const raised = await raiseStatementService(actor, {
+    accountId: order.accountId,
+    salesOrderId: milestone.salesOrderId,
+    milestoneId: milestone.id,
+    dueDate,
+    lines: [{ description: milestone.label, quantity: 1, unitPrice: milestone.amount }],
+  });
+  await issueStatementService(actor, { statementId: raised.id });
+
+  return { milestoneId: milestone.id, statement: { id: raised.id, number: raised.number } };
+}
+
+/**
+ * §14's customer reply, for "100% Payment on Delivery": AIES has no customer portal, so whoever spoke
+ * to the customer logs what was said, not the customer themselves.
+ *
+ * ## The gate this reads is "has this been billed", not "is this the right term"
+ *
+ * Any invoiced milestone can carry a reply — narrower would mean teaching this function which of the
+ * eight terms are allowed to, which is a rule about *terms* leaking into a function about *facts*.
+ * What actually matters is the same either way: a reply means nothing until a bill exists for it to
+ * be a reply *to*.
+ *
+ * ## Why the delivery ticket is generated here rather than proposed for a human to confirm
+ *
+ * §4 is emphatic elsewhere that ticket generation is never automatic — "one PO can legitimately be
+ * one ticket or eight, and only a human knows which." This does not overrule that: the human judgment
+ * already happened, in this same call, when whoever spoke to the customer chose to log "payment is
+ * ready" rather than "not yet". What is refused is the *ambiguous* case — if the order's own proposal
+ * would proceed to `generateTicketsService` with anything other than exactly one goods-only delivery
+ * ticket, this stops and asks a person to use the ordinary "review proposed tickets" screen instead,
+ * rather than guessing which of several possible sets was meant.
+ */
+export async function recordCustomerBillingReplyService(
+  actor: ActorMeta,
+  input: {
+    milestoneId: string;
+    paymentReady: boolean;
+    preferredDeliveryDate?: Date | null;
+    notes?: string | null;
+  },
+) {
+  const milestone = await db.billingMilestone.findFirst({
+    where: { id: input.milestoneId, deletedAt: null },
+  });
+  if (!milestone) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That milestone no longer exists." });
+  }
+  if (milestone.status !== "invoiced") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${milestone.label} has not been billed yet — there is nothing for the customer to have ` +
+        "replied to.",
+    });
+  }
+  if (input.paymentReady && !input.preferredDeliveryDate) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "A preferred delivery date is what schedules the delivery — record it along with the " +
+        "confirmation, not afterward.",
+    });
+  }
+
+  const updated = await db.billingMilestone.update({
+    where: { id: milestone.id },
+    data: {
+      customerConfirmedAt: input.paymentReady ? new Date() : null,
+      customerPreferredDeliveryDate: input.paymentReady
+        ? (input.preferredDeliveryDate ?? null)
+        : null,
+      customerReplyNotes: input.notes?.trim() || null,
+      version: { increment: 1 },
+    },
+  });
+
+  await writeAuditLog(db, {
+    actorId: actor.actorId,
+    actorLabel: actor.actorLabel,
+    action: input.paymentReady ? "customer_confirmed_ready" : "customer_not_ready",
+    entityType: BILLING_MILESTONE_ENTITY_TYPE,
+    entityId: milestone.id,
+    summary: input.paymentReady
+      ? `Customer confirmed payment is in hand for ${milestone.label}; preferred delivery ` +
+        `${input.preferredDeliveryDate!.toISOString().slice(0, 10)}.`
+      : `Customer says payment on ${milestone.label} is not ready yet.` +
+        (input.notes?.trim() ? ` ${input.notes.trim()}` : ""),
+    ip: actor.ip,
+    userAgent: actor.userAgent,
+    requestId: actor.requestId,
+  });
+
+  if (!input.paymentReady) {
+    return { milestone: updated, ticket: null };
+  }
+
+  const proposal = await proposeTicketsForSalesOrderService(milestone.salesOrderId);
+  const simple = proposal.proposed.length === 1 && proposal.proposed[0]!.type === "delivery";
+  if (!simple) {
+    // Recorded above regardless — the reply is a fact whether or not a ticket follows from it
+    // automatically. A person raises the ticket from the ordinary screen instead.
+    return { milestone: updated, ticket: null };
+  }
+
+  const [delivery] = proposal.proposed;
+  const generated = await generateTicketsService(actor, {
+    salesOrderId: milestone.salesOrderId,
+    tickets: [
+      {
+        type: "delivery",
+        title: delivery!.title,
+        scopeOfWork: delivery!.scopeOfWork,
+        salesOrderLineIds: delivery!.salesOrderLineIds,
+        requiredByDate: input.preferredDeliveryDate,
+      },
+    ],
+  });
+
+  return { milestone: updated, ticket: generated.tickets[0] ?? null };
+}
+
+/**
  * The subscriber side: an event arrives naming a record, and whichever schedules it touches advance.
  *
  * Takes the sales order ids rather than resolving them, because how an event maps to an order is the
@@ -382,6 +622,9 @@ export async function getScheduleService(salesOrderId: string) {
       readyReason: milestone.readyReason,
       dueDate: milestone.dueDate,
       billingStatementId: milestone.billingStatementId,
+      customerConfirmedAt: milestone.customerConfirmedAt,
+      customerPreferredDeliveryDate: milestone.customerPreferredDeliveryDate,
+      customerReplyNotes: milestone.customerReplyNotes,
     })),
   };
 }

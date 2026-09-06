@@ -334,6 +334,7 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             version={data.version}
             editable={editable}
             paymentTermsId={data.paymentTermsId}
+            paymentTermsText={data.paymentTermsText}
             deliveryTermIncoterm={data.deliveryTermIncoterm}
             deliveryLeadTime={data.deliveryLeadTime}
             validUntil={data.validUntil}

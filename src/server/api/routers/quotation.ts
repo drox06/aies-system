@@ -29,6 +29,7 @@ import {
   type ActorMeta,
 } from "@/server/core/quotation/quotation-service";
 import {
+  getOrCreateNetDaysTermService,
   listActivePaymentTermsService,
   saveQuotationLinesService,
   updateQuotationHeaderService,
@@ -204,6 +205,11 @@ export const quotationRouter = router({
 
   /** The picker's options for the payment-term clause. See terms.ts's `paymentTermsClause`. */
   listPaymentTerms: p("quotation.view").query(() => listActivePaymentTermsService()),
+
+  /** "Net __ days after completion" — the one term whose exact shape is typed in, not chosen. */
+  getOrCreateNetDaysTerm: p("quotation.edit")
+    .input(z.object({ days: z.number().int().positive() }))
+    .mutation(({ input }) => getOrCreateNetDaysTermService(input.days)),
 
   // ---- §6 approval ----------------------------------------------------------------------------
 

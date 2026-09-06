@@ -33,6 +33,8 @@ import {
   cancelMilestoneService,
   generateScheduleService,
   getScheduleService,
+  recordCustomerBillingReplyService,
+  releaseMilestoneService,
 } from "@/server/core/finance/billing-service";
 import {
   bounceChequeService,
@@ -99,6 +101,31 @@ export const financeRouter = router({
   cancelMilestone: p("billing_schedule.manage")
     .input(z.object({ milestoneId: z.string(), reason: z.string().min(5).max(1000) }))
     .mutation(({ ctx, input }) => cancelMilestoneService(actorMeta(ctx), input)),
+
+  /**
+   * docs/DECISIONS.md #184's "are we ready to bill this?" — releasing a `manual` milestone by hand,
+   * because three of the eight payment terms bill on a judgement call nobody's status field can
+   * prove. Gated the same as its sibling `cancelMilestone`: this is a decision about the schedule,
+   * not an ordinary read of it.
+   */
+  releaseMilestone: p("billing_schedule.manage")
+    .input(z.object({ milestoneId: z.string() }))
+    .mutation(({ ctx, input }) => releaseMilestoneService(actorMeta(ctx), input)),
+
+  /**
+   * docs/DECISIONS.md #184's "100% Payment on Delivery" customer reply — logged by whoever at AIES
+   * spoke to the customer, since there is no customer portal for them to answer through directly.
+   */
+  recordCustomerBillingReply: p("billing_schedule.manage")
+    .input(
+      z.object({
+        milestoneId: z.string(),
+        paymentReady: z.boolean(),
+        preferredDeliveryDate: z.coerce.date().nullish(),
+        notes: z.string().max(2000).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) => recordCustomerBillingReplyService(actorMeta(ctx), input)),
 
   // ---- §3's two documents -----------------------------------------------------------------------
 

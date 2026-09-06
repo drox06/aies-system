@@ -171,9 +171,11 @@ describe("which milestones an event makes billable", () => {
     expect(milestonesTriggeredBy("quotation.sent", [milestone("on_order")])).toEqual([]);
   });
 
-  it("maps every trigger to an event some module actually emits", () => {
+  it("maps every trigger to an event some module actually emits, except the one that is manual on purpose", () => {
     // A trigger pointing at an event nothing fires is a milestone that can never become billable.
     // The list is asserted rather than derived so that adding a trigger is a deliberate act.
+    // `manual`'s string is never published through the outbox — see its own comment in
+    // billing-rules.ts — it exists only so `releaseMilestoneService` can share this file's matching.
     expect(Object.values(BILLING_TRIGGERS)).toEqual([
       "sales_order.created",
       "supplier_po.sent",
@@ -183,6 +185,7 @@ describe("which milestones an event makes billable", () => {
       "delivery.dr_signed",
       "project.closed",
       "project.closed",
+      "billing_milestone.released",
     ]);
   });
 });

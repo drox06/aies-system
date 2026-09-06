@@ -59,6 +59,17 @@ export const BILLING_TRIGGERS = {
   on_dr_signed: "delivery.dr_signed",
   on_project_close: "project.closed",
   net_days_after_close: "project.closed",
+  /**
+   * The one trigger with no domain event behind it, on purpose.
+   *
+   * docs/DECISIONS.md #184. Some of the company's own terms bill on a judgement call nobody else's
+   * status field can prove — "are we actually ready to send this bill" — rather than on a fact
+   * another module already emits. `releaseMilestoneService` fires this directly, the same way
+   * `generateScheduleService` fires `on_order` at generation time: a person decides, not an event.
+   * The string below is never published through the outbox; it exists only so this trigger can share
+   * `milestonesTriggeredBy`'s matching instead of needing a second mechanism.
+   */
+  manual: "billing_milestone.released",
 } as const;
 
 export type BillingTrigger = keyof typeof BILLING_TRIGGERS;
@@ -72,6 +83,7 @@ export const BILLING_TRIGGER_LABELS: Readonly<Record<BillingTrigger, string>> = 
   on_dr_signed: "When the delivery receipt is signed",
   on_project_close: "When the project closes",
   net_days_after_close: "A number of days after the project closes",
+  manual: "When somebody explicitly releases it",
 };
 
 /**
@@ -95,6 +107,7 @@ export const BILLING_TRIGGER_NOTES: Readonly<Record<BillingTrigger, string>> = {
     "Somebody at the customer signed for the goods. Slower than on_delivery and much harder to dispute — the right choice for goods-only orders.",
   on_project_close: "Everything is done and the close-out pack exists.",
   net_days_after_close: "A retention or a payment term that runs from completion.",
+  manual: "No event proves this one — a person judges the moment and releases it by hand.",
 };
 
 export const MILESTONE_STATUSES = ["pending", "ready_to_bill", "invoiced", "cancelled"] as const;
@@ -107,6 +120,15 @@ export interface TermMilestone {
   trigger: BillingTrigger;
   /** Only meaningful for `net_days_after_close`; ignored otherwise. */
   daysAfter?: number;
+  /**
+   * Only meaningful for `manual`. §14's "100% Payment on Delivery": releasing this milestone *is* the
+   * decision to bill it — a second person then having to notice it is ready and raise the statement
+   * by hand would be the "somebody has to ask" coordination gap this whole module exists to close.
+   * Every other `manual` milestone (30/70's two balances, the 50/50s' balance) releases only —
+   * finance still raises the statement themselves, because those depend on a reply from operations
+   * that has not been asked for yet.
+   */
+  autoRaiseOnRelease?: boolean;
 }
 
 export interface TermCheck {

@@ -93,16 +93,29 @@ const MILESTONE_PHRASES: Readonly<Record<BillingTrigger, string>> = {
   on_dr_signed: "upon signed delivery",
   on_project_close: "upon completion of the works",
   net_days_after_close: "", // built specially in paymentTermsClause, using daysAfter
+  manual: "upon confirmation that the item is ready to bill",
 };
 
 export interface PaymentTermForClause {
   milestones: TermMilestone[];
 }
 
-/** The wording for the "PAYMENT TERMS." clause, derived from the selected term's actual milestones —
- *  never from `PaymentTerm.description`, which carries internal rationale (cash position, why the
- *  company offers it) that has no place on a document the customer reads. */
-export function paymentTermsClause(term: PaymentTermForClause | null): string {
+/**
+ * The wording for the "PAYMENT TERMS." clause, derived from the selected term's actual milestones —
+ * never from `PaymentTerm.description`, which carries internal rationale (cash position, why the
+ * company offers it) that has no place on a document the customer reads.
+ *
+ * `customText` is "Others": a deal with no fixed shape has nothing a milestone list could describe,
+ * so the person who typed out what was actually agreed is the wording that prints — verbatim, not
+ * summarised into a template like every other term here.
+ */
+export function paymentTermsClause(
+  term: PaymentTermForClause | null,
+  customText?: string | null,
+): string {
+  if (customText?.trim()) {
+    return `PAYMENT TERMS. ${customText.trim()}`;
+  }
   if (!term || term.milestones.length === 0) {
     return "PAYMENT TERMS. 100% Advance payment.";
   }

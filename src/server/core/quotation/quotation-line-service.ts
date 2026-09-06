@@ -458,3 +458,41 @@ export async function listActivePaymentTermsService(): Promise<PaymentTermOption
     milestones: term.milestones as unknown as TermMilestone[],
   }));
 }
+
+/**
+ * Finds or creates the specific-numbered "Net N days after completion" term.
+ *
+ * docs/DECISIONS.md #184. A day count nobody can guess in advance has no business being pre-seeded —
+ * this is called the moment a quotation actually needs one, and reuses the row the next quotation
+ * asks for the same count rather than growing a fresh, functionally identical term every time
+ * somebody types "30" again. Upserts by name for the same reason `seed-payment-terms.ts` does: the
+ * name is what makes calling this twice for the same count idempotent.
+ */
+export async function getOrCreateNetDaysTermService(days: number): Promise<PaymentTermOption> {
+  if (!Number.isInteger(days) || days <= 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Net days has to be a whole number greater than zero.",
+    });
+  }
+
+  const name = `Net ${days} days after completion`;
+  const milestones: TermMilestone[] = [
+    { label: "Full amount", pct: "100", trigger: "net_days_after_close", daysAfter: days },
+  ];
+
+  const term = await db.paymentTerm.upsert({
+    where: { name },
+    update: { isActive: true },
+    create: {
+      name,
+      description: `Nothing up front, everything ${days} day${days === 1 ? "" : "s"} after the project closes.`,
+      netDays: days,
+      milestones: milestones as unknown as object[],
+      isActive: true,
+    },
+    select: { id: true, name: true, netDays: true, milestones: true },
+  });
+
+  return { ...term, milestones: term.milestones as unknown as TermMilestone[] };
+}

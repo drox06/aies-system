@@ -78,6 +78,14 @@ model BillingMilestone {
   cancelledAt     DateTime?
   cancelledReason String?
 
+  /// docs/DECISIONS.md #184's "100% Payment on Delivery": AIES has no customer portal, so this is
+  /// filled in by whoever at AIES spoke to the customer, not by the customer directly. Null until
+  /// they confirm payment is in hand; `customerPreferredDeliveryDate` is what schedules the delivery
+  /// ticket `recordCustomerBillingReplyService` creates the moment this is set.
+  customerConfirmedAt           DateTime?
+  customerPreferredDeliveryDate DateTime?
+  customerReplyNotes            String?
+
   version   Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

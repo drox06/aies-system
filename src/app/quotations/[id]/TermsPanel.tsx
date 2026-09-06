@@ -43,11 +43,20 @@ function toDateInputValue(validUntil: Date | string): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Two of the eight payment terms have no fixed row to select — see seed-payment-terms.ts's own note
+ * on why "Net __ days" and "Others" are deliberately not seeded. These sentinels are what the picker
+ * shows in their place; neither is ever sent to the server as `paymentTermsId`.
+ */
+const NET_DAYS_SENTINEL = "__net_days__";
+const OTHERS_SENTINEL = "__others__";
+
 export function TermsPanel({
   quotationId,
   version,
   editable,
   paymentTermsId,
+  paymentTermsText,
   deliveryTermIncoterm,
   deliveryLeadTime,
   validUntil,
@@ -59,6 +68,8 @@ export function TermsPanel({
   version: number;
   editable: boolean;
   paymentTermsId: string | null;
+  /** Only meaningful when `paymentTermsId` is null — "Others"'s full written explanation. */
+  paymentTermsText: string | null;
   deliveryTermIncoterm: string | null;
   deliveryLeadTime: string | null;
   /** superjson revives this as a real `Date` on the client, despite `quotation.get`'s own type cast
@@ -69,19 +80,27 @@ export function TermsPanel({
   onSaved: () => void;
 }) {
   const [clauses, setClauses] = useState<string[]>(termsAndConditions);
-  const [paymentTermId, setPaymentTermId] = useState(paymentTermsId ?? "");
+  // A quotation with no structured term but real free text is "Others" — nothing else produces that
+  // combination, so re-hydrating into the sentinel on load is unambiguous.
+  const [paymentTermId, setPaymentTermId] = useState(
+    paymentTermsId ?? (paymentTermsText ? OTHERS_SENTINEL : ""),
+  );
+  const [othersText, setOthersText] = useState(paymentTermsText ?? "");
+  const [netDaysInput, setNetDaysInput] = useState("");
   const [incoterm, setIncoterm] = useState(deliveryTermIncoterm ?? "");
   const [leadTime, setLeadTime] = useState(deliveryLeadTime ?? "");
   const [validUntilDate, setValidUntilDate] = useState(toDateInputValue(validUntil));
   const [warranty, setWarranty] = useState(warrantyTerms ?? "");
 
   const paymentTerms = trpc.quotation.listPaymentTerms.useQuery();
+  const netDaysTerm = trpc.quotation.getOrCreateNetDaysTerm.useMutation();
 
   // Re-seed from the server after a save, so the panel shows what was stored rather than what was
   // typed — they differ if anything was trimmed or rejected.
   useEffect(() => {
     setClauses(termsAndConditions);
-    setPaymentTermId(paymentTermsId ?? "");
+    setPaymentTermId(paymentTermsId ?? (paymentTermsText ? OTHERS_SENTINEL : ""));
+    setOthersText(paymentTermsText ?? "");
     setIncoterm(deliveryTermIncoterm ?? "");
     setLeadTime(deliveryLeadTime ?? "");
     setValidUntilDate(toDateInputValue(validUntil));
@@ -89,6 +108,7 @@ export function TermsPanel({
   }, [
     termsAndConditions,
     paymentTermsId,
+    paymentTermsText,
     deliveryTermIncoterm,
     deliveryLeadTime,
     validUntil,
@@ -119,7 +139,12 @@ export function TermsPanel({
             onChange={(e) => {
               const id = e.target.value;
               setPaymentTermId(id);
+              // Only a real row has a clause to write immediately — the two sentinels each need
+              // something more from the person first (a day count, or the full explanation) before
+              // there is anything to put in the clause below.
+              if (id === NET_DAYS_SENTINEL || id === OTHERS_SENTINEL) return;
               const term = paymentTerms.data?.find((t) => t.id === id) ?? null;
+              setOthersText("");
               setClauses((current) =>
                 replaceClause(current, CLAUSE_PREFIXES.paymentTerms, paymentTermsClause(term)),
               );
@@ -131,11 +156,79 @@ export function TermsPanel({
                 {term.name}
               </option>
             ))}
+            <option value={NET_DAYS_SENTINEL}>Net __ days after completion…</option>
+            <option value={OTHERS_SENTINEL}>Others…</option>
           </Select>
           {!paymentTermId && (
             <p className="mt-1 text-xs text-amber-700">
               Nothing on the resulting order can be billed until this is set.
             </p>
+          )}
+
+          {paymentTermId === NET_DAYS_SENTINEL && (
+            <div className="mt-2 flex items-end gap-2">
+              <div className="flex-1">
+                <Label htmlFor="net-days">Days after completion</Label>
+                <Input
+                  id="net-days"
+                  type="number"
+                  min={1}
+                  className="mt-1"
+                  value={netDaysInput}
+                  disabled={!editable}
+                  onChange={(e) => setNetDaysInput(e.target.value)}
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!editable || netDaysTerm.isPending || !netDaysInput.trim()}
+                onClick={async () => {
+                  const days = Number(netDaysInput);
+                  if (!Number.isInteger(days) || days <= 0) return;
+                  const term = await netDaysTerm.mutateAsync({ days });
+                  await paymentTerms.refetch();
+                  setPaymentTermId(term.id);
+                  setOthersText("");
+                  setClauses((current) =>
+                    replaceClause(current, CLAUSE_PREFIXES.paymentTerms, paymentTermsClause(term)),
+                  );
+                }}
+              >
+                {netDaysTerm.isPending ? "Setting…" : "Use this term"}
+              </Button>
+            </div>
+          )}
+
+          {paymentTermId === OTHERS_SENTINEL && (
+            <div className="mt-2">
+              <Label htmlFor="others-text">
+                Explain when this bills, what triggers it, how much, and the split
+              </Label>
+              <Textarea
+                id="others-text"
+                rows={3}
+                className="mt-1 text-sm"
+                placeholder="e.g. 40% on order, 60% two weeks after the crate ships — the customer's own PO terms, clause 4."
+                value={othersText}
+                disabled={!editable}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setOthersText(value);
+                  setClauses((current) =>
+                    replaceClause(
+                      current,
+                      CLAUSE_PREFIXES.paymentTerms,
+                      paymentTermsClause(null, value),
+                    ),
+                  );
+                }}
+              />
+              <p className="mt-1 text-xs text-text-muted">
+                No schedule is generated for this — every bill against it is raised by hand from
+                Finance, guided by what you write here.
+              </p>
+            </div>
           )}
         </div>
 
@@ -255,10 +348,17 @@ export function TermsPanel({
             disabled={save.isPending}
             onClick={async () => {
               try {
+                // Neither sentinel is a real row: "Others" carries no `paymentTermsId` at all — the
+                // written text is the term — and an unresolved "Net __ days" (never confirmed with
+                // "Use this term") has decided nothing yet, so it saves the same as "Not set" rather
+                // than a stray id nothing points at.
+                const isOthers = paymentTermId === OTHERS_SENTINEL;
+                const isRealTerm = paymentTermId !== NET_DAYS_SENTINEL && !isOthers;
                 await save.mutateAsync({
                   quotationId,
                   version,
-                  paymentTermsId: paymentTermId || null,
+                  paymentTermsId: isRealTerm ? paymentTermId || null : null,
+                  paymentTermsText: isOthers ? othersText.trim() || null : null,
                   deliveryTermIncoterm: incoterm.trim() || null,
                   deliveryLeadTime: leadTime.trim() || null,
                   // `validUntil` is a required column — an emptied date field leaves it unchanged

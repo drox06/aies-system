@@ -6897,3 +6897,103 @@ ticket reached `completed`, the receipt was `acknowledged` with the entered name
 `signatureFileId`, and `qtyDelivered` incremented by the full ordered quantity. `tsc --noEmit` and
 `eslint` clean. Verification ticket, flow, receipt, order, quotation, account, uploaded file and user
 deleted afterward.
+
+---
+
+## #184 — Eight payment terms EA actually sells on, replacing five guessed before a real deal existed
+
+**2026-09-06.** Prompted by a live question: *"if the payment terms is 50% downpayment and 50% upon
+delivery of goods, shouldnt the system trigger to bill the remaining 50% once delivery is closed?"*
+Tracing it surfaced the real problem — the seeded "50/50" term billed its balance `on_project_close`,
+which is correct for a job with follow-on installation and simply never fires for a goods-only order,
+since no project exists to close. The five original terms (`50/50`, `30/70`, `100% on delivery`, `Net
+30 after completion`, `Progress billing`) were a reasonable starting guess, made before EA had walked a
+real deal through the platform end to end. Asked to redesign them from how the company actually bills,
+EA gave eight terms with exact behaviour, resolved through several rounds of clarification recorded in
+full in this session's transcript. This entry is Phase A of that build — the mechanism and terms 1, 2,
+3, 7 and 8 fully working; terms 4, 5 and 6 select and downpayment correctly, with their later
+milestones waiting on Phase B (finance/operations "ready to bill?" exchange), Phase C (an execution
+gated on payment), and Phase D (the collections rebuild) as separate, explicitly deferred pieces of the
+same conversation.
+
+**One new trigger carries three of the eight terms, on purpose.** `billing-rules.ts` gains `manual:
+"billing_milestone.released"` — the one `BillingTrigger` with no real domain event behind it.
+"100% Payment on Delivery," both 50/50 balances, and 30/70's two balances all bill on a person's
+judgement that the work is ready, not on something the platform can observe happening. A new
+`releaseMilestoneService` is the only thing that moves it, guarded exactly like `applyTriggerToSchedule`
+(an `updateMany` scoped to `status: "pending"`) but scoped to one `milestoneId` rather than every
+milestone sharing a trigger — necessary because 30/70 puts two independent `manual` milestones on one
+schedule, and releasing one must never touch the other.
+
+**"100% Payment on Delivery" bills itself the moment it is released, and nothing else does.** EA's own
+design for term 3: *"clicking it raises and sends the statement automatically."* Every other `manual`
+milestone releases onto finance's ordinary work list, same as any other trigger — only this one term
+needs the second step skipped. Rather than a new column, `TermMilestone` gained an optional
+`autoRaiseOnRelease` flag read back from `BillingSchedule.termSnapshot` — the frozen copy of what an
+order actually agreed to, already kept for exactly this reason (a term edited after the fact must not
+change what a live order does). `releaseMilestoneService` checks that flag after releasing and, when
+set, calls `raiseStatementService` then `issueStatementService` in the same act.
+
+**Term 3's customer reply reuses module 04's own ticket-generation guard rather than working around
+it.** AIES has no customer portal — EA: *"everything that the system needs from the customer is told to
+an aies personnel and the personnel communicates with the customer."* So `BillingMilestone` gained three
+nullable fields (`customerConfirmedAt`, `customerPreferredDeliveryDate`, `customerReplyNotes`) that
+whoever spoke to the customer fills in through a new `recordCustomerBillingReplyService`, and logging
+"payment is ready" is what schedules the delivery — the preferred date is what
+`generateTicketsService` receives as `requiredByDate`. Module 04 is explicit that ticket generation is
+never silent — *"one PO can legitimately be one ticket or eight, and only a human knows which"* — which
+this does not override: the human judgement already happened, in the same call, the moment somebody
+chose to log "ready" over "not yet." What is refused is the *ambiguous* case. If
+`proposeTicketsForSalesOrderService` would propose anything other than exactly one goods-only delivery
+ticket, nothing is generated — the reply is still recorded, and a person uses the ordinary "review
+proposed tickets" screen instead of the platform guessing a multi-ticket set on its own.
+
+**Term 4's split is 30/35/35 of the order total, not proportional to what each line is actually worth —
+EA corrected an earlier, more literal design mid-conversation.** The first proposal read EA's worked
+example (₱100 goods + ₱100 installation, 30% down, then splitting the remaining 70% across the two
+lines by their real value) as needing a per-line-group billing basis — new architecture to separate an
+order's goods value from its installation value. EA rejected that: *"can you make it like this…
+regardless of what the actual monetary value percentage is."* The simpler rule needs nothing new: three
+fixed milestones at 30%, 35% and 35% of the order total, each `manual`, fit the existing milestone model
+exactly the way every other term does. The percentages are agreed shares of the contract, not a
+recomputation of what shipped.
+
+**Two of the eight terms are deliberately not `PaymentTerm` rows.** "Net __ days after completion" needs
+a day count nobody can guess in advance — `getOrCreateNetDaysTermService` creates (or reuses) the
+specific-numbered term the moment a quotation actually asks for one, rather than `seed-payment-terms.ts`
+guessing which counts to pre-seed. "Others" has no fixed shape at all, by EA's own words a "manual
+term" — `paymentTermsClause` now accepts optional free text and prints it verbatim when there is no
+term row at all, backed by `Quotation.paymentTermsText`, a column that existed since module 02 and had
+never been wired to anything. `checkTermMilestones` requires milestones to sum to exactly 100%, which is
+precisely why "Others" cannot be a seeded row — there is no shape to check.
+
+**The original five are retired, not deleted.** A quotation that already agreed to `30/70` is a signed
+contract; unpicking it would be worse than leaving an inactive row nobody can newly select.
+`seed-payment-terms.ts` flips `isActive: false` on the five original names, the same mechanism that
+already keeps stray test fixtures out of the picker without touching what they point at.
+
+**Term 7's redesign (the collections/dunning cycle) and the retirement of `collectionRemindersEnabled`
+are recorded as decided but not yet built** — Phase D. So is Phase B's finance/operations "ready to
+bill?" exchange and Phase C's execution-payment gate. All three are EA's explicit instructions, captured
+in full in this session, deferred by mutual agreement so Phase A could ship and be walked through first.
+
+**Verified**: `billing-milestone-release.test.ts`, 9 new tests against the real database —
+`releaseMilestoneService` refuses a milestone whose trigger isn't `manual`, refuses one that isn't
+`pending`, releases a plain `manual` milestone onto the work list without raising anything, and raises
+and issues the statement immediately for a term with `autoRaiseOnRelease` set (subtotal correct at
+5,000,000 centavos, total 5,600,000 after 12% VAT — a wrong first assertion caught this before it was
+mistaken for a real bug). `recordCustomerBillingReplyService` refuses a reply on a milestone that hasn't
+been billed, insists on a preferred delivery date when payment is ready, records "not ready yet" without
+touching tickets, creates the delivery ticket when the order's proposal is unambiguous, and — the
+refusal side of the same guard — creates nothing when the order would also need an installation ticket,
+while still recording the reply itself. All pass, and the pre-existing `billing-schedule.test.ts` (19),
+`billing-rules.test.ts` (17, after updating its hardcoded trigger-list exhaustiveness assertion for the
+new `manual` entry) and `terms.test.ts` (18) pass unchanged. Checked live end to end as the seeded
+`e2e@e2e.local` account: created a real goods-only order on "100% Payment on Delivery," opened it in
+`/sales-orders/[id]`, clicked "Are we ready to bill this?", watched the milestone flip to `invoiced` with
+a statement auto-raised and issued in the same act, opened "Log the customer's reply…", entered a
+preferred delivery date and notes, clicked "Payment is ready," and confirmed by direct query — not by
+trusting the UI — that a real `delivery`-type ticket was generated with the entered date as its
+`requiredByDate`, and the milestone carried the confirmation timestamp, date and notes. `tsc --noEmit`
+and `eslint` clean. Verification account, quotation, PO, file, order, schedule, statement and ticket
+deleted afterward; the `e2e@e2e.local` account itself is a permanent fixture and was left in place.

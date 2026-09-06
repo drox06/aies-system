@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Textarea } from "@/components/ui/input";
 import { Card } from "@/components/ui/layout";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { toastError, toastSuccess } from "@/lib/errors";
@@ -97,6 +97,25 @@ export function BillingPanel({ salesOrderId }: { salesOrderId: string }) {
                     </>
                   )}
                 </p>
+
+                {milestone.trigger === "manual" && milestone.status === "pending" && (
+                  <ReleaseMilestone
+                    milestoneId={milestone.id}
+                    label={milestone.label}
+                    onDone={() => void schedule.refetch()}
+                  />
+                )}
+
+                {milestone.trigger === "manual" && milestone.status === "invoiced" && (
+                  <CustomerBillingReply
+                    milestoneId={milestone.id}
+                    label={milestone.label}
+                    confirmedAt={milestone.customerConfirmedAt}
+                    preferredDeliveryDate={milestone.customerPreferredDeliveryDate}
+                    notes={milestone.customerReplyNotes}
+                    onDone={() => void schedule.refetch()}
+                  />
+                )}
 
                 {["pending", "ready_to_bill"].includes(milestone.status) && (
                   <CancelMilestone
@@ -218,6 +237,161 @@ function CancelMilestone({
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Keep it
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * docs/DECISIONS.md #184's "are we ready to bill this?" — the one act that makes a `manual` milestone
+ * billable. Three of the eight payment terms have no domain event to fire on; a person judges the
+ * moment and releases it by hand instead.
+ */
+function ReleaseMilestone({
+  milestoneId,
+  label,
+  onDone,
+}: {
+  milestoneId: string;
+  label: string;
+  onDone: () => void;
+}) {
+  const release = trpc.finance.releaseMilestone.useMutation({
+    onSuccess: (result) => {
+      toastSuccess(
+        result.statement
+          ? `${label} released and statement ${result.statement.number} sent.`
+          : `${label} released — it is now on finance's list to bill.`,
+      );
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      className="mt-1.5"
+      disabled={release.isPending}
+      onClick={() => release.mutate({ milestoneId })}
+    >
+      {release.isPending ? "Releasing…" : "Are we ready to bill this?"}
+    </Button>
+  );
+}
+
+/**
+ * §14's "100% Payment on Delivery" customer reply. AIES has no customer portal, so whoever spoke to
+ * the customer logs what was said here — and logging "payment is ready" is what schedules the
+ * delivery, since `recordCustomerBillingReplyService` raises the delivery ticket in the same act.
+ */
+function CustomerBillingReply({
+  milestoneId,
+  label,
+  confirmedAt,
+  preferredDeliveryDate,
+  notes,
+  onDone,
+}: {
+  milestoneId: string;
+  label: string;
+  confirmedAt: Date | string | null;
+  preferredDeliveryDate: Date | string | null;
+  notes: string | null;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState("");
+  const [replyNotes, setReplyNotes] = useState("");
+
+  const reply = trpc.finance.recordCustomerBillingReply.useMutation({
+    onSuccess: (result) => {
+      toastSuccess(
+        result.ticket
+          ? `Logged — delivery ticket ${result.ticket.number} created for the preferred date.`
+          : "Logged.",
+      );
+      setOpen(false);
+      setDate("");
+      setReplyNotes("");
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  if (confirmedAt) {
+    return (
+      <p className="mt-1.5 text-xs text-text-muted">
+        Customer confirmed payment ready — preferred delivery{" "}
+        <DateCell value={preferredDeliveryDate!} />.{notes && <> {notes}</>}
+      </p>
+    );
+  }
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" className="mt-1.5" onClick={() => setOpen(true)}>
+        Log the customer&apos;s reply…
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 rounded-md border border-border p-2.5">
+      <p className="text-xs text-text-muted">
+        {label} was billed. What did the customer say when asked about payment?
+      </p>
+
+      <Label htmlFor={`reply-date-${milestoneId}`} className="mt-2">
+        Preferred delivery date
+      </Label>
+      <Input
+        id={`reply-date-${milestoneId}`}
+        type="date"
+        value={date}
+        onChange={(event) => setDate(event.target.value)}
+      />
+
+      <Label htmlFor={`reply-notes-${milestoneId}`} className="mt-2">
+        Notes
+      </Label>
+      <Textarea
+        id={`reply-notes-${milestoneId}`}
+        rows={2}
+        value={replyNotes}
+        placeholder="Who was spoken to and what they said."
+        onChange={(event) => setReplyNotes(event.target.value)}
+      />
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          disabled={reply.isPending || !date}
+          onClick={() =>
+            reply.mutate({
+              milestoneId,
+              paymentReady: true,
+              preferredDeliveryDate: new Date(date),
+              notes: replyNotes.trim() || null,
+            })
+          }
+        >
+          Payment is ready
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={reply.isPending}
+          onClick={() =>
+            reply.mutate({ milestoneId, paymentReady: false, notes: replyNotes.trim() || null })
+          }
+        >
+          Not ready yet
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Cancel
         </Button>
       </div>
     </div>
