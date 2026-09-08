@@ -89,6 +89,21 @@ model BillingStatement {
   cancelledAt     DateTime?
   cancelledReason String?
 
+  /// The real Billing Statement is created outside this app (docs/DECISIONS.md #191's walkthrough,
+  /// company decision 2026-09-08) — this record and its PDF are a reference copy, watermarked as one
+  /// unconditionally. `externalNumber` is that document's own number, and once it is entered it is
+  /// what prints and displays everywhere a person reads "the" statement number; `number` (this
+  /// record's own AIESBS-{YY}{####}) stays the internal key — sequences, audit rows and notifications
+  /// already sent stay valid, nothing is ever renumbered in place.
+  ///
+  /// Neither field gates anything. The signed/received copy a customer hands back cannot exist at the
+  /// moment the statement is issued, so uploading it is always a later, optional step — `FileObject`
+  /// referenced by id, same as everywhere else in the platform.
+  externalNumber          String?
+  externalRefFileId       String?
+  externalRefUploadedAt   DateTime?
+  externalRefUploadedById String?
+
   version   Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

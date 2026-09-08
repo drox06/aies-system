@@ -17,6 +17,7 @@ function quotation(lines: { lineNo: number; description: string; quantity: numbe
   return {
     number: "AIESLQ260001",
     total: 100_000,
+    vatAmount: 0,
     currency: "PHP",
     lines,
   };
@@ -111,6 +112,32 @@ describe("amount", () => {
     const result = checkCustomerPoAgainstQuotation(input({ po: { amount: 130_000 } }));
 
     expect(result.discrepancies[0]!.message).toMatch(/over by 30000\.00/);
+  });
+
+  /**
+   * docs/DECISIONS.md #190. A customer issuing a PO against the pre-tax price is ordinary — the
+   * shortfall matches the quotation's own VAT to the centavo, which nothing else produces by
+   * accident, so it is named rather than left to read as an unexplained partial order.
+   */
+  it("names a shortfall that matches the quotation's VAT exactly", () => {
+    const result = checkCustomerPoAgainstQuotation(
+      input({ quotation: { total: 112_000, vatAmount: 12_000 }, po: { amount: 100_000 } }),
+    );
+
+    expect(result.discrepancies).toHaveLength(1);
+    expect(result.discrepancies[0]!.kind).toBe("vat_excluded");
+    expect(result.discrepancies[0]!.severity).toBe("advisory");
+    expect(result.discrepancies[0]!.message).toMatch(/pre-tax price/);
+    expect(result.discrepancies[0]!.message).toMatch(/still bills VAT/);
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not call an ordinary shortfall VAT just because a rate happens to be set", () => {
+    const result = checkCustomerPoAgainstQuotation(
+      input({ quotation: { total: 112_000, vatAmount: 12_000 }, po: { amount: 90_000 } }),
+    );
+
+    expect(result.discrepancies[0]!.kind).toBe("amount");
   });
 });
 

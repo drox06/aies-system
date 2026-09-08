@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/api/root";
+import { Attachments } from "@/components/ui/attachments";
 import { Button } from "@/components/ui/button";
 import { DateCell } from "@/components/ui/cells";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -226,7 +227,10 @@ function StatementRow({ row, onChanged }: { row: Statement; onChanged: () => voi
     <>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="flex flex-wrap items-baseline gap-2">
-          <span className="tabular font-medium">{row.number}</span>
+          <span className="tabular font-medium">{row.externalNumber ?? row.number}</span>
+          {row.externalNumber && (
+            <span className="tabular text-xs text-text-muted">(AIES ref {row.number})</span>
+          )}
           <span className="text-sm">{row.accountName}</span>
           <span className="text-xs text-text-muted">{row.type.replace(/_/g, " ")}</span>
         </span>
@@ -314,6 +318,13 @@ function StatementRow({ row, onChanged }: { row: Statement; onChanged: () => voi
         </p>
       )}
 
+      <ExternalReference
+        statementId={row.id}
+        externalNumber={row.externalNumber}
+        externalRefFileId={row.externalRefFileId}
+        onChanged={onChanged}
+      />
+
       <div className="mt-2 flex flex-wrap gap-2">
         {row.status === "draft" && (
           <Button
@@ -380,6 +391,114 @@ function StatementRow({ row, onChanged }: { row: Statement; onChanged: () => voi
   );
 }
 
+const BILLING_STATEMENT_ENTITY_TYPE = "BillingStatement";
+
+/**
+ * docs/DECISIONS.md #191 — the real Billing Statement is created outside this app; this is where
+ * the signed/received copy is attached once it comes back, and where the external document's own
+ * number is recorded. Never a gate, and shown collapsed until there is a reason to open it — the
+ * common case immediately after issuing a statement is "nothing to attach yet".
+ */
+function ExternalReference({
+  statementId,
+  externalNumber,
+  externalRefFileId,
+  onChanged,
+}: {
+  statementId: string;
+  externalNumber: string | null;
+  externalRefFileId: string | null;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [number, setNumber] = useState(externalNumber ?? "");
+  const [fileId, setFileId] = useState(externalRefFileId ?? "");
+
+  const files = trpc.files.forEntity.useQuery(
+    { entityType: BILLING_STATEMENT_ENTITY_TYPE, entityId: statementId },
+    { enabled: open },
+  );
+  const save = trpc.finance.setStatementExternalReference.useMutation({
+    onSuccess: () => {
+      toastSuccess("External reference copy attached.");
+      setOpen(false);
+      onChanged();
+    },
+    onError: toastError,
+  });
+
+  if (!open) {
+    return (
+      <p className="mt-1 text-xs">
+        {externalRefFileId ? (
+          <span className="text-text-muted">
+            External reference copy attached.{" "}
+            <button type="button" className="underline" onClick={() => setOpen(true)}>
+              Replace it
+            </button>
+          </span>
+        ) : (
+          <button type="button" className="text-text-muted underline" onClick={() => setOpen(true)}>
+            Attach the external reference copy…
+          </button>
+        )}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-border p-2.5">
+      <p className="text-xs font-medium">External reference copy</p>
+      <p className="mt-0.5 text-xs text-text-muted">
+        The signed statement, once the customer sends it back — or whatever the external document
+        already is. Not required to issue or collect on this statement.
+      </p>
+      <Attachments
+        entityType={BILLING_STATEMENT_ENTITY_TYPE}
+        entityId={statementId}
+        onChanged={() => void files.refetch()}
+      />
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <div className="w-48">
+          <Label htmlFor={`bs-extnum-${statementId}`}>Their document number</Label>
+          <Input
+            id={`bs-extnum-${statementId}`}
+            value={number}
+            onChange={(event) => setNumber(event.target.value)}
+          />
+        </div>
+        <div className="w-56">
+          <Label htmlFor={`bs-extfile-${statementId}`}>Which file is the copy</Label>
+          <Select
+            id={`bs-extfile-${statementId}`}
+            value={fileId}
+            onChange={(event) => setFileId(event.target.value)}
+          >
+            <option value="">Choose an attachment…</option>
+            {(files.data ?? []).map((file) => (
+              <option key={file.id} value={file.id}>
+                {file.filename}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <Button
+          size="sm"
+          disabled={save.isPending || number.trim().length === 0 || fileId === ""}
+          onClick={() =>
+            save.mutate({ statementId, externalNumber: number.trim(), externalRefFileId: fileId })
+          }
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Close
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * §3.1 — recording the money, which issues the BIR document.
  *
@@ -409,6 +528,8 @@ function RecordPayment({
     statement.withholds ? (statement.expectedWithholdingAmount / 100).toFixed(2) : "",
   );
   const [notes, setNotes] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [uploadingProof, setUploadingProof] = useState(false);
 
   const record = trpc.finance.recordPayment.useMutation({
     onSuccess: (result) => {
@@ -437,6 +558,9 @@ function RecordPayment({
   });
 
   const isCheque = method === "check";
+  // Electronic methods with no physical instrument of their own — a cheque already carries its
+  // number, cash carries no document at all.
+  const showProofUpload = method === "bank_transfer" || method === "online" || method === "gcash";
   const parsed = Number(amount);
   const canSubmit =
     Number.isFinite(parsed) &&
@@ -568,6 +692,25 @@ function RecordPayment({
           </div>
         )}
 
+        {showProofUpload && (
+          <div className="sm:col-span-2">
+            <Label htmlFor={`pm-proof-${statement.id}`}>
+              Proof of transfer <span className="font-normal text-text-muted">(optional)</span>
+            </Label>
+            <input
+              id={`pm-proof-${statement.id}`}
+              type="file"
+              accept="image/*,application/pdf"
+              className="mt-1 block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium"
+              onChange={(event) => setProofFile(event.target.files?.[0] ?? null)}
+            />
+            <p className="mt-1 text-xs text-text-muted">
+              A screenshot or photo of the deposit slip, transfer confirmation, or GCash receipt —
+              not required to record the payment.
+            </p>
+          </div>
+        )}
+
         <div className="sm:col-span-2">
           <Label htmlFor={`pm-notes-${statement.id}`}>Notes</Label>
           <Textarea
@@ -582,8 +725,34 @@ function RecordPayment({
       <div className="mt-3 flex gap-2">
         <Button
           size="sm"
-          disabled={!canSubmit || record.isPending}
-          onClick={() =>
+          disabled={!canSubmit || record.isPending || uploadingProof}
+          onClick={async () => {
+            // Uploaded before the payment exists, against the statement it is proving — same
+            // two-request idiom as CustomerPoDialog: the file lands first, and its id rides along
+            // in the mutation rather than the record being created with nothing to point at yet.
+            let proofFileId: string | undefined;
+            if (proofFile) {
+              setUploadingProof(true);
+              try {
+                const form = new FormData();
+                form.append("file", proofFile);
+                form.append("entityType", "Payment");
+                form.append("entityId", statement.id);
+                const response = await fetch("/api/files", { method: "POST", body: form });
+                if (!response.ok) {
+                  const body = (await response.json().catch(() => ({}))) as { error?: string };
+                  throw new Error(body.error ?? "That file could not be uploaded.");
+                }
+                const uploaded = (await response.json()) as { id: string };
+                proofFileId = uploaded.id;
+              } catch (error) {
+                toastError(error);
+                setUploadingProof(false);
+                return;
+              }
+              setUploadingProof(false);
+            }
+
             record.mutate({
               accountId: statement.accountId,
               receivedAt: new Date(receivedAt),
@@ -595,11 +764,18 @@ function RecordPayment({
               withholdingTaxAmount:
                 withholding.trim() === "" ? undefined : Math.round(Number(withholding) * 100),
               notes: notes.trim() === "" ? null : notes.trim(),
+              proofFileId,
               allocations: [{ billingStatementId: statement.id, amount: Math.round(parsed * 100) }],
-            })
-          }
+            });
+          }}
         >
-          {record.isPending ? "Recording…" : isCheque ? "Record the cheque" : "Record it"}
+          {uploadingProof
+            ? "Uploading…"
+            : record.isPending
+              ? "Recording…"
+              : isCheque
+                ? "Record the cheque"
+                : "Record it"}
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Discard

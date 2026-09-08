@@ -18,6 +18,15 @@ export const DELIVERY_FLOW_ENTITY_TYPE = "DeliveryTicketFlow";
 export const DELIVERY_RECEIPT_ENTITY_TYPE = "DeliveryReceipt";
 export const DELIVERY_RECEIPT_DOCUMENT_TYPE = "delivery_receipt";
 
+/**
+ * A tappable Google Maps link for an already-formatted address (`@/lib/address`'s `formatAddress`),
+ * or null when there is nothing to point at.
+ */
+export function googleMapsUrl(address: string | null): string | null {
+  if (!address || address.trim() === "") return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
 /** §19: `delivery.execute`. */
 export const DELIVERY_EXECUTE_PERMISSION = "delivery.execute";
 

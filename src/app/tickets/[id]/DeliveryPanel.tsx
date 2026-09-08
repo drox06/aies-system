@@ -75,6 +75,13 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
     },
     { enabled: Boolean(flow.data?.deliveryReceiptId) },
   );
+  // The external DR's own photo/scan, uploaded before the DeliveryReceipt row exists — same
+  // entityType, anchored to the flow's id until issuing hands it a receipt id of its own, mirroring
+  // how CustomerPoDialog anchors a PO's scan to the inquiry before the PO row exists.
+  const externalDrFiles = trpc.files.forEntity.useQuery(
+    { entityType: DELIVERY_RECEIPT_ENTITY_TYPE, entityId: flow.data?.id ?? "" },
+    { enabled: Boolean(flow.data?.id) && !flow.data?.deliveryReceiptId },
+  );
 
   const canExecute = (me.data?.permissions ?? []).includes("delivery.execute");
   const refresh = () => void flow.refetch();
@@ -87,10 +94,20 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
   const book = trpc.operations.bookCourier.useMutation({ onSuccess: refresh });
   const recordPod = trpc.operations.recordCourierPod.useMutation({ onSuccess: refresh });
   const complete = trpc.operations.completeDelivery.useMutation({ onSuccess: refresh });
+  const setAddress = trpc.operations.setDeliveryAddress.useMutation({
+    onSuccess: () => {
+      setEditingAddress(false);
+      refresh();
+    },
+  });
 
   const [lines, setLines] = useState<DraftLine[] | null>(null);
   const [vehicleRef, setVehicleRef] = useState("");
   const [driverName, setDriverName] = useState("");
+  const [externalDrNumber, setExternalDrNumber] = useState("");
+  const [externalDrFileId, setExternalDrFileId] = useState("");
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressDraft, setAddressDraft] = useState("");
 
   // The visit. Kept as one piece of state because §13.1 treats it as one act — the driver arrives and
   // either hands the goods over or does not, and splitting it into two forms would invite a record
@@ -196,9 +213,75 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
           <dt className="text-text-muted">Mode</dt>
           <dd>{DELIVERY_MODE_LABELS[mode]}</dd>
         </div>
+        <div className="flex justify-between gap-2 sm:col-span-2">
+          <dt className="text-text-muted">Destination</dt>
+          <dd className="text-right">
+            {data.resolvedAddress ? (
+              data.mapsUrl ? (
+                <a href={data.mapsUrl} target="_blank" rel="noreferrer" className="underline">
+                  {data.resolvedAddress}
+                </a>
+              ) : (
+                data.resolvedAddress
+              )
+            ) : (
+              <span className="text-text-muted">No address on file</span>
+            )}
+            {data.manualDeliveryAddress && (
+              <span className="ml-1 text-xs text-text-muted">(manual override)</span>
+            )}
+            {canExecute && !done && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-1 h-5 px-1"
+                onClick={() => {
+                  setAddressDraft(data.manualDeliveryAddress ?? "");
+                  setEditingAddress(true);
+                }}
+              >
+                {data.manualDeliveryAddress ? "Edit" : "Override"}
+              </Button>
+            )}
+          </dd>
+        </div>
+        {editingAddress && (
+          <div className="sm:col-span-2">
+            <Label htmlFor="delivery-address-override">One-off destination for this delivery</Label>
+            <Textarea
+              id="delivery-address-override"
+              rows={2}
+              value={addressDraft}
+              placeholder="Leave blank to use the customer's saved site address"
+              onChange={(event) => setAddressDraft(event.target.value)}
+            />
+            <div className="mt-1 flex gap-2">
+              <Button
+                size="sm"
+                disabled={setAddress.isPending}
+                onClick={() =>
+                  setAddress.mutate({
+                    ticketId,
+                    manualDeliveryAddress: addressDraft.trim() || null,
+                  })
+                }
+              >
+                Save
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setEditingAddress(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="flex justify-between gap-2">
           <dt className="text-text-muted">Receipt</dt>
-          <dd>{data.receipt?.number ?? "Not issued"}</dd>
+          <dd>
+            {data.receipt ? (data.receipt.externalNumber ?? data.receipt.number) : "Not issued"}
+            {data.receipt?.externalNumber && (
+              <span className="ml-1 text-xs text-text-muted">(AIES ref {data.receipt.number})</span>
+            )}
+          </dd>
         </div>
         {data.deliveredAt && (
           <div className="flex justify-between gap-2">
@@ -348,35 +431,83 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
               </ul>
 
               {canExecute && (
-                <Button
-                  className="mt-3"
-                  disabled={busy}
-                  onClick={() => {
-                    const source =
-                      lines ??
-                      deliverable.data!.lines.map((line) => ({
-                        salesOrderLineId: line.salesOrderLineId,
-                        description: line.description,
-                        quantity: line.outstanding,
-                        unit: line.unit,
-                        include: true,
-                      }));
-                    issue.mutate({
-                      ticketId,
-                      salesOrderId: deliverable.data!.salesOrderId!,
-                      lines: source
-                        .filter((line) => line.include)
-                        .map(({ salesOrderLineId, description, quantity, unit }) => ({
-                          salesOrderLineId,
-                          description,
-                          quantity,
-                          unit,
-                        })),
-                    });
-                  }}
-                >
-                  Issue receipt
-                </Button>
+                <div className="mt-3 border-t border-border pt-3">
+                  {/*
+                    docs/DECISIONS.md #191: the real DR is created outside this app — this app's own
+                    copy is a reference copy of it, and issuing requires the external DR already in
+                    hand, not just the ticket to execute it.
+                  */}
+                  <p className="text-xs font-medium">External delivery receipt</p>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    A photo or scan of the DR as actually issued, and its own number. Both are
+                    required before this can be issued.
+                  </p>
+                  <Attachments
+                    entityType={DELIVERY_RECEIPT_ENTITY_TYPE}
+                    entityId={flow.data!.id}
+                    label="External DR photo or scan"
+                    onChanged={() => void externalDrFiles.refetch()}
+                  />
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div className="w-48">
+                      <Label htmlFor="external-dr-number">Their DR number</Label>
+                      <Input
+                        id="external-dr-number"
+                        value={externalDrNumber}
+                        onChange={(event) => setExternalDrNumber(event.target.value)}
+                      />
+                    </div>
+                    <div className="w-56">
+                      <Label htmlFor="external-dr-file">Which file is the DR</Label>
+                      <Select
+                        id="external-dr-file"
+                        value={externalDrFileId}
+                        onChange={(event) => setExternalDrFileId(event.target.value)}
+                      >
+                        <option value="">Choose an attachment…</option>
+                        {(externalDrFiles.data ?? []).map((file) => (
+                          <option key={file.id} value={file.id}>
+                            {file.filename}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+
+                  <Button
+                    className="mt-3"
+                    disabled={
+                      busy || externalDrNumber.trim().length === 0 || externalDrFileId === ""
+                    }
+                    onClick={() => {
+                      const source =
+                        lines ??
+                        deliverable.data!.lines.map((line) => ({
+                          salesOrderLineId: line.salesOrderLineId,
+                          description: line.description,
+                          quantity: line.outstanding,
+                          unit: line.unit,
+                          include: true,
+                        }));
+                      issue.mutate({
+                        ticketId,
+                        salesOrderId: deliverable.data!.salesOrderId!,
+                        lines: source
+                          .filter((line) => line.include)
+                          .map(({ salesOrderLineId, description, quantity, unit }) => ({
+                            salesOrderLineId,
+                            description,
+                            quantity,
+                            unit,
+                          })),
+                        externalNumber: externalDrNumber.trim(),
+                        externalRefFileId: externalDrFileId,
+                      });
+                    }}
+                  >
+                    Issue receipt
+                  </Button>
+                </div>
               )}
             </>
           ) : (

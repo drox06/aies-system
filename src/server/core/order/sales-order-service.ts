@@ -63,6 +63,7 @@ export async function checkCustomerPoService(input: {
     quotation: {
       number: po.quotation.number,
       total: Number(po.quotation.total),
+      vatAmount: Number(po.quotation.vatAmount),
       currency: po.quotation.currency,
       lines: po.quotation.lines
         // §7 keeps optional lines off the total, so they are not part of what was agreed and must
@@ -124,6 +125,8 @@ export async function verifyCustomerPoService(
     });
   }
 
+  const vatExcluded = check.discrepancies.some((d) => d.kind === "vat_excluded");
+
   return db.$transaction(async (tx) => {
     const po = await tx.customerPO.update({
       where: { id: input.customerPOId },
@@ -136,6 +139,8 @@ export async function verifyCustomerPoService(
             ? `${check.summary}\n\n${check.discrepancies.map((d) => `• ${d.message}`).join("\n")}` +
               `\n\nAccepted: ${note}`
             : null,
+        // Named and queryable, not just a sentence buried in the note above — see po-verification.ts.
+        vatExcluded,
       },
     });
 

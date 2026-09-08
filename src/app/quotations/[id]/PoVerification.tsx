@@ -123,6 +123,7 @@ export function PoVerification({
   const result = check.data;
   const blocking = result?.discrepancies.filter((d) => d.severity === "blocking") ?? [];
   const advisory = result?.discrepancies.filter((d) => d.severity === "advisory") ?? [];
+  const vatExcluded = result?.discrepancies.some((d) => d.kind === "vat_excluded") ?? false;
 
   return (
     <div className="mt-2 rounded-md border border-border p-3">
@@ -206,18 +207,26 @@ export function PoVerification({
               {result.discrepancies.length > 0 && (
                 <div>
                   <Label htmlFor={`po-note-${customerPOId}`}>
-                    What did the customer actually order, and why is it alright?
+                    {vatExcluded
+                      ? "Confirm this PO excludes VAT, and why that's alright"
+                      : "What did the customer actually order, and why is it alright?"}
                   </Label>
                   <Textarea
                     id={`po-note-${customerPOId}`}
                     rows={2}
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="They split the award; the balance follows on a second PO."
+                    placeholder={
+                      vatExcluded
+                        ? "Customer's PO policy never shows VAT as a separate line; invoiced VAT-inclusive as usual."
+                        : "They split the award; the balance follows on a second PO."
+                    }
                   />
                   <p className="mt-0.5 text-xs text-text-muted">
-                    Required, and it stays on the record. Six months from now the question is not
-                    &ldquo;did somebody check&rdquo; but &ldquo;what did they see&rdquo;.
+                    {vatExcluded
+                      ? "Required, and recorded on the PO as VAT-excluded. AIES still bills VAT on the invoice regardless of what the customer's own PO shows."
+                      : "Required, and it stays on the record. Six months from now the question is not " +
+                        "“did somebody check” but “what did they see”."}
                   </p>
                 </div>
               )}

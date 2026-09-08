@@ -402,6 +402,14 @@ model DeliveryTicketFlow {
   drIssuedAt      DateTime?
   drIssuedById    String?
 
+  /// A one-off destination for this delivery, overriding whatever address would otherwise be
+  /// resolved (the customer's saved Site, or the supplier PO's `deliverTo` on a drop-ship job).
+  /// Free text, same reasoning as `SupplierPO.deliverTo` — a Philippine address does not decompose
+  /// into structured fields, and the person booking the run knows where it is better than any
+  /// dropdown. Added 2026-09-08, docs/DECISIONS.md #192: the resolved-or-overridden address is what
+  /// the ticket screen's Google Maps link is built from.
+  manualDeliveryAddress String?
+
   // ---- own vehicle ----
   mobilizedAt   DateTime?
   demobilizedAt DateTime?

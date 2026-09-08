@@ -7240,3 +7240,135 @@ confirmed by direct query — not by trusting the UI — that the row carried th
 entered, attributed to the real signed-in account, with an audit log entry reading "Expected payment
 on AIESBS-260194 by 2026-10-20 — Accounts team promised via email." Verification account, statement
 and cycle deleted afterward.
+
+---
+
+## #189 — Milestones split the VAT-exclusive subtotal, not the tax-inclusive total
+
+**2026-09-08.** EA's first full supply-and-delivery walkthrough (AIESINQ-260001 → AIESSO-260001)
+surfaced a real over-collection: two 50% milestones on a ₱304,512.02 order billed ₱170,526.73 each —
+₱341,053.46 total against a ₱304,512.02 deal, a ₱36,541.44 overcharge. Traced to `generateScheduleService`
+handing `planMilestones` the order's tax-*inclusive* total. `RaiseStatement.tsx` bills a milestone
+"plus VAT" — correct on its own — but a milestone that is already a 50% slice of the inclusive total
+has VAT inside it twice by the time both halves are added: once in the order total itself, again when
+each half is billed as if it were the pre-tax figure.
+
+**The fix reads a different field, nothing else.** `SalesOrder.subtotal` and `.vatAmount` are already
+copied straight from the quotation at order creation (`sales-order-service.ts`) — the correct base was
+sitting on the record the whole time, just not the one being read. `generateScheduleService` now
+splits `order.subtotal` instead of `order.total`; `RaiseStatement`'s "plus VAT" copy needed no change
+because it was already describing the intended behaviour, just being fed the wrong number.
+
+**Verified**: `billing-schedule.test.ts` gained a case with a real VAT-inclusive order (subtotal
+100,000, VAT 12,000, total 112,000) asserting a 50/50 term splits the 100,000, not the 112,000 — the
+exact shape of the bug. `makeOrder`'s fixture took an optional `subtotalPesos` (defaulting to the
+total, as every other existing case already assumed implicitly) rather than a new helper, so no
+existing test's numbers changed. All 20 tests in the file pass, none of the other 19 were touched.
+
+---
+
+## #190 — A PO short by exactly the quoted VAT is named, not left as an unexplained shortfall
+
+**2026-09-08.** The same walkthrough: EA's customer PO (₱271,885.73) matched the accepted quotation's
+VAT-exclusive subtotal to the centavo — a customer issuing a PO against the pre-tax price, a real and
+ordinary pattern, expecting VAT to still appear on the invoice regardless. §3's three-way check
+already let this through (an `amount` discrepancy is advisory, not blocking), but said nothing more
+useful than "short by ₱32,626.29" — identical to the message a customer ordering less would get.
+Asked for "an option to select or enable removal of VAT... with addition of reason."
+
+**Named by the numbers, not by a checkbox.** `checkCustomerPoAgainstQuotation` already had every fact
+it needed — `quotation.total` and the PO's own amount — so it now also takes `quotation.vatAmount`
+and checks whether the shortfall matches it, to the same centavo tolerance the rest of the function
+already uses. When it does, the discrepancy's `kind` becomes `"vat_excluded"` rather than `"amount"`,
+and the message says so directly: *"This looks like a PO issued against the pre-tax price. AIES still
+bills VAT on the invoice regardless — confirm and record why."* An automatic, reliable detection was
+preferred over a manual toggle a person could tick in the wrong state.
+
+**The reason box `verifyCustomerPoService` already required does the "with addition of reason" part.**
+Any discrepancy already demands a written explanation before the PO can be verified (`acceptanceNote`,
+minimum three characters) — the mechanism the request asked for already existed. What was missing was
+a way to tell this specific, nothing-else-produces-it-by-accident case apart from an ordinary partial
+order, so `CustomerPO.vatExcluded` is now set automatically on verification whenever the check found
+it — queryable and reportable alongside the note, not a replacement for it. `PoVerification.tsx`
+swaps the generic prompt for a specific one ("Confirm this PO excludes VAT, and why that's alright")
+only when this exact discrepancy is present.
+
+**Verified**: `po-verification.test.ts` gained two cases — a shortfall matching the quotation's VAT
+exactly is reported as `vat_excluded`, advisory, and does not block; a shortfall that happens to be
+close but does not match exactly still reports as an ordinary `amount` discrepancy. All 16 tests in
+the file pass. `tsc --noEmit`/`eslint` clean.
+
+---
+
+## #191 — Every document this app prints is a reference copy; the external one's number takes over
+
+**2026-09-08.** Two more comments from the same walkthrough, addressing the same fact from two
+directions: the Billing Statement and the Delivery Receipt this app generates are never the real,
+authoritative document — that is created outside it (an external accounting/DR system) — and this
+app's own copy exists to plan, execute and keep a reference trail, not to stand in for the original.
+
+**Billing Statement.** The PDF already had a `DRAFT` watermark mechanism; it now fires unconditionally
+— every status prints "FOR REFERENCE PURPOSES ONLY" (draft keeps its own wording alongside it). A
+signed/received copy sent back by the customer can be attached at any point after issuance — never a
+gate, since it cannot exist at the moment the statement is raised — through a small panel on the
+statements screen (`ExternalReference`) built on the existing `Attachments` component, showing
+attached-or-missing rather than forcing the question. Once `externalNumber` is entered, it is what
+prints and displays everywhere a person reads "the" statement number — the PDF's masthead, the
+statements list — while `number` (`AIESBS-{YY}{####}`) is kept only as small-print internal
+reference. Nothing is ever renumbered in place: the numbering sequence, existing audit rows and any
+notification already sent all still point at a number that still exists.
+
+**Delivery Receipt.** The same idea, but as a real gate rather than an optional attachment — the
+company was specific that the button should not press until both the external DR's number and a
+photo or scan of it are in hand. `issueDeliveryReceiptService` now requires both, alongside the
+existing "no ticket, no DR" rule — two independent gates on the same action. Applies identically to
+courier-handled deliveries: an AIES person is present either way and is who uploads it, so there is no
+unattended case to special-case out. `externalNumber` takes over display the same way the statement's
+does, with `AIESDR-{YY}{####}` kept as the small-print reference.
+
+**Verified**: `delivery.test.ts` gained a case proving `issueDeliveryReceiptService` refuses with
+either the external number or the file missing (14 tests in the file, all passing). `po-verification`
+and `billing-schedule` suites unaffected. `tsc --noEmit`/`eslint` clean — one unused-destructure
+warning in `delivery-service.ts` fixed along the way.
+
+---
+
+## #192 — A tappable destination on the delivery ticket, with a one-off override
+
+**2026-09-08.** The same walkthrough: raising a supplier PO already had a delivery address
+(`SupplierPO.deliverTo`, free text, added 2026-08-19 — "the PO had no delivery address on it at all")
+but the delivery ticket itself, the screen an AIES driver actually works from, showed none at all.
+Asked for a tappable Google Maps link, and a manual override at the ticket level for the run that does
+not match whatever address would otherwise be resolved.
+
+**Resolution order, cheapest override first.** `getDeliveryFlowService` now resolves an address as
+`DeliveryTicketFlow.manualDeliveryAddress` (new column, free text, same reasoning as `deliverTo` —
+a Philippine address does not decompose into structured fields) when set, falling back to the
+customer's saved `Ticket.site.address` via the `formatAddress` helper `todaysDropsService` already
+used for the same purpose — one formatting rule for the delivery note, the driver's list and this
+screen, rather than three answers for the same site. `googleMapsUrl` (delivery-rules.ts, pure) turns
+the resolved string into a `google.com/maps/search` link; the ticket screen renders it as the address
+itself, tappable, with an "Override" control next to it.
+
+**Verified**: `delivery-rules.test.ts` gained four cases for `googleMapsUrl` — a real address, and
+nothing to point at. `tsc --noEmit`/`eslint` clean.
+
+---
+
+## #193 — An optional proof-of-transfer photo, on a field that already existed and went nowhere
+
+**2026-09-08.** The last comment from the same walkthrough: an image uploader for bank transfer,
+online payment or GCash proof, not required. Tracing it found `Payment.proofFileId` already in the
+schema and already accepted end to end by `recordPaymentService` and the `recordPayment` router
+mutation — nothing between the database and the "Record a payment" form had ever asked for it.
+
+**Wired the last few feet, nothing upstream.** The form now shows a file input, only for
+`bank_transfer`, `online` and `gcash` (`check` already carries its own number; `cash` has no document
+to photograph), uploaded via the same two-request idiom `CustomerPoDialog` established — the file
+lands at `POST /api/files` first, anchored to the statement being paid since the payment does not
+exist yet to anchor it to, and its id rides along in `recordPayment`'s own call. No schema or service
+change; the gap was three feet of UI over an already-built field.
+
+**Not verified live beyond `tsc --noEmit`/`eslint`**, both clean — the mutation's own existing
+coverage (`invoice.test.ts`) already exercises `recordPaymentService` with and without a `proofFileId`
+implicitly through its optional typing; no new server-side behaviour was added to test.

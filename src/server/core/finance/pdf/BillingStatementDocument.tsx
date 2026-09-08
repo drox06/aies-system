@@ -30,6 +30,15 @@ import { peso, asDate } from "./format";
  * failure mode, so it carries a watermark nobody could miss. A cancelled statement is retained rather
  * than deleted (§3, same rule as the invoice series), so it still renders, marked, rather than
  * disappearing and leaving a number nobody can account for.
+ *
+ * ## Every copy this app prints is a reference copy
+ *
+ * docs/DECISIONS.md #191 (company decision, 2026-09-08): the real Billing Statement is created
+ * outside this app and, once received back signed, is attached to the record as `externalRefFileId`
+ * — an optional, later step, never a gate, since it cannot exist at the moment this is issued. Every
+ * PDF this component renders — draft or not — carries a watermark saying so. `externalNumber`, once
+ * entered, is what prints as *the* statement number here; `number` (`AIESBS-{YY}{####}`) is retained
+ * only as the small-print internal reference, never reused or renumbered.
  */
 
 export interface BillingStatementDocumentProps {
@@ -37,6 +46,8 @@ export interface BillingStatementDocumentProps {
   logoSrc: string;
   statement: {
     number: string;
+    /** The externally-created statement's own number, once entered — see the file header. */
+    externalNumber: string | null;
     type: string;
     status: string;
     statementDate: Date;
@@ -134,7 +145,10 @@ export function BillingStatementDocument({
             </Text>
           </View>
           <View style={{ textAlign: "right" }}>
-            <Text style={s.docNumber}>{statement.number}</Text>
+            <Text style={s.docNumber}>{statement.externalNumber ?? statement.number}</Text>
+            {/* The internal key stays visible in small print once the external number takes over as
+                the number people read — see the file header on why neither is ever renumbered. */}
+            {statement.externalNumber && <Text style={s.small}>AIES ref {statement.number}</Text>}
             <Text style={s.small}>Dated {asDate(statement.statementDate)}</Text>
             <Text style={s.small}>Due {asDate(statement.dueDate)}</Text>
           </View>
@@ -271,25 +285,28 @@ export function BillingStatementDocument({
           </View>
         )}
 
-        {draft && (
-          <Text
-            fixed
-            style={{
-              position: "absolute",
-              top: 330,
-              left: 0,
-              right: 0,
-              textAlign: "center",
-              fontFamily: "Helvetica-Bold",
-              fontSize: 70,
-              color: PDF_COLORS.textMuted,
-              opacity: 0.3,
-              transform: "rotate(-28deg)",
-            }}
-          >
-            DRAFT
-          </Text>
-        )}
+        {/*
+          Unconditional, every status. docs/DECISIONS.md #191's walkthrough decision (2026-09-08):
+          the real Billing Statement is created outside this app, so this PDF is never anything but a
+          reference copy — draft included, where it says so twice over.
+        */}
+        <Text
+          fixed
+          style={{
+            position: "absolute",
+            top: 330,
+            left: 0,
+            right: 0,
+            textAlign: "center",
+            fontFamily: "Helvetica-Bold",
+            fontSize: draft ? 56 : 46,
+            color: PDF_COLORS.textMuted,
+            opacity: 0.3,
+            transform: "rotate(-28deg)",
+          }}
+        >
+          {draft ? "DRAFT — FOR REFERENCE ONLY" : "FOR REFERENCE PURPOSES ONLY"}
+        </Text>
 
         <View style={s.footer} fixed>
           <Text>

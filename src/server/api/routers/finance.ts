@@ -52,6 +52,7 @@ import {
   raiseStatementService,
   receivablesService,
   recordPaymentService,
+  setStatementExternalReferenceService,
 } from "@/server/core/finance/invoice-service";
 import { PAYMENT_METHODS, STATEMENT_TYPES, VAT_MODES } from "@/server/core/finance/invoice-rules";
 import { finalBillingGate } from "@/server/core/finance/final-billing-gate";
@@ -242,6 +243,17 @@ export const financeRouter = router({
   cancelStatement: p("billing_statement.issue")
     .input(z.object({ statementId: z.string(), reason: z.string().min(5).max(1000) }))
     .mutation(({ ctx, input }) => cancelStatementService(actorMeta(ctx), input)),
+
+  /** Never a gate — see the service's own note on why this can be called at any point. */
+  setStatementExternalReference: p("billing_statement.issue")
+    .input(
+      z.object({
+        statementId: z.string(),
+        externalNumber: z.string().min(1).max(100),
+        externalRefFileId: z.string(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setStatementExternalReferenceService(actorMeta(ctx), input)),
 
   /**
    * Recording a payment issues a BIR document. See the permission's note in the manifest — this is

@@ -47,6 +47,12 @@ model CustomerPO {
 
   discrepancyNotes String?
 
+  /// Set automatically on verification when the amount shortfall matches this quotation's own VAT to
+  /// the centavo (docs/DECISIONS.md #190) — a customer PO issued against the pre-tax price, which
+  /// AIES still bills VAT on regardless. `discrepancyNotes` already carries the required reason;
+  /// this is a queryable flag alongside it, not a replacement for it.
+  vatExcluded Boolean @default(false)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -546,6 +552,15 @@ model DeliveryReceipt {
   issuedAt    DateTime?
   issuedById  String?
   deliveredAt DateTime?
+
+  /// The real DR is created outside this app (docs/DECISIONS.md #191's walkthrough, company decision
+  /// 2026-09-08) — "no DR, no mobilisation" already gated on this record existing; now it also gates
+  /// on the *external* DR actually being in hand, not just this reference copy. `externalNumber` is
+  /// required to issue and is what prints/displays everywhere a person reads "the" DR number from
+  /// this point on — `number` (AIESDR-{YY}{####}) stays the internal key, exactly as `BillingStatement`
+  /// does it. `externalRefFileId` (a photo or scan of the external DR) is required for the same reason.
+  externalNumber    String?
+  externalRefFileId String?
 
   /// §7's mobile capture at site. The signature is what turns `delivered` into `acknowledged` — a
   /// courier's proof of delivery explicitly does not (§13.2 step 5).

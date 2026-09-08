@@ -95,6 +95,7 @@ import {
   logDeliveryAttemptService,
   mobilizeDeliveryService,
   recordCourierPodService,
+  setDeliveryAddressService,
   setDeliveryModeService,
   startDeliveryFlowService,
 } from "@/server/core/operations/delivery-service";
@@ -1483,7 +1484,20 @@ export const operationsRouter = router({
     .input(z.object({ ticketId: z.string(), mode: z.enum(DELIVERY_MODES) }))
     .mutation(({ ctx, input }) => setDeliveryModeService(actorMeta(ctx), input)),
 
-  /** Module 03 §7's document, issued only through the ticket that will execute it. */
+  /** A one-off destination overriding the customer's saved site. Never required. */
+  setDeliveryAddress: p("delivery.execute")
+    .input(z.object({ ticketId: z.string(), manualDeliveryAddress: z.string().max(500).nullish() }))
+    .mutation(({ ctx, input }) =>
+      setDeliveryAddressService(actorMeta(ctx), {
+        ticketId: input.ticketId,
+        manualDeliveryAddress: input.manualDeliveryAddress ?? null,
+      }),
+    ),
+
+  /**
+   * Module 03 §7's document, issued only through the ticket that will execute it. Also gated on the
+   * externally-created DR (docs/DECISIONS.md #191) — its number and a photo/scan, both required.
+   */
   issueDeliveryReceipt: p("delivery.execute")
     .input(
       z.object({
@@ -1500,6 +1514,8 @@ export const operationsRouter = router({
             }),
           )
           .min(1),
+        externalNumber: z.string().min(1).max(100),
+        externalRefFileId: z.string().min(1),
       }),
     )
     .mutation(({ ctx, input }) => issueDeliveryReceiptService(actorMeta(ctx), input)),

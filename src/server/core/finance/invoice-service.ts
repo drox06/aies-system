@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/core/audit/audit";
 import type { ActorMeta } from "@/server/core/crm/account-service";
 import { emit } from "@/server/core/events/emit";
 import { allocateNumber } from "@/server/core/numbering/numbering";
+import { registerFileAccessChecker } from "@/server/core/storage/access";
 import { finalBillingGate } from "./final-billing-gate";
 import {
   ageingBucket,
@@ -40,6 +41,13 @@ import {
 
 export const BILLING_STATEMENT_ENTITY_TYPE = "BillingStatement";
 export const SERVICE_INVOICE_ENTITY_TYPE = "ServiceInvoice";
+
+// Same permission that already gates the statements list itself (finance.ts's `statements` query) —
+// anyone who can see a statement can see what is attached to it, its external reference copy
+// (docs/DECISIONS.md #191) included.
+registerFileAccessChecker(BILLING_STATEMENT_ENTITY_TYPE, (user) =>
+  user.permissions.has("billing_statement.create"),
+);
 export const PAYMENT_ENTITY_TYPE = "Payment";
 
 const BILLING_STATEMENT_DOCUMENT_TYPE = "billing_statement";
@@ -339,6 +347,62 @@ export async function cancelStatementService(
   });
 
   return { status: "cancelled" as const };
+}
+
+/**
+ * Attaches the externally-created statement's own number and a copy of it (docs/DECISIONS.md #191).
+ *
+ * Never a gate — the signed/received copy this is usually for cannot exist at the moment the
+ * statement is issued, so this can be called at any point in the statement's life, as many times as
+ * the reference copy needs replacing (a better scan arrives, the wrong file was picked).
+ */
+export async function setStatementExternalReferenceService(
+  actor: ActorMeta,
+  input: { statementId: string; externalNumber: string; externalRefFileId: string },
+) {
+  const externalNumber = input.externalNumber.trim();
+  if (externalNumber.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The external statement's number is required.",
+    });
+  }
+
+  const statement = await db.billingStatement.findFirst({
+    where: { id: input.statementId, deletedAt: null },
+    select: { id: true, number: true, externalNumber: true },
+  });
+  if (!statement) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That statement no longer exists." });
+  }
+
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    await tx.billingStatement.update({
+      where: { id: statement.id },
+      data: {
+        externalNumber,
+        externalRefFileId: input.externalRefFileId,
+        externalRefUploadedAt: now,
+        externalRefUploadedById: actor.actorId,
+      },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "external_reference_attached",
+      entityType: BILLING_STATEMENT_ENTITY_TYPE,
+      entityId: statement.id,
+      summary: statement.externalNumber
+        ? `Replaced ${statement.number}'s external reference (${statement.externalNumber} → ${externalNumber}).`
+        : `Attached ${statement.number}'s external reference: ${externalNumber}.`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { externalNumber };
 }
 
 export interface RecordPaymentInput {
@@ -1050,6 +1114,8 @@ export async function statementsService(filter: { status?: string; accountId?: s
     expectedWithholdingAmount: statement.expectedWithholdingAmount,
     expectedNetCollectible: statement.expectedNetCollectible,
     poReference: statement.poReference,
+    externalNumber: statement.externalNumber,
+    externalRefFileId: statement.externalRefFileId,
     /*
       The invoices this statement has produced.
 

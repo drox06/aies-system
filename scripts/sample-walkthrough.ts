@@ -314,6 +314,18 @@ async function main() {
    * `dr_issued` onward — which is correct, and is why the screen was empty before.
    */
   const goodsLine = order.lines.find((line) => !line.requiresExecution)!;
+  const externalDrFile = await db.fileObject.create({
+    data: {
+      entityType: "DeliveryReceipt",
+      entityId: delivery.id,
+      filename: "walkthrough-external-dr.jpg",
+      mimeType: "image/jpeg",
+      size: 1024,
+      sha256: `walkthrough-dr-${Date.now()}`,
+      storageKey: `walkthrough/${Date.now()}-dr.jpg`,
+      uploaderId: actor.actorId,
+    },
+  });
   const receipt = await issueDeliveryReceiptService(actor, {
     ticketId: delivery.id,
     salesOrderId: order.id,
@@ -326,6 +338,8 @@ async function main() {
         unit: "pc",
       },
     ],
+    externalNumber: `DR-${MARK}-001`,
+    externalRefFileId: externalDrFile.id,
   });
 
   console.log("");

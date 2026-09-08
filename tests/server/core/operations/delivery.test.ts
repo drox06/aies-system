@@ -152,6 +152,7 @@ async function makeDeliveryFlow(mode: "own_vehicle" | "courier" = "own_vehicle")
 
 async function issueFor(ticketId: string, salesOrderId: string) {
   const deliverable = await deliverableLinesForTicketService(ticketId);
+  const externalRefFileId = await signatureFile(ticketId);
   const receipt = await issueDeliveryReceiptService(actor, {
     ticketId,
     salesOrderId,
@@ -161,6 +162,8 @@ async function issueFor(ticketId: string, salesOrderId: string) {
       quantity: line.outstanding,
       unit: line.unit,
     })),
+    externalNumber: `DR-${randomUUID().slice(0, 8)}`,
+    externalRefFileId,
   });
   receiptIds.push(receipt.id);
   return receipt;
@@ -258,6 +261,41 @@ describe("§13.1's gate: no DR, no movement", () => {
     const { ticket, order } = await makeDeliveryFlow();
     await issueFor(ticket.id, order.id);
     await expect(issueFor(ticket.id, order.id)).rejects.toThrow(/already has a receipt/);
+  });
+
+  /**
+   * docs/DECISIONS.md #191: this app's own DR is a reference copy of one created outside it — a
+   * second gate on the same "Issue" action, alongside the ticket-only gate above.
+   */
+  it("refuses to issue without the external DR's number and a copy of it", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    const deliverable = await deliverableLinesForTicketService(ticket.id);
+    const lines = deliverable.lines.map((line) => ({
+      salesOrderLineId: line.salesOrderLineId,
+      description: line.description,
+      quantity: line.outstanding,
+      unit: line.unit,
+    }));
+
+    await expect(
+      issueDeliveryReceiptService(actor, {
+        ticketId: ticket.id,
+        salesOrderId: order.id,
+        lines,
+        externalNumber: "",
+        externalRefFileId: await signatureFile(ticket.id),
+      }),
+    ).rejects.toThrow(/external delivery receipt/);
+
+    await expect(
+      issueDeliveryReceiptService(actor, {
+        ticketId: ticket.id,
+        salesOrderId: order.id,
+        lines,
+        externalNumber: "DR-9001",
+        externalRefFileId: "",
+      }),
+    ).rejects.toThrow(/external delivery receipt/);
   });
 });
 

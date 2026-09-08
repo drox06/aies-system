@@ -17,6 +17,7 @@ import {
   canComplete,
   canLeaveForSite,
   checkAttempt,
+  googleMapsUrl,
   readAttempts,
   statusAfterAttempt,
   unsignedStanding,
@@ -159,6 +160,12 @@ export async function setDeliveryModeService(
  * §7: "A DR is never issued without a ticket to execute it — the flowchart's `DR REQ` box is a real
  * gate and prevents DRs floating around unassigned." That is why this takes a ticket rather than a
  * sales order, and why there is no screen in module 03 that creates one.
+ *
+ * docs/DECISIONS.md #191 adds a second gate on the same action: the real DR is created outside this
+ * app, and this record is only ever its reference copy — so issuing now also requires the external
+ * DR's own number and a photo/scan of it in hand, not just a ticket to execute. Applies identically
+ * whether the delivery runs own-vehicle or through a courier — an AIES person is present either way
+ * and is who uploads it.
  */
 export async function issueDeliveryReceiptService(
   actor: ActorMeta,
@@ -167,8 +174,21 @@ export async function issueDeliveryReceiptService(
     salesOrderId: string;
     lines: { salesOrderLineId: string; description: string; quantity: string; unit: string }[];
     siteId?: string | null;
+    externalNumber: string;
+    externalRefFileId: string;
   },
 ) {
+  const externalNumber = input.externalNumber.trim();
+  if (externalNumber.length === 0 || input.externalRefFileId.trim().length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "The external delivery receipt's number and a photo or scan of it are both required " +
+        "before this can be issued — no DR, no mobilisation, and this app's own copy is a reference " +
+        "copy of that document, not a substitute for it.",
+    });
+  }
+
   const flow = await loadFlow(input.ticketId);
   if (flow.deliveryReceiptId) {
     throw new TRPCError({
@@ -205,6 +225,8 @@ export async function issueDeliveryReceiptService(
         status: "issued",
         issuedAt: now,
         issuedById: actor.actorId,
+        externalNumber,
+        externalRefFileId: input.externalRefFileId,
         lines: {
           create: input.lines.map((line, index) => ({
             salesOrderLineId: line.salesOrderLineId,
@@ -234,7 +256,7 @@ export async function issueDeliveryReceiptService(
       action: "issued",
       entityType: DELIVERY_RECEIPT_ENTITY_TYPE,
       entityId: receipt.id,
-      summary: `${number} issued against ${order.number}, ${input.lines.length} line(s).`,
+      summary: `${number} issued against ${order.number}, ${input.lines.length} line(s) — external DR ${externalNumber}.`,
       ip: actor.ip,
       userAgent: actor.userAgent,
       requestId: actor.requestId,
@@ -905,6 +927,7 @@ export async function todaysDropsService() {
 export async function getDeliveryFlowService(ticketId: string) {
   const flow = await db.deliveryTicketFlow.findFirst({
     where: { ticketId, deletedAt: null },
+    include: { ticket: { select: { site: { select: { address: true } } } } },
   });
   if (!flow) return null;
 
@@ -915,7 +938,33 @@ export async function getDeliveryFlowService(ticketId: string) {
       })
     : null;
 
-  return { ...flow, attempts: readAttempts(flow.attempts), receipt };
+  // The manual override wins outright — it exists precisely for the run that does not match the
+  // customer's saved site (a drop-ship address, a temporary yard, a site not yet on file).
+  const resolvedAddress =
+    flow.manualDeliveryAddress?.trim() || formatAddress(flow.ticket.site?.address);
+
+  return {
+    ...flow,
+    ticket: undefined,
+    attempts: readAttempts(flow.attempts),
+    receipt,
+    resolvedAddress,
+    mapsUrl: googleMapsUrl(resolvedAddress),
+  };
+}
+
+/** A one-off destination for this delivery, overriding the customer's saved site. Never required. */
+export async function setDeliveryAddressService(
+  actor: ActorMeta,
+  input: { ticketId: string; manualDeliveryAddress: string | null },
+) {
+  const flow = await loadFlow(input.ticketId);
+  const value = input.manualDeliveryAddress?.trim() || null;
+
+  return db.deliveryTicketFlow.update({
+    where: { id: flow.id },
+    data: { manualDeliveryAddress: value, version: { increment: 1 } },
+  });
 }
 
 /**

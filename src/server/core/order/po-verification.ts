@@ -28,7 +28,8 @@ const MONEY_EPSILON = 0.005;
 /** Quantities carry three decimals (part-units of cable, litres), so the tolerance is smaller. */
 const QUANTITY_EPSILON = 0.0005;
 
-export type DiscrepancyKind = "amount" | "currency" | "quantity" | "missing_line" | "extra_line";
+export type DiscrepancyKind =
+  "amount" | "vat_excluded" | "currency" | "quantity" | "missing_line" | "extra_line";
 
 export type DiscrepancySeverity = "blocking" | "advisory";
 
@@ -56,6 +57,8 @@ export interface PoCheckInput {
   quotation: {
     number: string;
     total: number;
+    /** Centavos or pesos, whatever unit `total` is in — only ever compared against `total - po.amount`. */
+    vatAmount: number;
     currency: string;
     lines: PoCheckLine[];
   };
@@ -119,18 +122,31 @@ export function checkCustomerPoAgainstQuotation(input: PoCheckInput): PoCheckRes
   const difference = po.amount - quotation.total;
   if (Math.abs(difference) > MONEY_EPSILON) {
     const shortfall = difference < 0;
+    // Some customers issue a PO against the pre-tax price and expect VAT to still appear on the
+    // invoice — a real, ordinary pattern, not an error. Caught by name rather than left to read as
+    // an unexplained shortfall: the gap matches the quotation's own VAT to the centavo.
+    const vatExcluded =
+      shortfall &&
+      quotation.vatAmount > 0 &&
+      Math.abs(Math.abs(difference) - quotation.vatAmount) <= MONEY_EPSILON;
+
     discrepancies.push({
-      kind: "amount",
+      kind: vatExcluded ? "vat_excluded" : "amount",
       // Advisory, not blocking, and deliberately: a customer ordering part of a quotation is
       // ordinary, and so is one who negotiated after the document went out. What must not happen is
       // nobody *seeing* it — which is what this whole function is for.
       severity: "advisory",
-      message:
-        `The purchase order is for ${po.currency} ${money(po.amount)}; ${quotation.number} totals ` +
-        `${quotation.currency} ${money(quotation.total)} — ` +
-        `${shortfall ? "short by" : "over by"} ${money(Math.abs(difference))}. ` +
-        `Accept it if the customer ordered part of the scope, or raise a revision so the document ` +
-        `and the order agree.`,
+      message: vatExcluded
+        ? `The purchase order is for ${po.currency} ${money(po.amount)} — exactly ` +
+          `${quotation.currency} ${money(quotation.vatAmount)} (this quotation's VAT) short of the ` +
+          `${quotation.currency} ${money(quotation.total)} total. This looks like a PO issued against ` +
+          `the pre-tax price. AIES still bills VAT on the invoice regardless — confirm and record why ` +
+          `the PO itself excludes it.`
+        : `The purchase order is for ${po.currency} ${money(po.amount)}; ${quotation.number} totals ` +
+          `${quotation.currency} ${money(quotation.total)} — ` +
+          `${shortfall ? "short by" : "over by"} ${money(Math.abs(difference))}. ` +
+          `Accept it if the customer ordered part of the scope, or raise a revision so the document ` +
+          `and the order agree.`,
     });
   }
 

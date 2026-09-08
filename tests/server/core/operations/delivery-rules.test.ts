@@ -7,6 +7,7 @@ import {
   canLeaveForSite,
   checkAttempt,
   deliveryReport,
+  googleMapsUrl,
   statusAfterAttempt,
   unsignedStanding,
   type DeliveryAttempt,
@@ -263,5 +264,18 @@ describe("§13.3's reporting", () => {
 
   it("reports no rate over no failures", () => {
     expect(deliveryReport([]).causedByUsPct).toBeNull();
+  });
+});
+
+describe("the destination on the ticket, docs/DECISIONS.md #192", () => {
+  it("builds a tappable maps link from the resolved address", () => {
+    expect(googleMapsUrl("88 Sampaguita St, Quezon City")).toBe(
+      "https://www.google.com/maps/search/?api=1&query=88%20Sampaguita%20St%2C%20Quezon%20City",
+    );
+  });
+
+  it("has no link when there is nothing to point at", () => {
+    expect(googleMapsUrl(null)).toBeNull();
+    expect(googleMapsUrl("")).toBeNull();
   });
 });

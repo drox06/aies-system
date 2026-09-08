@@ -171,6 +171,7 @@ export async function buildBillingStatementPdfProps(
     logoSrc: logoDataUri(),
     statement: {
       number: statement.number,
+      externalNumber: statement.externalNumber,
       type: statement.type,
       status: statement.status,
       statementDate: statement.statementDate,

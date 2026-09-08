@@ -97,7 +97,7 @@ export async function generateScheduleService(
     select: {
       id: true,
       number: true,
-      total: true,
+      subtotal: true,
       accountId: true,
       paymentTermsId: true,
       ownerId: true,
@@ -147,9 +147,16 @@ export async function generateScheduleService(
     });
   }
 
-  // The order total is a Decimal in pesos; every money field this module writes is integer centavos.
-  const totalCentavos = Math.round(Number(order.total) * 100);
-  const planned = planMilestones(totalCentavos, milestones);
+  // Split off the VAT-EXCLUSIVE subtotal, not the order's tax-inclusive total. A milestone's amount
+  // is billed "plus VAT" (raiseStatementService defaults to vatMode "exclusive"), so a milestone that
+  // was already a slice of the inclusive total would have VAT charged on it twice — once when the
+  // order total itself was computed, again when the statement is raised from the milestone. Found
+  // 2026-09-08 walking a real supply-and-delivery deal end to end: two 50% milestones of a
+  // VAT-inclusive total, each re-taxed at 12% on raising, over-collected by exactly 12% of the whole
+  // contract. The order's Decimal is in pesos; every money field this module writes is integer
+  // centavos.
+  const subtotalCentavos = Math.round(Number(order.subtotal) * 100);
+  const planned = planMilestones(subtotalCentavos, milestones);
 
   const schedule = await db.$transaction(async (tx) => {
     const created = await tx.billingSchedule.create({

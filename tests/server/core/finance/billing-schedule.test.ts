@@ -63,7 +63,11 @@ async function makeTerm(milestones: unknown[], netDays = 15) {
  * an order cannot exist without the documents that authorised it. The fixture therefore builds the
  * whole chain, which is a fair reflection of what a real order costs to bring into being.
  */
-async function makeOrder(totalPesos: string, paymentTermsId: string | null) {
+async function makeOrder(
+  totalPesos: string,
+  paymentTermsId: string | null,
+  subtotalPesos: string = totalPesos,
+) {
   const account = await db.customerAccount.create({
     data: {
       code: `FIN-${randomUUID().slice(0, 12)}`,
@@ -82,7 +86,7 @@ async function makeOrder(totalPesos: string, paymentTermsId: string | null) {
       validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       preparedById: actor.actorId,
       total: totalPesos,
-      subtotal: totalPesos,
+      subtotal: subtotalPesos,
     },
   });
   quotationIds.push(quotation.id);
@@ -123,7 +127,7 @@ async function makeOrder(totalPesos: string, paymentTermsId: string | null) {
       ownerId: actor.actorId,
       status: "open",
       currency: "PHP",
-      subtotal: totalPesos,
+      subtotal: subtotalPesos,
       total: totalPesos,
       paymentTermsId,
     },
@@ -178,6 +182,28 @@ describe("planning how an order will be billed", () => {
     // And the balance waits for the project to close.
     expect(schedule!.milestones[1]!.status).toBe("pending");
     expect(schedule!.milestones[1]!.readyAt).toBeNull();
+  });
+
+  /**
+   * docs/DECISIONS.md #189. A milestone is billed "plus VAT" (raiseStatementService), so splitting
+   * the *inclusive* total would tax it twice — once when the order's own total was computed, again
+   * when the statement is raised. Caught 2026-09-08 walking a real deal: subtotal 100,000, VAT
+   * 12,000, total 112,000 — a 50/50 term must split the 100,000, not the 112,000.
+   */
+  it("splits the VAT-exclusive subtotal, not the VAT-inclusive total", async () => {
+    const term = await makeTerm([
+      { label: "Downpayment", pct: "50", trigger: "on_order" },
+      { label: "Balance", pct: "50", trigger: "on_project_close" },
+    ]);
+    const order = await makeOrder("112000.00", term.id, "100000.00");
+
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+
+    const schedule = await getScheduleService(order.id);
+    // ₱100,000.00 (the subtotal) → 10,000,000 centavos, halved — not ₱112,000.00.
+    expect(schedule!.milestones[0]!.amount).toBe(5_000_000);
+    expect(schedule!.milestones[1]!.amount).toBe(5_000_000);
   });
 
   it("refuses a term whose milestones do not add up", async () => {
