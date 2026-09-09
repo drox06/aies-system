@@ -18,6 +18,7 @@ import {
   dueDateFor,
   milestonesTriggeredBy,
   planMilestones,
+  statementTypeForTrigger,
   type BillingTrigger,
   type TermMilestone,
 } from "./billing-rules";
@@ -468,6 +469,7 @@ export async function releaseMilestoneService(actor: ActorMeta, input: { milesto
     accountId: order.accountId,
     salesOrderId: milestone.salesOrderId,
     milestoneId: milestone.id,
+    type: statementTypeForTrigger(milestone.trigger as BillingTrigger),
     dueDate,
     lines: [{ description: milestone.label, quantity: 1, unitPrice: milestone.amount }],
   });

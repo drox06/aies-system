@@ -5,6 +5,8 @@ import {
   dueDateFor,
   milestonesTriggeredBy,
   planMilestones,
+  statementTypeForTrigger,
+  type BillingTrigger,
   type TermMilestone,
 } from "@/server/core/finance/billing-rules";
 
@@ -213,5 +215,30 @@ describe("when the money is due", () => {
       daysAfter: null,
     });
     expect(due.toISOString().slice(0, 10)).toBe("2027-01-19");
+  });
+});
+
+describe("what kind of statement a trigger produces", () => {
+  /**
+   * docs/DECISIONS.md #203: reported against AIESSO-260033 — its 30% downpayment milestone's own
+   * statement (AIESBS-260031) came back typed `"progress"`, because nothing raising a statement
+   * from a milestone ever read what the milestone actually was. `on_order`'s own
+   * `BILLING_TRIGGER_NOTES` entry already calls it "a downpayment" — the only trigger that is one.
+   */
+  it("calls on_order a downpayment, and everything else progress", () => {
+    expect(statementTypeForTrigger("on_order")).toBe("downpayment");
+    const others: BillingTrigger[] = [
+      "on_supplier_order",
+      "on_delivery",
+      "on_installation",
+      "on_tc_accepted",
+      "on_dr_signed",
+      "on_project_close",
+      "net_days_after_close",
+      "manual",
+    ];
+    for (const trigger of others) {
+      expect(statementTypeForTrigger(trigger), trigger).toBe("progress");
+    }
   });
 });

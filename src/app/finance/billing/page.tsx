@@ -173,6 +173,7 @@ export default function BillingWorklistPage() {
                     accountId={row.accountId}
                     salesOrderId={row.salesOrderId}
                     label={row.label}
+                    trigger={row.trigger}
                     amountCentavos={row.amount}
                     dueDate={row.dueDate}
                     onRaised={() => void billable.refetch()}

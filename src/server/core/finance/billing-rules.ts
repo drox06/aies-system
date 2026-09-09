@@ -74,6 +74,17 @@ export const BILLING_TRIGGERS = {
 
 export type BillingTrigger = keyof typeof BILLING_TRIGGERS;
 
+/**
+ * `on_order`'s own note calls it "a downpayment" — the only trigger that is one, by construction:
+ * it is the sole milestone billable before anything else has happened. Reported live against
+ * AIESSO-260033, 2026-09-09: `AIESBS-260031` billed the order's 30% downpayment milestone and came
+ * out typed `"progress"`, because nothing that raises a statement from a milestone ever set the
+ * type from what the milestone actually was.
+ */
+export function statementTypeForTrigger(trigger: BillingTrigger): "downpayment" | "progress" {
+  return trigger === "on_order" ? "downpayment" : "progress";
+}
+
 export const BILLING_TRIGGER_LABELS: Readonly<Record<BillingTrigger, string>> = {
   on_order: "When the order is raised",
   on_supplier_order: "When the supplier order goes out",

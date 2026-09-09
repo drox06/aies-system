@@ -7615,3 +7615,37 @@ rather than silently erasing why it existed.
 construct their test users with an explicit permission set rather than deriving it from the
 manifest, so none needed updating; the `cash_advance.view_register` and other Finance-group
 permissions were left untouched.
+
+---
+
+## #203 — A downpayment statement was billed correctly and typed wrong
+
+**2026-09-10.** EA's deferred note on AIESSO-260033, followed up live: pulling the order's own
+records showed its 30% downpayment milestone billed at the right figure, paid in full, gate cleared
+— and its statement, `AIESBS-260031`, typed `"progress"` on the record. `BillingStatement.type`'s own
+schema comment names `downpayment | progress | final | service | credit_note` as the intended
+taxonomy, but nothing that turns a milestone into a statement ever read what the milestone actually
+was: `raiseStatementService` defaults `type` to `"progress"` when nothing is passed, and both callers
+— `RaiseStatement.tsx` (the Finance screen a person uses to bill a ready milestone) and
+`releaseMilestoneService`'s §14 auto-raise path — call it with no `type` at all. A downpayment is
+just the one milestone billable the moment the order exists; nothing distinguished it from an
+ordinary progress bill once it reached a statement.
+
+**`statementTypeForTrigger`**, added next to `BILLING_TRIGGERS` in `billing-rules.ts`: `on_order` is
+already documented, in its own `BILLING_TRIGGER_NOTES` entry, as "a downpayment" — the only trigger
+that is one, by construction, since it is the sole milestone billable before anything else has
+happened. `RaiseStatement.tsx` now receives the milestone's `trigger` (already returned by
+`billableMilestonesService`, just not threaded through the prop) and derives `type` from it instead
+of hardcoding `"progress"`; `releaseMilestoneService`'s auto-raise call does the same, for
+consistency, though that path is gated to `trigger === "manual"` and so never actually produces
+`"downpayment"` today.
+
+**Two live rows already existed with the old, wrong type** — `AIESBS-260001` and `AIESBS-260031`
+(AIESSO-260033's own downpayment statement) — found with a one-off read query and corrected with a
+targeted `updateMany` on those two ids once the code fix was confirmed; nothing else about either
+statement (amount, VAT, payment status) needed touching, since the money itself was always right.
+
+**Verified**: `billing-rules.test.ts` gained a case asserting `statementTypeForTrigger("on_order")`
+is `"downpayment"` and every other trigger is `"progress"`. The UI wiring itself (`RaiseStatement.tsx`
+reading its new `trigger` prop) has no test harness in this suite, same as `QaPanel.tsx` (#201) and
+`PreparationPanel.tsx` (#198) — `tsc --noEmit` and `eslint` are clean.

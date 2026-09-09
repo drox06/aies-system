@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { toastError, toastSuccess } from "@/lib/errors";
+import { statementTypeForTrigger, type BillingTrigger } from "@/server/core/finance/billing-rules";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -32,6 +33,7 @@ export function RaiseStatement({
   accountId,
   salesOrderId,
   label,
+  trigger,
   amountCentavos,
   dueDate,
   onRaised,
@@ -40,6 +42,8 @@ export function RaiseStatement({
   accountId: string;
   salesOrderId: string;
   label: string;
+  /** Decides `downpayment` vs `progress` on the statement this raises — see `statementTypeForTrigger`. */
+  trigger: string;
   amountCentavos: number;
   dueDate: Date | string | null;
   onRaised: () => void;
@@ -129,7 +133,9 @@ export function RaiseStatement({
               accountId,
               salesOrderId,
               milestoneId,
-              type: "progress",
+              // #203: keyed on the milestone's own trigger, not hardcoded — `on_order` is a
+              // downpayment by definition (its own BILLING_TRIGGER_NOTES entry says so).
+              type: statementTypeForTrigger(trigger as BillingTrigger),
               dueDate: new Date(due),
               poReference: poReference.trim() === "" ? null : poReference.trim(),
               lines: [
