@@ -8,9 +8,10 @@ import {
 /**
  * specs/04-operations-projects.md §8's readiness check, as a pure function.
  *
- * §8: "`ready_to_mobilize` is only reachable when **all mandatory items pass**." So the assertions
- * that matter are about which items are mandatory and which are merely shown — a check that blocks
- * on everything gets overridden as a habit, and one that blocks on nothing is decoration.
+ * docs/DECISIONS.md #197 (2026-09-09): only `downpayment` and `cash_advance` are mandatory now —
+ * method statement and materials moved upstream to quoting, and the crew/PPE/gate-pass/permits/
+ * customer-contact rows the checklist used to block on are shown but no longer stop a mobilisation.
+ * So the assertions that matter are which two items can still block, and that nothing else can.
  */
 
 const CLEAR: ReadinessInput = {
@@ -38,8 +39,8 @@ describe("§8's readiness check", () => {
     expect(readiness.blockers).toEqual([]);
   });
 
-  it("blocks on each of the unconditional gates in turn", () => {
-    for (const gate of ["downpayment", "cashAdvance", "materials"] as const) {
+  it("blocks on each of the two money gates in turn", () => {
+    for (const gate of ["downpayment", "cashAdvance"] as const) {
       const readiness = mobilizationReadiness({
         ...CLEAR,
         [gate]: { blocks: true, message: "not yet" },
@@ -49,20 +50,23 @@ describe("§8's readiness check", () => {
   });
 
   /**
-   * §6: "Only `new_project` tickets take this branch."
-   *
-   * Making an after-sales callout wait on a method statement would teach people to override the
-   * gate, which is how an override stops meaning anything.
+   * docs/DECISIONS.md #197: method statement and materials moved to quoting and stopped blocking —
+   * on any ticket type, not only the ones §6 used to excuse.
    */
-  it("only requires a method statement on a new project", () => {
-    const blocked = { ...CLEAR, methodology: { blocks: true, message: "not approved" } };
-
-    expect(mobilizationReadiness({ ...blocked, ticketType: "after_sales" }).ready).toBe(true);
-    expect(itemFor({ ...blocked, ticketType: "after_sales" }, "methodology").state).toBe(
-      "not_applicable",
-    );
-
-    expect(mobilizationReadiness({ ...blocked, ticketType: "new_project" }).ready).toBe(false);
+  it("shows a blocked method statement or materials line without blocking on it", () => {
+    const readiness = mobilizationReadiness({
+      ...CLEAR,
+      ticketType: "new_project",
+      methodology: { blocks: true, message: "not approved" },
+      materials: { blocks: true, message: "not issued" },
+    });
+    expect(readiness.ready).toBe(true);
+    const methodology = readiness.items.find((item) => item.key === "methodology")!;
+    expect(methodology.state).toBe("fail");
+    expect(methodology.mandatory).toBe(false);
+    const materials = readiness.items.find((item) => item.key === "materials")!;
+    expect(materials.state).toBe("fail");
+    expect(materials.mandatory).toBe(false);
   });
 
   /**
@@ -101,52 +105,53 @@ describe("§8's readiness check", () => {
     expect(item.detail).toMatch(/Long-standing client/);
   });
 
-  it("does not let a cash advance override clear the methodology gate", () => {
-    const readiness = mobilizationReadiness({
-      ...CLEAR,
-      ticketType: "new_project",
-      methodology: { blocks: true, message: "not approved" },
-      overrides: { cash_advance: "unrelated" },
-    });
-    expect(readiness.ready).toBe(false);
+  it("shows a crew of nobody without blocking on it", () => {
+    const readiness = mobilizationReadiness({ ...CLEAR, crewIds: [] });
+    expect(readiness.ready).toBe(true);
+    const crew = readiness.items.find((item) => item.key === "crew")!;
+    expect(crew.state).toBe("fail");
+    expect(crew.mandatory).toBe(false);
   });
 
-  it("blocks a crew of nobody", () => {
-    expect(mobilizationReadiness({ ...CLEAR, crewIds: [] }).ready).toBe(false);
-  });
-
-  it("blocks an unconfirmed customer contact", () => {
-    expect(mobilizationReadiness({ ...CLEAR, customerContactConfirmed: false }).ready).toBe(false);
+  it("shows an unconfirmed customer contact without blocking on it", () => {
+    const readiness = mobilizationReadiness({ ...CLEAR, customerContactConfirmed: false });
+    expect(readiness.ready).toBe(true);
+    const contact = readiness.items.find((item) => item.key === "customer_contact")!;
+    expect(contact.state).toBe("fail");
+    expect(contact.mandatory).toBe(false);
   });
 });
 
-describe("§8's conditionally mandatory items", () => {
-  /** Same shape as §7's N/A: "needs none" and "nobody asked" must not look alike. */
-  it("passes a gate pass recorded as not required, and fails one still pending", () => {
+describe("§8's rows that are shown but no longer block, docs/DECISIONS.md #197", () => {
+  /** Same shape as §7's N/A: "needs none" and "nobody asked" must not look alike, even unenforced. */
+  it("tells a gate pass recorded as not required apart from one still pending", () => {
     expect(itemFor({ ...CLEAR, gatePassStatus: "not_required" }, "gate_pass").state).toBe(
       "not_applicable",
     );
     expect(mobilizationReadiness({ ...CLEAR, gatePassStatus: "not_required" }).ready).toBe(true);
 
     expect(itemFor({ ...CLEAR, gatePassStatus: "pending" }, "gate_pass").state).toBe("fail");
-    expect(mobilizationReadiness({ ...CLEAR, gatePassStatus: "pending" }).ready).toBe(false);
+    expect(mobilizationReadiness({ ...CLEAR, gatePassStatus: "pending" }).ready).toBe(true);
   });
 
   /**
    * An empty PPE list is not a crew that needs none — it is a checklist nobody filled in, and this
-   * is the one place where an absence is treated as a failure rather than as "not applicable".
+   * is the one place where an absence is treated as a failure rather than as "not applicable" — but
+   * since #197 it is shown, not enforced.
    */
-  it("fails an empty PPE checklist rather than reading it as none required", () => {
+  it("shows an empty PPE checklist as a failure without blocking on it", () => {
     const readiness = mobilizationReadiness({ ...CLEAR, ppeChecklist: [] });
-    expect(readiness.ready).toBe(false);
+    expect(readiness.ready).toBe(true);
     expect(itemFor({ ...CLEAR, ppeChecklist: [] }, "ppe").detail).toMatch(/not the same as/);
   });
 
-  it("shows an unticked tool as blocking, and no tools list as merely unknown", () => {
-    expect(
-      mobilizationReadiness({ ...CLEAR, toolsChecklist: [{ label: "Wrench", checked: false }] })
-        .ready,
-    ).toBe(false);
+  it("shows an unticked tool as a failure without blocking, and no tools list as merely unknown", () => {
+    const unticked = mobilizationReadiness({
+      ...CLEAR,
+      toolsChecklist: [{ label: "Wrench", checked: false }],
+    });
+    expect(unticked.ready).toBe(true);
+    expect(unticked.items.find((item) => item.key === "tools")!.state).toBe("fail");
     // No checklist at all is not a failure: plenty of jobs take nothing from the store.
     expect(mobilizationReadiness({ ...CLEAR, toolsChecklist: [] }).ready).toBe(true);
     expect(itemFor({ ...CLEAR, toolsChecklist: [] }, "tools").state).toBe("unknown");

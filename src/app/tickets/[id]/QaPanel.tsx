@@ -181,16 +181,19 @@ function RecordForm({
   const [inspectorName, setInspectorName] = useState("");
   const [inspectorPosition, setInspectorPosition] = useState("");
   const [evidenceType, setEvidenceType] = useState<EvidenceType>("client_signed_form");
-  const [evidenceIds, setEvidenceIds] = useState("");
+  const [evidenceList, setEvidenceList] = useState<string[]>([]);
   const [remarks, setRemarks] = useState("");
   const [defects, setDefects] = useState<{ description: string; severity: DefectSeverity }[]>([]);
 
   const record = trpc.operations.recordQa.useMutation({ onSuccess: onDone });
 
-  const evidenceList = evidenceIds
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  // Picked from what is actually attached above, by filename — not typed as an id nobody can read
+  // back. The company's own complaint: pasting a raw file id is copying something meant for the
+  // database, not for a person.
+  const attached = trpc.files.forEntity.useQuery({
+    entityType: QA_ENTITY_TYPE,
+    entityId: ticketId,
+  });
 
   return (
     <div className="mt-3 space-y-3 rounded-md border border-border p-3">
@@ -218,9 +221,9 @@ function RecordForm({
             An approval needs the client&rsquo;s own document.
           </p>
           <p className="mt-1 text-sm text-amber-900">
-            Upload it above, then paste its id below. If they approved verbally, write the
-            conversation up, upload that note and mark the evidence <strong>other</strong> — weak
-            evidence honestly labelled is worth more than an assertion.
+            Upload it above, then tick it below. If they approved verbally, write the conversation
+            up, upload that note and mark the evidence <strong>other</strong> — weak evidence
+            honestly labelled is worth more than an assertion.
           </p>
         </div>
       )}
@@ -272,14 +275,34 @@ function RecordForm({
             ))}
           </Select>
         </div>
-        <div>
-          <Label htmlFor="qa-evidence">Evidence file ids</Label>
-          <Input
-            id="qa-evidence"
-            placeholder="Paste from the attachments above"
-            value={evidenceIds}
-            onChange={(e) => setEvidenceIds(e.target.value)}
-          />
+        <div className="sm:col-span-2">
+          <Label>Evidence</Label>
+          {(attached.data ?? []).length === 0 ? (
+            <p className="mt-0.5 text-xs text-text-muted">
+              Nothing attached yet — upload it above first.
+            </p>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {(attached.data ?? []).map((file) => (
+                <li key={file.id}>
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={evidenceList.includes(file.id)}
+                      onChange={(e) =>
+                        setEvidenceList((current) =>
+                          e.target.checked
+                            ? [...current, file.id]
+                            : current.filter((id) => id !== file.id),
+                        )
+                      }
+                    />
+                    {file.filename}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 

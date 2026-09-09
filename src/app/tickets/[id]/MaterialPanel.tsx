@@ -46,6 +46,7 @@ export function MaterialPanel({
   methodologyId: string | null;
 }) {
   const gate = trpc.operations.materialGate.useQuery({ ticketId });
+  const prepared = trpc.operations.quotationPreparation.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
   const [showForm, setShowForm] = useState(false);
 
@@ -72,17 +73,32 @@ export function MaterialPanel({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold">Materials</h2>
         <StatusBadge tone={GATE_TONE[data.state] ?? "draft"}>
+          {/* docs/DECISIONS.md #197: no longer a gate — see the note on the methodology panel. */}
           {data.state === "not_required"
             ? "Not needed"
             : data.state === "satisfied"
               ? "Issued"
               : data.state === "undecided"
                 ? "Unanswered"
-                : "Mobilisation blocked"}
+                : "Not yet issued"}
         </StatusBadge>
       </div>
 
       <p className="mt-1 text-sm text-text-muted">{data.message}</p>
+
+      {/* docs/DECISIONS.md #198: flagged at quoting, read-only — what the technician should bring. */}
+      {prepared.data?.materialsPreparedAtQuoting && prepared.data.materialsNotes && (
+        <div className="mt-2 rounded-md border border-border bg-surface-2 p-2.5">
+          <p className="text-xs font-medium text-text-muted">
+            Flagged at quoting ({prepared.data.number})
+          </p>
+          <p className="mt-1 text-sm whitespace-pre-wrap">{prepared.data.materialsNotes}</p>
+          <p className="mt-1 text-xs text-text-muted">
+            Not yet requested from stock — raise the material request below once the job is ready
+            for it.
+          </p>
+        </div>
+      )}
 
       {data.requests.length > 0 && (
         <ul className="mt-2 space-y-1.5 text-sm">

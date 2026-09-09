@@ -173,7 +173,7 @@ export async function confirmQuotationSentService(actor: ActorMeta, input: Confi
 
   const rootId = quotation.parentQuotationId ?? quotation.id;
 
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const updated = await tx.quotation.update({
       where: { id: quotation.id },
       data: {
@@ -215,8 +215,8 @@ export async function confirmQuotationSentService(actor: ActorMeta, input: Confi
       requestId: actor.requestId,
     });
 
-    // §10. Module 01 subscribes to move its inquiry to `quoted` — the transition a person cannot
-    // make by hand, because §3 says the quotation's outcome sets it.
+    // §10. Kept on the outbox for the audit trail and for any other module that comes to depend on
+    // it — but the actual mirror below no longer waits for a consumer to drain it.
     await emit(
       tx,
       "quotation.sent",
@@ -238,6 +238,37 @@ export async function confirmQuotationSentService(actor: ActorMeta, input: Confi
       inquiryNumber: quotation.inquiry?.number ?? null,
     };
   });
+
+  /**
+   * §3's inquiry → `quoted` mirror, done here rather than left to the job queue.
+   *
+   * This used to be `crm.manifest.ts`'s `quotation.sent` consumer only, which meant the inquiry
+   * stayed on `quoting` until the next drain — every 5s in dev, but production's is Vercel Cron at
+   * once a minute (vercel.json). A person recording the customer PO right after sending the
+   * quotation could hit that window and be refused with "‹inquiry› is quoting", which read as a
+   * data problem rather than a queue that had not caught up yet — found 2026-09-09.
+   *
+   * Dynamically imported, same reasoning as the manifest handler it replaces: module 02 does not
+   * statically depend on module 01. Same tolerant catch as that handler, too — the inquiry may
+   * legitimately not be in `quoting` (disqualified, or a later revision already moved it), and that
+   * is not a failure of *this* request, which has already committed.
+   */
+  if (quotation.inquiry) {
+    const { transitionInquiryService } = await import("@/server/core/crm/inquiry-service");
+    try {
+      await transitionInquiryService(
+        { actorId: "system", actorLabel: "System (quotation sent)" },
+        { inquiryId: quotation.inquiry.id, to: "quoted", bySystem: true },
+      );
+    } catch (error) {
+      console.warn(
+        `[quotation] quotation.sent could not move inquiry ${quotation.inquiry.number} to quoted:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return result;
 }
 
 export interface UnsentSweepResult {

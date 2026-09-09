@@ -247,7 +247,7 @@ async function main() {
       [answerKey("supply", "power_supply")]: "400 V 3-phase, 132 kW drive",
       [answerKey("installation", "scope_summary")]:
         "AIES removes the pump and accumulators, fits replacements, flushes to NAS 8.",
-      [answerKey("installation", "existing_equipment_tags")]: "HPU-01, ACC-01 and ACC-02",
+      [answerKey("installation", "equipment_tags")]: "HPU-01, ACC-01 and ACC-02",
       [answerKey("installation", "quantity_points")]: 3,
       [answerKey("installation", "site_access")]: "December shut, 07:00–19:00, hot work permit.",
       [answerKey("installation", "shutdown_window")]: "Mill shut, 8–15 December.",

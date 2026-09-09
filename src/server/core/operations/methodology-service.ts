@@ -610,6 +610,36 @@ export async function waiveClientApprovalService(
 // ---- the gate -----------------------------------------------------------------------------------
 
 /** §6.2's gate for one ticket. §8's mobilization will call exactly this. */
+/**
+ * docs/DECISIONS.md #198: what was prepared at quoting, read-only, for the ticket's method
+ * statement and materials panels. Walks `Ticket.salesOrderId` → `SalesOrder.quotationId` — the
+ * chain that already exists — rather than copying the quotation's fields onto the ticket, which
+ * would just be a second place for them to drift out of step with the document they came from.
+ */
+export async function quotationPreparationForTicket(ticketId: string) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: ticketId, deletedAt: null },
+    select: {
+      salesOrder: {
+        select: {
+          quotation: {
+            select: {
+              id: true,
+              number: true,
+              needsMethodStatement: true,
+              methodStatementFileId: true,
+              methodStatementNotes: true,
+              materialsPreparedAtQuoting: true,
+              materialsNotes: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  return ticket?.salesOrder?.quotation ?? null;
+}
+
 export async function methodologyGateForTicket(ticketId: string) {
   const ticket = await db.ticket.findFirst({
     where: { id: ticketId, deletedAt: null },
@@ -631,8 +661,48 @@ export async function methodologyGateForTicket(ticketId: string) {
     orderBy: { revision: "desc" },
   });
 
+  const gate = methodologyGate(methodology, ticket.type);
+
+  /**
+   * `overrideMethodologyGateService` wrote its decision to the audit log — the same place
+   * `readinessForTicketService` already reads it back from — but this panel's own status badge was
+   * reading `methodologyGate()` raw and never looked here, so an override that had genuinely taken
+   * effect on mobilisation kept reporting itself as still blocked on the one screen the override
+   * button lives on. Found live, 2026-09-09.
+   *
+   * `not_required` already existed as a gate state with nowhere that produced it — the panel's own
+   * badge ternary falls through to "Approval waived" for exactly this case.
+   */
+  if (gate.blocks) {
+    const override = await db.auditLog.findFirst({
+      where: {
+        entityType: TICKET_ENTITY_TYPE,
+        entityId: ticket.id,
+        action: "methodology_gate_overridden",
+      },
+      orderBy: { at: "desc" },
+      select: { summary: true },
+    });
+    if (override) {
+      return {
+        state: "not_required" as const,
+        blocks: false,
+        message: override.summary,
+        methodology: methodology
+          ? {
+              id: methodology.id,
+              number: methodology.number,
+              revision: methodology.revision,
+              status: methodology.status,
+              turnaround: clientTurnaround(methodology),
+            }
+          : null,
+      };
+    }
+  }
+
   return {
-    ...methodologyGate(methodology, ticket.type),
+    ...gate,
     methodology: methodology
       ? {
           id: methodology.id,

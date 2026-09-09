@@ -96,6 +96,17 @@ afterAll(async () => {
   await db.searchIndex.deleteMany({ where: { entityId: { in: inquiryIds } } });
   await db.eventOutbox.deleteMany({ where: { actorId: { in: [OWNER, OTHER] } } });
   await db.inquiryItem.deleteMany({ where: { inquiryId: { in: inquiryIds } } });
+
+  // docs/DECISIONS.md #199: reaching `quoting` now drafts the quotation synchronously, so any test
+  // that transitions an inquiry there leaves one of these behind too.
+  const quotations = await db.quotation.findMany({
+    where: { inquiryId: { in: inquiryIds } },
+    select: { id: true },
+  });
+  const quotationIds = quotations.map((row) => row.id);
+  await db.quotationLine.deleteMany({ where: { quotationId: { in: quotationIds } } });
+  await db.quotation.deleteMany({ where: { id: { in: quotationIds } } });
+
   await db.inquiry.deleteMany({ where: { id: { in: inquiryIds } } });
   await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
 });
@@ -183,6 +194,45 @@ describe("§4's completeness gate", () => {
       to: "quoting",
     });
     expect(quoting.status).toBe("quoting");
+  });
+
+  /**
+   * docs/DECISIONS.md #199: this used to be the `quotation.sent`/`inquiry.quoting_started` job
+   * queue's job alone (production drains once a minute), so a card could sit on "Quoting" with
+   * nothing to open for up to that long. `transitionInquiryService` now drafts it itself before
+   * returning — no waiting for the outbox to drain, which this test proves by checking for the
+   * draft immediately rather than after any delay.
+   */
+  it("drafts the quotation itself on reaching quoting, without waiting on the job queue", async () => {
+    // `createDraftForInquiry` waits on an account (module 01 §2 makes it optional on the inquiry
+    // itself) — attached here since this test is specifically about the draft actually appearing.
+    const account = await db.customerAccount.create({
+      data: {
+        code: `IQD-${randomUUID().slice(0, 12)}`,
+        name: `IQ Draft Co ${suffix}`,
+        ownerId: OWNER,
+      },
+    });
+    accountIds.push(account.id);
+
+    const inquiry = await makeInquiry({ serviceType: "supply" });
+    await db.inquiry.update({ where: { id: inquiry.id }, data: { accountId: account.id } });
+    await toEvaluating(inquiry.id);
+
+    const detail = await getInquiryService(scoped(OWNER), inquiry.id);
+    const answers: Record<string, string> = {};
+    for (const template of detail.templates) {
+      for (const field of template.fields) {
+        if (field.required) answers[answerKey(template.serviceType, field.key)] = "Answered";
+      }
+    }
+    await db.inquiry.update({ where: { id: inquiry.id }, data: { requirements: answers } });
+
+    await transitionInquiryService(actor, { inquiryId: inquiry.id, to: "quoting" });
+
+    const draft = await db.quotation.findFirst({ where: { inquiryId: inquiry.id } });
+    expect(draft).not.toBeNull();
+    expect(draft?.status).toBe("draft");
   });
 
   it("lets it through on a logged override instead, and keeps the reason", async () => {

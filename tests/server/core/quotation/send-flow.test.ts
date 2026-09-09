@@ -213,6 +213,27 @@ describe("confirming it was sent", () => {
 });
 
 describe("the whole chain: quoting → quoted", () => {
+  /**
+   * docs/DECISIONS.md #199: confirming sent used to move the inquiry to `quoted` only through
+   * `quotation.sent`'s job-queue subscriber — production drains once a minute (vercel.json), so a
+   * customer PO recorded right after sending could hit that window and be refused with
+   * "‹inquiry› is quoting". `confirmQuotationSentService` now does the mirror itself before
+   * returning; this test proves that without touching the subscriber at all, unlike the one below
+   * which still proves the subscriber remains a harmless, idempotent second mover.
+   */
+  it("moves the inquiry to quoted on its own, before any queue drains it", async () => {
+    const { quotation, inquiryId } = await makeApprovedQuotation(true);
+
+    const before = await db.inquiry.findUniqueOrThrow({ where: { id: inquiryId! } });
+    expect(before.status).toBe("quoting");
+
+    await recordQuotationDownloadService(actor, { quotationId: quotation.id });
+    await confirmQuotationSentService(actor, { quotationId: quotation.id });
+
+    const after = await db.inquiry.findUniqueOrThrow({ where: { id: inquiryId! } });
+    expect(after.status).toBe("quoted");
+  });
+
   it("moves the inquiry to quoted when the quotation is confirmed sent", async () => {
     const { quotation, inquiryId } = await makeApprovedQuotation(true);
 

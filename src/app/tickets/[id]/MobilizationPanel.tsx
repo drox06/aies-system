@@ -150,13 +150,23 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
         </StatusBadge>
       </div>
 
+      {/*
+        docs/DECISIONS.md #197: the readiness table shrank to the two gates that involve money.
+        Everything else the list used to carry — crew, PPE, gate pass, permits, method statement,
+        materials — is still computed (`data.items` still has all of it, `mandatory: false`), it is
+        just no longer a wall of rows on this screen. Method statement and materials specifically
+        moved upstream to the quotation; a coordinator checking crew or PPE looks at the checklist
+        panel that actually owns that record.
+      */}
       <ul className="mt-3 space-y-1.5">
-        {data.items.map((item) => (
-          <li key={item.key} className="flex flex-wrap items-baseline gap-2 text-sm">
-            <StatusBadge tone={ITEM_TONE[item.state] ?? "draft"}>
-              {ITEM_LABEL[item.state] ?? item.state}
-            </StatusBadge>
-            {/*
+        {data.items
+          .filter((item) => item.key === "downpayment" || item.key === "cash_advance")
+          .map((item) => (
+            <li key={item.key} className="flex flex-wrap items-baseline gap-2 text-sm">
+              <StatusBadge tone={ITEM_TONE[item.state] ?? "draft"}>
+                {ITEM_LABEL[item.state] ?? item.state}
+              </StatusBadge>
+              {/*
               The title is the link, and only while the item is unmet.
 
               A cleared gate is a statement, not a task: making it clickable too would invite people
@@ -164,24 +174,24 @@ export function MobilizationPanel({ ticketId }: { ticketId: string }) {
               they fall back to plain text when the ticket has no account — a link to nowhere is
               worse than no link at all.
             */}
-            <ItemTitle
-              item={item}
-              ticketId={ticketId}
-              accountId={data.accountId}
-              salesOrderId={data.salesOrderId}
-              destination={GATE_DESTINATION[item.key]}
-            />
-            {!item.mandatory && item.state !== "pass" && (
-              // Shown but not blocking, and said plainly so nobody chases the wrong line.
-              <span className="text-xs text-text-muted">(not blocking)</span>
-            )}
+              <ItemTitle
+                item={item}
+                ticketId={ticketId}
+                accountId={data.accountId}
+                salesOrderId={data.salesOrderId}
+                destination={GATE_DESTINATION[item.key]}
+              />
+              {!item.mandatory && item.state !== "pass" && (
+                // Shown but not blocking, and said plainly so nobody chases the wrong line.
+                <span className="text-xs text-text-muted">(not blocking)</span>
+              )}
 
-            <span className="w-full text-xs text-text-muted">{item.detail}</span>
-            {item.key === "downpayment" && item.state === "fail" && canOverrideDownpayment && (
-              <DownpaymentOverride ticketId={ticketId} onDone={refresh} />
-            )}
-          </li>
-        ))}
+              <span className="w-full text-xs text-text-muted">{item.detail}</span>
+              {item.key === "downpayment" && item.state === "fail" && canOverrideDownpayment && (
+                <DownpaymentOverride ticketId={ticketId} onDone={refresh} />
+              )}
+            </li>
+          ))}
       </ul>
 
       {!data.mobilizationId && canDispatch && !showPlan && (

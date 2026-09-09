@@ -15,7 +15,6 @@ import { TcPanel } from "./TcPanel";
 import { ServiceReportPanel } from "./ServiceReportPanel";
 import { DeliveryPanel } from "./DeliveryPanel";
 import { ChecklistPanel } from "./ChecklistPanel";
-import { HoursPanel } from "./HoursPanel";
 import { SchedulePanel } from "./SchedulePanel";
 import { DateCell } from "@/components/ui/cells";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
@@ -253,10 +252,6 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
 
           <CollapsiblePanel title="Service report" storageKey={`${data.id}:service-report`}>
             <ServiceReportPanel ticketId={data.id} />
-          </CollapsiblePanel>
-
-          <CollapsiblePanel title="Hours and spend" storageKey={`${data.id}:hours`}>
-            <HoursPanel ticketId={data.id} />
           </CollapsiblePanel>
 
           <CollapsiblePanel title="Daily progress" storageKey={`${data.id}:progress`}>

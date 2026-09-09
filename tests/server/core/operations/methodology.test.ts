@@ -319,6 +319,16 @@ describe("§6.2 — the exception and the override", () => {
       },
     });
     expect(log?.summary).toMatch(/main burst/);
+
+    /**
+     * docs/DECISIONS.md #200: the override took effect on mobilisation immediately (it reads the
+     * same audit log), but this gate — the one the override button's own panel reads — never looked
+     * here and kept reporting itself blocked. Reported live, 2026-09-09.
+     */
+    const gate = await methodologyGateForTicket(ticket.id);
+    expect(gate.state).toBe("not_required");
+    expect(gate.blocks).toBe(false);
+    expect(gate.message).toMatch(/main burst/);
   });
 });
 

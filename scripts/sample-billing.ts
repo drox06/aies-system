@@ -233,7 +233,7 @@ async function main() {
       [answerKey("supply", "power_supply")]: "230 V single phase",
       [answerKey("installation", "scope_summary")]:
         "AIES sets the skid, ties into the existing header and commissions it.",
-      [answerKey("installation", "existing_equipment_tags")]: "BFW-01",
+      [answerKey("installation", "equipment_tags")]: "BFW-01",
       [answerKey("installation", "quantity_points")]: 1,
       [answerKey("installation", "site_access")]: "Day shift, mill running.",
     },

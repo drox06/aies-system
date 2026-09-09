@@ -1,8 +1,12 @@
 "use client";
 
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/layout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
+import { toastError, toastSuccess } from "@/lib/errors";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -29,7 +33,18 @@ import { trpc } from "@/lib/trpc/client";
  * The panel is absent rather than empty for anybody without it.
  */
 export function PnlPanel({ projectId }: { projectId: string }) {
+  const utils = trpc.useUtils();
   const pnl = trpc.finance.projectPnl.useQuery({ projectId }, { retry: false });
+  const [editingLabour, setEditingLabour] = useState(false);
+  const [labourDraft, setLabourDraft] = useState("");
+  const setLabourCost = trpc.finance.setProjectLabourCost.useMutation({
+    onSuccess: () => {
+      toastSuccess("Labour cost saved.");
+      setEditingLabour(false);
+      void utils.finance.projectPnl.invalidate({ projectId });
+    },
+    onError: toastError,
+  });
 
   // Absent, not erroring: somebody without `pnl.view` should not be told a P&L exists and is being
   // withheld — the panel simply is not part of their screen.
@@ -48,11 +63,10 @@ export function PnlPanel({ projectId }: { projectId: string }) {
         "The margin below is not meaningful.",
     );
   }
-  if (data.caveats.daysWithNoRate > 0) {
+  if (!data.caveats.labourCostEntered) {
     caveats.push(
-      `${data.caveats.daysWithNoRate} approved timesheet day${
-        data.caveats.daysWithNoRate === 1 ? "" : "s"
-      } have no cost rate on file, so that labour is missing from the cost — the margin is flattered by it.`,
+      "No labour cost has been entered for this project yet, so labour is missing from the cost — " +
+        "the margin is flattered by it.",
     );
   }
   if (data.caveats.uncostedStockIssues > 0) {
@@ -127,6 +141,76 @@ export function PnlPanel({ projectId }: { projectId: string }) {
           </table>
         </>
       )}
+
+      {/*
+        docs/DECISIONS.md #197: one entered figure instead of timesheets × cost rates. Sits right
+        under the breakdown table so it reads as "here is where the labour row above came from."
+      */}
+      <div className="mt-3 rounded border border-border p-2.5">
+        {editingLabour ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-40">
+              <Label htmlFor={`labour-cost-${projectId}`}>Actual labour cost</Label>
+              <Input
+                id={`labour-cost-${projectId}`}
+                type="number"
+                step="0.01"
+                min="0"
+                value={labourDraft}
+                onChange={(event) => setLabourDraft(event.target.value)}
+              />
+            </div>
+            <Button
+              size="sm"
+              disabled={setLabourCost.isPending || labourDraft.trim() === ""}
+              onClick={() => setLabourCost.mutate({ projectId, amountPesos: Number(labourDraft) })}
+            >
+              Save
+            </Button>
+            {data.caveats.labourCostEntered && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={setLabourCost.isPending}
+                onClick={() => setLabourCost.mutate({ projectId, amountPesos: null })}
+              >
+                Clear
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setEditingLabour(false)}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-text-muted">
+              Labour cost:{" "}
+              {data.caveats.labourCostEntered ? (
+                <span className="tabular font-medium text-text">
+                  {formatMoney(
+                    String(data.byCategory.find((row) => row.category === "labour")?.amount ?? 0),
+                    currency,
+                  )}
+                </span>
+              ) : (
+                "not entered"
+              )}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setLabourDraft(
+                  String(data.byCategory.find((row) => row.category === "labour")?.amount ?? ""),
+                );
+                setEditingLabour(true);
+              }}
+            >
+              {data.caveats.labourCostEntered ? "Edit" : "Enter it"}
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/*
         §6: rework "should be reportable on its own, not buried in project cost".

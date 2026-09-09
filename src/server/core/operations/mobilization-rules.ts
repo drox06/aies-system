@@ -101,19 +101,21 @@ export interface ReadinessInput {
  *
  * ## What is mandatory, and what is only shown
  *
- * The three gates are mandatory because three earlier sections say so in as many words — money in
- * hand, materials issued, and (for a new project) a method statement the client approved. Crew,
- * PPE and the customer contact are mandatory because a crew of nobody, in no protective equipment,
- * arriving unannounced, is not a mobilisation.
+ * docs/DECISIONS.md #197 (company decision, 2026-09-09): only the two gates that involve money —
+ * the customer's downpayment and a released cash advance — actually block. Every other row here
+ * (method statement, materials, crew, gate pass, permits, PPE, induction, customer contact,
+ * competence) is still computed and still shown, so a coordinator can see the state of the job at a
+ * glance, but none of it stops a crew from being sent. The company's own reasoning: the previous
+ * nine-row checklist was more than AIES's current operations need, method statement and materials
+ * are now handled earlier — during quoting, not on the ticket — and the rest is worth seeing but not
+ * worth a hard stop.
  *
- * Gate passes and permits are **conditionally** mandatory: `not_required` is a recorded answer and
- * passes, `pending` fails, `obtained` passes. That mirrors §7's N/A exactly — the site that needs no
- * permit and the site nobody has asked about must not look the same.
+ * Gate passes and permits still tell "not required" apart from "nobody has asked" — `not_required`
+ * is a recorded answer, `pending` and `obtained` are the other two — same reasoning as §7's N/A,
+ * even though neither state blocks anything any more.
  *
- * Crew competence is listed as `unknown` and **not** mandatory. §8 wants it checked against module
- * 08, which does not exist; asserting a pass would be a lie and asserting a fail would block every
- * mobilisation. Showing it as unanswered is the honest third option, and it is visible on the list
- * so nobody mistakes its absence for a tick.
+ * Crew competence is listed as `unknown`, same as before #197: §8 wants it checked against module
+ * 08, which does not exist, and asserting either a pass or a fail here would be a lie either way.
  */
 export function mobilizationReadiness(input: ReadinessInput): Readiness {
   const items: ReadinessItem[] = [];
@@ -156,6 +158,15 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
    * The shared predicate also carries the company's 2026-08-19 correction — installations take one
    * too, and their testing and commissioning comes with them.
    */
+  /**
+   * docs/DECISIONS.md #197: no longer mandatory. The method statement (and whether the client
+   * approved one) is now prepared during quoting, not authored against the ticket — see the
+   * quotation's own `needsMethodStatement`/`methodStatementFileId`. This row is kept for visibility
+   * (a coordinator can still see the state at a glance) but never blocks mobilising; the company's
+   * own instruction was explicit that once something is filled in at quoting it must stop being a
+   * gate on the ticket. §7's material gate loses its `mandatory` the same way, and for the same
+   * reason.
+   */
   const needsMethod = methodStatementRequiredFor(input.ticketType);
   const methodOverride = input.overrides?.methodology;
   items.push({
@@ -168,7 +179,7 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
         : methodOverride
           ? "pass"
           : "fail",
-    mandatory: needsMethod,
+    mandatory: false,
     detail: !needsMethod
       ? "Only new projects take §6's branch. Nothing is waiting on a method statement."
       : methodOverride
@@ -176,20 +187,11 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
         : input.methodology.message,
   });
 
-  /*
-    Materials come after the method statement, because that is the order the job happens in.
-
-    The method statement is what says which materials the job needs; issuing stock before it is
-    approved is guessing. The list used to read cash advance → materials → method statement, which
-    is neither the order of the work nor the order of the panels on the ticket, and the company
-    asked for the two to match. A readiness list that disagrees with the screen it sits on teaches
-    people to read it as a bag of unrelated checks rather than as a sequence.
-  */
   items.push({
     key: "materials",
     label: "Materials issued",
     state: input.materials.blocks ? "fail" : "pass",
-    mandatory: true,
+    mandatory: false,
     detail: input.materials.message,
   });
 
@@ -197,7 +199,10 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
     key: "crew",
     label: "Crew assigned",
     state: input.crewIds.length > 0 ? "pass" : "fail",
-    mandatory: true,
+    // docs/DECISIONS.md #197: informational, same reasoning as gate_pass/permits/ppe/customer_contact
+    // below — the company asked for the readiness list down to the two gates that involve money,
+    // downpayment and cash advance, everything else shown but no longer blocking.
+    mandatory: false,
     detail:
       input.crewIds.length > 0
         ? `${input.crewIds.length} on the crew.`
@@ -235,7 +240,8 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
     key: "tools",
     label: "Tools checked out",
     state: input.toolsChecklist.length === 0 ? "unknown" : toolsChecked ? "pass" : "fail",
-    mandatory: input.toolsChecklist.length > 0,
+    // docs/DECISIONS.md #197: informational, not mandatory — see the note above `crew`.
+    mandatory: false,
     detail:
       input.toolsChecklist.length === 0
         ? "No tools checklist on this mobilisation."
@@ -249,9 +255,8 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
     key: "ppe",
     label: "PPE confirmed",
     state: input.ppeChecklist.length === 0 ? "fail" : ppeChecked ? "pass" : "fail",
-    // Always mandatory, including the empty case: an empty PPE checklist is not a crew that needs
-    // none, it is a checklist nobody filled in.
-    mandatory: true,
+    // docs/DECISIONS.md #197: informational, not mandatory — see the note above `crew`.
+    mandatory: false,
     detail:
       input.ppeChecklist.length === 0
         ? "No PPE checklist. An empty list is not the same as no PPE required."
@@ -264,7 +269,8 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
     key: "customer_contact",
     label: "Customer contact confirmed",
     state: input.customerContactConfirmed ? "pass" : "fail",
-    mandatory: true,
+    // docs/DECISIONS.md #197: informational, not mandatory — see the note above `crew`.
+    mandatory: false,
     detail: input.customerContactConfirmed
       ? "Somebody at the site knows the crew is coming."
       : "Nobody has confirmed the site is expecting them. This is the cheapest wasted day to avoid.",
@@ -279,7 +285,8 @@ export function mobilizationReadiness(input: ReadinessInput): Readiness {
  * A gate pass or permit, where "not required" is an answer.
  *
  * The same shape as §7's N/A: a site that needs no permit and a site nobody has asked about must not
- * look alike on the list, because only one of them is a problem.
+ * look alike on the list, because only one of them is a problem. docs/DECISIONS.md #197: shown but
+ * never mandatory — see the note above `crew`.
  */
 function clearanceItem(key: string, label: string, state: string): ReadinessItem {
   if (state === "not_required") {
@@ -292,13 +299,13 @@ function clearanceItem(key: string, label: string, state: string): ReadinessItem
     };
   }
   if (state === "obtained") {
-    return { key, label, state: "pass", mandatory: true, detail: "Obtained." };
+    return { key, label, state: "pass", mandatory: false, detail: "Obtained." };
   }
   return {
     key,
     label,
     state: "fail",
-    mandatory: true,
+    mandatory: false,
     detail:
       "Still pending. Site access is refused for want of this more often than for anything technical.",
   };

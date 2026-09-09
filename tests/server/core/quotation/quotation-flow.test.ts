@@ -111,14 +111,15 @@ describe("the draft created when an inquiry reaches quoting (§10)", () => {
   }
 
   it("creates one draft carrying the inquiry's own words as the starting scope", async () => {
+    // docs/DECISIONS.md #199: `transitionInquiryService` now drafts it itself, synchronously, on
+    // reaching `quoting` — `inquiryAtQuoting()` has already produced the draft by the time it
+    // returns, so this reads what landed rather than re-deriving it through a second, now-idempotent
+    // call. Pushed to `quotationIds` before any assertion, so a failed expectation here still leaves
+    // the row cleaned up.
     const inquiry = await inquiryAtQuoting();
-    const result = await createDraftForInquiry({ inquiryId: inquiry.id });
-    expect(result?.created).toBe(true);
-    quotationIds.push(result!.quotationId);
+    const quotation = await db.quotation.findFirstOrThrow({ where: { inquiryId: inquiry.id } });
+    quotationIds.push(quotation.id);
 
-    const quotation = await db.quotation.findUniqueOrThrow({
-      where: { id: result!.quotationId },
-    });
     expect(quotation.status).toBe("draft");
     expect(quotation.inquiryId).toBe(inquiry.id);
     // §1 calls the scope narrative what the customer actually reads; starting from what they asked

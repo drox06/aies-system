@@ -346,6 +346,12 @@ export interface UpdateQuotationHeaderInput {
   termsAndConditions?: string[];
   currency?: string;
   fxRate?: string;
+  /** docs/DECISIONS.md #198: prepared at quoting, read-only on the ticket once an order exists. */
+  needsMethodStatement?: boolean;
+  methodStatementFileId?: string | null;
+  methodStatementNotes?: string | null;
+  materialsPreparedAtQuoting?: boolean;
+  materialsNotes?: string | null;
 }
 
 export async function updateQuotationHeaderService(
@@ -397,6 +403,11 @@ export async function updateQuotationHeaderService(
     "termsAndConditions",
     "currency",
     "fxRate",
+    "needsMethodStatement",
+    "methodStatementFileId",
+    "methodStatementNotes",
+    "materialsPreparedAtQuoting",
+    "materialsNotes",
   ] as const) {
     if (input[field] !== undefined) {
       (data as Record<string, unknown>)[field] = input[field];

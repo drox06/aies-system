@@ -75,6 +75,27 @@ model Quotation {
   paymentTermsText     String?
   warrantyTerms        String?
 
+  /// docs/DECISIONS.md #198 (company decision, 2026-09-09): the method statement and the materials
+  /// list move to quoting — the estimator already knows the scope, and preparing both here means
+  /// neither is authored cold against a ticket later. Both are read-only on the ticket once a sales
+  /// order exists: no longer a mobilisation gate (see #197), just what the crew opens to see what
+  /// was already agreed. `needsMethodStatement` is ticked only when the job actually calls for one —
+  /// the same jobs `methodStatementRequiredFor` already names (new_project, installation).
+  needsMethodStatement Boolean @default(false)
+  /// The prepared or client-approved document, uploaded here rather than authored against a ticket
+  /// that does not exist yet.
+  methodStatementFileId String?
+  /// Sequence of work, in the estimator's own words — what used to be typed straight onto the
+  /// ticket's method statement, now typed once, before the job is even sold.
+  methodStatementNotes  String?
+
+  /// Materials the crew will need beyond what is being sold as priced supply lines — consumables,
+  /// spares, anything worth flagging now so it is not guessed at after the PO lands. Priced supply
+  /// is already the quotation's own lines; this is the free-text list that used to live only in
+  /// somebody's head until the ticket asked for it.
+  materialsPreparedAtQuoting Boolean @default(false)
+  materialsNotes             String?
+
   // Commercial summary, all denominated in `currency`.
   subtotal       Decimal @default(0) @db.Decimal(14, 2)
   discountAmount Decimal @default(0) @db.Decimal(14, 2)

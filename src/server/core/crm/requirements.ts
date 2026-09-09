@@ -155,7 +155,7 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Power supply / signal",
         type: "text",
         required: false,
-        help: "24 VDC, 230 VAC, 4-20 mA, HART, Modbus.",
+        help: "24 VDC, 230 VAC, 4-20 mA, HART, Modbus — or whatever's available at site.",
       },
       {
         key: "hazardous_area",
@@ -175,7 +175,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Required documentation",
         type: "text",
         required: false,
-        help: "Calibration certificate, material certs, test reports, O&M manual.",
+        help:
+          "Calibration certificate, material certs, test reports, O&M manual, commissioning " +
+          "report, loop test sheets, as-built drawings — whichever apply.",
       },
     ],
   },
@@ -191,8 +193,8 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         help: "What AIES installs, and explicitly what the customer supplies.",
       },
       {
-        key: "existing_equipment_tags",
-        label: "Existing equipment tag numbers",
+        key: "equipment_tags",
+        label: "Equipment tag numbers",
         type: "text",
         required: true,
         help: "The tags being replaced or tied into. Without these the site visit is a guess.",
@@ -208,7 +210,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Site access constraints",
         type: "text",
         required: true,
-        help: "Gate pass lead time, induction, PPE, permitted working hours, escort required.",
+        help:
+          "Gate pass lead time, induction, PPE, permitted working hours, escort required — " +
+          "the commonest cause of a wasted trip.",
       },
       {
         key: "shutdown_window",
@@ -225,15 +229,17 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
       },
       {
         key: "power_supply",
-        label: "Power supply available at site",
+        label: "Power supply / signal",
         type: "text",
         required: false,
+        help: "24 VDC, 230 VAC, 4-20 mA, HART, Modbus — or whatever's available at site.",
       },
       {
         key: "hazardous_area",
         label: "Hazardous area classification",
         type: "text",
         required: false,
+        help: "Zone and gas group, or 'safe area'. Wrong here means the wrong certification.",
       },
     ],
   },
@@ -243,9 +249,10 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
     fields: [
       {
         key: "equipment_scope",
-        label: "Equipment to be commissioned",
+        label: "Equipment scope",
         type: "text",
         required: true,
+        help: "Tag numbers and quantities of what's covered or being commissioned.",
       },
       {
         key: "acceptance_criteria",
@@ -278,7 +285,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Required documentation",
         type: "text",
         required: false,
-        help: "Commissioning report, loop test sheets, as-built drawings.",
+        help:
+          "Calibration certificate, material certs, test reports, O&M manual, commissioning " +
+          "report, loop test sheets, as-built drawings — whichever apply.",
       },
     ],
   },
@@ -328,6 +337,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Site access constraints",
         type: "text",
         required: false,
+        help:
+          "Gate pass lead time, induction, PPE, permitted working hours, escort required — " +
+          "the commonest cause of a wasted trip.",
       },
     ],
   },
@@ -337,10 +349,10 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
     fields: [
       {
         key: "equipment_scope",
-        label: "Equipment covered",
+        label: "Equipment scope",
         type: "text",
         required: true,
-        help: "Tag numbers and quantities.",
+        help: "Tag numbers and quantities of what's covered or being commissioned.",
       },
       {
         key: "frequency",
@@ -373,6 +385,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Site access constraints",
         type: "text",
         required: false,
+        help:
+          "Gate pass lead time, induction, PPE, permitted working hours, escort required — " +
+          "the commonest cause of a wasted trip.",
       },
     ],
   },
@@ -392,6 +407,7 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Equipment tag numbers",
         type: "text",
         required: true,
+        help: "The tags being replaced or tied into. Without these the site visit is a guess.",
       },
       {
         key: "when_started",
@@ -419,6 +435,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Site access constraints",
         type: "text",
         required: false,
+        help:
+          "Gate pass lead time, induction, PPE, permitted working hours, escort required — " +
+          "the commonest cause of a wasted trip.",
       },
     ],
   },
@@ -444,7 +463,9 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
         label: "Site access constraints",
         type: "text",
         required: true,
-        help: "Gate pass lead time, induction, PPE, escort. The commonest cause of a wasted trip.",
+        help:
+          "Gate pass lead time, induction, PPE, permitted working hours, escort required — " +
+          "the commonest cause of a wasted trip.",
       },
       {
         key: "required_outputs",
@@ -462,6 +483,74 @@ export const SEED_REQUIREMENT_TEMPLATES: RequirementTemplateDef[] = [
     ],
   },
 ];
+
+export interface SharedRequirementField {
+  /** The field's key, shared verbatim across every template listed in `serviceTypes`. */
+  key: string;
+  /** The field itself. Every template sharing this key defines it with the same label, type and
+   *  help text — see the seed data's own comments — so any one of them can stand for the group. */
+  field: RequirementField;
+  /** Every applicable template that asks this question. Answering it once answers it for all of
+   *  them — see `sharedAnswerPatch`. */
+  serviceTypes: ServiceType[];
+  /** Required if any applicable template requires it — the strictest applicable template wins,
+   *  never the loosest. */
+  required: boolean;
+}
+
+/**
+ * Collapses the applicable templates' fields to one row per unique key.
+ *
+ * §4's seven templates share real facts about the same site — access, power, hazardous area,
+ * equipment tags, documentation — because a customer can call for supply *and* installation on the
+ * same inquiry, and the site does not have two power supplies because two templates both ask about
+ * it. Rendered per template, the same question appeared twice and answering one never touched the
+ * other — reported live, AIESSIR-260002, 2026-09-09. Rendered once per key here, and the caller
+ * writes the answer to every namespaced slot that shares it (`sharedAnswerPatch`), so the two boxes
+ * that used to exist are now the same box.
+ *
+ * The grouping is by `key` alone, deliberately: two fields sharing a key are the seed data's own
+ * assertion that they are the same real-world fact, not a coincidence to detect heuristically.
+ */
+export function groupSharedFields(
+  templates: readonly RequirementTemplateDef[],
+): SharedRequirementField[] {
+  const byKey = new Map<string, SharedRequirementField>();
+  for (const template of templates) {
+    for (const field of template.fields) {
+      const existing = byKey.get(field.key);
+      if (existing) {
+        existing.serviceTypes.push(template.serviceType);
+        existing.required = existing.required || field.required;
+      } else {
+        byKey.set(field.key, {
+          key: field.key,
+          field,
+          serviceTypes: [template.serviceType],
+          required: field.required,
+        });
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * The full set of `{serviceType}.{key}` writes one answer produces, for every applicable template
+ * that shares the key. Merge this into the stored `requirements` object rather than a single
+ * namespaced write — see `groupSharedFields`.
+ */
+export function sharedAnswerPatch(
+  serviceTypes: readonly ServiceType[],
+  key: string,
+  value: unknown,
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const serviceType of serviceTypes) {
+    patch[answerKey(serviceType, key)] = value;
+  }
+  return patch;
+}
 
 export interface MissingRequirement {
   serviceType: string;

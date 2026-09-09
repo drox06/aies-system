@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   answerKey,
   assessRequirements,
+  groupSharedFields,
+  sharedAnswerPatch,
   SEED_REQUIREMENT_TEMPLATES,
   type RequirementTemplateDef,
 } from "@/server/core/crm/requirements";
@@ -166,5 +168,86 @@ describe("the seeded templates", () => {
       const keys = template.fields.map((f) => f.key);
       expect(new Set(keys).size, `${template.serviceType} has a duplicate key`).toBe(keys.length);
     }
+  });
+
+  /**
+   * Guards the fix itself. A field shared across templates only reads as one question if every
+   * copy asks it identically — a diverging label or help text is what makes `groupSharedFields`
+   * pick an arbitrary winner and the other templates' wording silently vanish.
+   */
+  it("asks every shared key identically across every template that shares it", () => {
+    const byKey = new Map<string, RequirementTemplateDef["fields"]>();
+    for (const template of SEED_REQUIREMENT_TEMPLATES) {
+      for (const field of template.fields) {
+        byKey.set(field.key, [...(byKey.get(field.key) ?? []), field]);
+      }
+    }
+    for (const [key, fields] of byKey) {
+      if (fields.length < 2) continue;
+      const first = fields[0]!;
+      for (const field of fields.slice(1)) {
+        expect(field.label, `${key}: label`).toBe(first.label);
+        expect(field.type, `${key}: type`).toBe(first.type);
+        expect(field.help, `${key}: help`).toBe(first.help);
+      }
+    }
+  });
+});
+
+/**
+ * docs/DECISIONS.md #195. `site_access`, `power_supply`, `hazardous_area`, `documentation_required`
+ * and `equipment_scope` are each asked by more than one template about the same real-world fact —
+ * a customer calling for supply and installation on one inquiry does not have two power supplies.
+ * `equipment_tags` (installation's `existing_equipment_tags`, renamed to match corrective's) is the
+ * same fix for a fact two templates used to name differently. Reported live, AIESSIR-260002.
+ */
+describe("groupSharedFields and sharedAnswerPatch", () => {
+  it("groups a key that only one applicable template asks, on its own", () => {
+    const groups = groupSharedFields(templates);
+    const medium = groups.find((g) => g.key === "medium")!;
+    expect(medium.serviceTypes).toEqual(["supply"]);
+    expect(medium.required).toBe(true);
+  });
+
+  it("finds every real seed key that more than one template shares", () => {
+    const groups = groupSharedFields(SEED_REQUIREMENT_TEMPLATES);
+    const sharedKeys = new Set(groups.filter((g) => g.serviceTypes.length > 1).map((g) => g.key));
+    expect(sharedKeys).toEqual(
+      new Set([
+        "site_access",
+        "power_supply",
+        "hazardous_area",
+        "documentation_required",
+        "equipment_scope",
+        "equipment_tags",
+      ]),
+    );
+  });
+
+  it("is required if any applicable template requires it, even if others don't", () => {
+    const groups = groupSharedFields(SEED_REQUIREMENT_TEMPLATES);
+    // installation and inspection require site_access; calibration, pm and corrective don't.
+    const siteAccess = groups.find((g) => g.key === "site_access")!;
+    expect(siteAccess.required).toBe(true);
+    expect(siteAccess.serviceTypes.sort()).toEqual(
+      ["calibration", "corrective", "inspection", "installation", "pm"].sort(),
+    );
+  });
+
+  it("writes one answer to every applicable template's namespaced slot", () => {
+    const patch = sharedAnswerPatch(["installation", "inspection"], "site_access", "Escort only");
+    expect(patch).toEqual({
+      [answerKey("installation", "site_access")]: "Escort only",
+      [answerKey("inspection", "site_access")]: "Escort only",
+    });
+  });
+
+  it("answering a shared field once satisfies every applicable template's copy of it", () => {
+    const mixed = SEED_REQUIREMENT_TEMPLATES.filter((t) =>
+      ["installation", "calibration"].includes(t.serviceType),
+    );
+    const patch = sharedAnswerPatch(["installation", "calibration"], "site_access", "Escort req'd");
+    const result = assessRequirements(mixed, ["installation", "calibration"], patch);
+    expect(result.missing.some((m) => m.key === "site_access")).toBe(false);
   });
 });

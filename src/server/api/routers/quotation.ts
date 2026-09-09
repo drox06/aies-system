@@ -199,6 +199,11 @@ export const quotationRouter = router({
         termsAndConditions: z.array(z.string()).optional(),
         currency: z.enum(QUOTE_CURRENCIES).optional(),
         fxRate: z.string().optional(),
+        needsMethodStatement: z.boolean().optional(),
+        methodStatementFileId: z.string().nullish(),
+        methodStatementNotes: z.string().max(4000).nullish(),
+        materialsPreparedAtQuoting: z.boolean().optional(),
+        materialsNotes: z.string().max(4000).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => updateQuotationHeaderService(actorMeta(ctx), input)),

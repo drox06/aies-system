@@ -382,44 +382,28 @@ export const financeManifest = defineManifest({
       order: 5,
     },
     {
-      // §8's export. A monthly act rather than a daily one.
-      label: "Accounting export",
-      href: "/finance/export",
-      icon: "file-text",
-      permission: "accounting.export",
-      group: "Finance",
-      order: 6,
-    },
-    {
       /*
-        §6's expenses. Above cost rates because it is a daily act rather than an occasional one, and
-        below payables because a supplier bill is the larger money.
+        §6's expenses. Below payables because a supplier bill is the larger money.
 
-        Like the two screens either side of it, this exists because `Expense` was a table the P&L
-        read and nothing could write. docs/DECISIONS.md #133.
+        Like the screen after it, this exists because `Expense` was a table the P&L read and nothing
+        could write. docs/DECISIONS.md #133.
       */
       label: "Expenses",
       href: "/finance/expenses",
       icon: "receipt",
       permission: "expense.submit",
       group: "Finance",
-      order: 7,
+      order: 6,
     },
     {
-      /*
-        §6's cost rates. Last, and reachable rather than prominent — it is a screen somebody visits
-        when a P&L tells them to, not one they open daily.
-
-        It exists at all because the P&L's *"days with no rate"* caveat pointed at nothing for the
-        whole of module 05: the table had no service, no procedure and no screen, and the company
-        asked the only sensible question — "where do I look for these?" docs/DECISIONS.md #133.
-      */
-      label: "Cost rates",
-      href: "/finance/cost-rates",
-      icon: "banknote",
-      permission: "pnl.view",
+      // §8's export. A monthly act rather than a daily one — last on the list, docs/DECISIONS.md
+      // #197 (company decision, 2026-09-09), moved from position 6 to the bottom.
+      label: "Accounting export",
+      href: "/finance/export",
+      icon: "file-text",
+      permission: "accounting.export",
       group: "Finance",
-      order: 8,
+      order: 7,
     },
   ],
 });

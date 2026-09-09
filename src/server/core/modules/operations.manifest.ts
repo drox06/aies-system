@@ -128,8 +128,8 @@ export const operationsManifest = defineManifest({
       // official receipt exists.
       //
       /**
-       * **Finance checks them; the president is the fallback.** Set by the company across two
-       * conversations, and the pair of decisions is the interesting part.
+       * **Finance, KJ and PD; the president is the fallback.** Set by the company across three
+       * conversations.
        *
        * 2026-08-18: narrowed from four roles to finance alone. The reminder tells a technician to
        * hand the paper to finance, so finance is who checks it — a control four roles can perform is
@@ -141,11 +141,13 @@ export const operationsManifest = defineManifest({
        * holidays. Without a fallback the liquidation queue stops for a fortnight, advances age past
        * their deadline, and §5b's block on new requests starts biting crews who did nothing wrong.
        *
-       * The vice-president is **not** on this list, which is the company's specific instruction and
-       * a sound one: the VP approves the advance in the first place, and the person who authorised
-       * the money should not also be the one who accepts the receipts for it.
+       * 2026-09-09: the company reopened the vice-president exclusion above and reversed it — KJ
+       * (vice-president) and PD (admin manager) explicitly asked to be added so they can approve
+       * this themselves rather than waiting on finance. That does put the VP back on both sides of
+       * a cash advance (raises it and can also clear its liquidation); the company's instruction was
+       * specific and named, so it stands over the earlier segregation-of-duties reasoning.
        */
-      defaultRoles: ["finance_officer", "president"],
+      defaultRoles: ["finance_officer", "vice_president", "admin_manager", "president"],
     },
     {
       key: "cash_advance.view_register",

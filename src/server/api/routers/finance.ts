@@ -13,7 +13,10 @@ import {
   uncostedDaysService,
 } from "@/server/core/finance/cost-rate-service";
 import { releaseQueueService } from "@/server/core/finance/cash-advance-queue";
-import { projectPnlService } from "@/server/core/finance/project-pnl-service";
+import {
+  projectPnlService,
+  setProjectLabourCostService,
+} from "@/server/core/finance/project-pnl-service";
 import {
   approveSupplierInvoiceService,
   payablesService,
@@ -363,6 +366,11 @@ export const financeRouter = router({
   projectPnl: p("pnl.view")
     .input(z.object({ projectId: z.string() }))
     .query(({ input }) => projectPnlService(input.projectId)),
+
+  /** docs/DECISIONS.md #197: one entered labour cost, replacing timesheets × cost rates. */
+  setProjectLabourCost: p("pnl.view")
+    .input(z.object({ projectId: z.string(), amountPesos: z.number().nullable() }))
+    .mutation(({ ctx, input }) => setProjectLabourCostService(actorMeta(ctx), input)),
 
   /**
    * §6's cost rates — read on `pnl.view`, written on `cost_rate.manage`.

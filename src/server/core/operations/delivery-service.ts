@@ -10,6 +10,8 @@ import { allocateNumber } from "@/server/core/numbering/numbering";
 import { registerFileAccessChecker } from "@/server/core/storage/access";
 import { formatAddress } from "@/lib/address";
 import { BUSINESS_DAY_MS, businessMsBetween } from "@/server/core/calendar/business-days";
+import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
+import { TICKET_ENTITY_TYPE } from "./ticket-rules";
 import {
   DELIVERY_FLOW_ENTITY_TYPE,
   DELIVERY_RECEIPT_DOCUMENT_TYPE,
@@ -70,6 +72,99 @@ async function loadFlow(ticketId: string) {
     });
   }
   return flow;
+}
+
+/**
+ * docs/DECISIONS.md #196. Same pure `downpaymentGate` the installation lane's mobilisation
+ * readiness already reads (`mobilization-service.ts`), against this delivery ticket's own sales
+ * order. A delivery ticket generated from a sales order line always has one; standalone delivery
+ * tickets (docs/DECISIONS.md #86's warranty/emergency case) do not, and nothing blocks them.
+ */
+async function downpaymentGateForDeliveryTicket(ticketId: string) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: ticketId, deletedAt: null },
+    select: {
+      salesOrder: {
+        select: {
+          financeStatus: true,
+          downpaymentPct: true,
+          currency: true,
+          downpaymentAmount: true,
+        },
+      },
+    },
+  });
+  if (!ticket?.salesOrder) {
+    return { blocks: false, message: "" };
+  }
+  return downpaymentGate({
+    financeStatus: ticket.salesOrder.financeStatus,
+    downpaymentPct: Number(ticket.salesOrder.downpaymentPct),
+    currency: ticket.salesOrder.currency,
+    downpaymentAmount: Number(ticket.salesOrder.downpaymentAmount),
+  });
+}
+
+/** The override `overrideDeliveryDownpaymentGateService` wrote, if any — read the same way every
+ *  other gate override in this build is read, from the audit log rather than a second column. */
+async function deliveryDownpaymentOverride(ticketId: string): Promise<string | null> {
+  const row = await db.auditLog.findFirst({
+    where: {
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticketId,
+      action: "delivery_downpayment_gate_overridden",
+    },
+    orderBy: { at: "desc" },
+    select: { summary: true },
+  });
+  return row?.summary ?? null;
+}
+
+/**
+ * docs/DECISIONS.md #196's override, mirroring `overrideMobilizationDownpaymentGateService`
+ * exactly — same reasoning, same shape, kept as its own function and its own audit action because
+ * a delivery ticket carries no `ready_to_mobilize` status to write the way the installation lane's
+ * override does (`DeliveryTicketFlow` has its own, separate status vocabulary).
+ */
+export async function overrideDeliveryDownpaymentGateService(
+  actor: ActorMeta,
+  input: { ticketId: string; reason: string },
+) {
+  if (input.reason.trim().length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "An override needs a reason somebody can read months later.",
+    });
+  }
+
+  const gate = await downpaymentGateForDeliveryTicket(input.ticketId);
+  if (!gate.blocks) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Nothing is blocking this ticket, so there is nothing to override.",
+    });
+  }
+
+  const ticket = await db.ticket.findFirstOrThrow({
+    where: { id: input.ticketId },
+    select: { id: true, number: true },
+  });
+
+  await db.$transaction(async (tx) => {
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "delivery_downpayment_gate_overridden",
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticket.id,
+      summary: `Cleared ${ticket.number} to leave for site before the customer's downpayment arrived — ${input.reason.trim()}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { overridden: true as const };
 }
 
 // ---- starting the lane ----------------------------------------------------------------------------
@@ -275,7 +370,11 @@ export async function mobilizeDeliveryService(
 ) {
   const flow = await loadFlow(input.ticketId);
 
-  const gate = canLeaveForSite(flow);
+  const [downpayment, downpaymentOverride] = await Promise.all([
+    downpaymentGateForDeliveryTicket(input.ticketId),
+    deliveryDownpaymentOverride(input.ticketId),
+  ]);
+  const gate = canLeaveForSite(flow, downpayment, downpaymentOverride);
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
   }
@@ -327,7 +426,11 @@ export async function logDeliveryAttemptService(actor: ActorMeta, input: LogAtte
     throw new TRPCError({ code: "BAD_REQUEST", message: "This delivery is already complete." });
   }
 
-  const gate = canLeaveForSite(flow);
+  const [downpayment, downpaymentOverride] = await Promise.all([
+    downpaymentGateForDeliveryTicket(input.ticketId),
+    deliveryDownpaymentOverride(input.ticketId),
+  ]);
+  const gate = canLeaveForSite(flow, downpayment, downpaymentOverride);
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
   }
@@ -462,7 +565,11 @@ export async function bookCourierService(
     });
   }
 
-  const gate = canLeaveForSite(flow);
+  const [downpayment, downpaymentOverride] = await Promise.all([
+    downpaymentGateForDeliveryTicket(input.ticketId),
+    deliveryDownpaymentOverride(input.ticketId),
+  ]);
+  const gate = canLeaveForSite(flow, downpayment, downpaymentOverride);
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
   }
@@ -852,6 +959,7 @@ export async function todaysDropsService() {
       courierName: true,
       waybillNumber: true,
       deliveryReceiptId: true,
+      manualDeliveryAddress: true,
       ticket: {
         select: {
           id: true,
@@ -892,6 +1000,10 @@ export async function todaysDropsService() {
   const drops = flows.map((flow) => {
     const attempts = readAttempts(flow.attempts);
     const receipt = flow.deliveryReceiptId ? byId.get(flow.deliveryReceiptId) : null;
+    // The manual override wins outright, same rule and same reason as getDeliveryFlowService — this
+    // used to read only the customer's saved site, so an override set on the ticket screen never
+    // reached the driver actually navigating. Found live, 2026-09-09.
+    const address = flow.manualDeliveryAddress?.trim() || formatAddress(flow.ticket.site?.address);
     return {
       flowId: flow.id,
       ticketId: flow.ticketId,
@@ -900,7 +1012,7 @@ export async function todaysDropsService() {
       customer: flow.ticket.account?.name ?? null,
       siteName: flow.ticket.site?.name ?? null,
       // The two things a driver needs before setting off, and the two most often missing.
-      address: formatAddress(flow.ticket.site?.address),
+      address,
       accessNotes: flow.ticket.site?.accessNotes ?? null,
       mode: flow.mode,
       status: flow.status,
@@ -943,6 +1055,11 @@ export async function getDeliveryFlowService(ticketId: string) {
   const resolvedAddress =
     flow.manualDeliveryAddress?.trim() || formatAddress(flow.ticket.site?.address);
 
+  const [downpayment, downpaymentOverrideReason] = await Promise.all([
+    downpaymentGateForDeliveryTicket(ticketId),
+    deliveryDownpaymentOverride(ticketId),
+  ]);
+
   return {
     ...flow,
     ticket: undefined,
@@ -950,6 +1067,8 @@ export async function getDeliveryFlowService(ticketId: string) {
     receipt,
     resolvedAddress,
     mapsUrl: googleMapsUrl(resolvedAddress),
+    downpayment,
+    downpaymentOverrideReason,
   };
 }
 

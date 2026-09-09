@@ -146,11 +146,22 @@ export interface DeliveryCheck {
  * The same gate covers booking a courier, and module 03 §7 gives the reason from its side: a DR
  * issued without a ticket to execute it is a document floating around unassigned. So the two halves
  * hold each other up — no DR without a ticket, no movement without a DR.
+ *
+ * docs/DECISIONS.md #196 adds the downpayment gate here too — reported live, 2026-09-09: a delivery
+ * could be planned and dispatched with none of the order's money in, because this checked only
+ * paperwork (the DR) and never the customer's payment, unlike the installation lane's mobilisation
+ * readiness. Gated the same place the installation lane gates it: on *movement* (mobilising the
+ * crew, booking the courier, logging an attempt), not on issuing the DR — the paperwork can still be
+ * prepared ahead of the money arriving, same as an installation ticket's methodology can be.
  */
-export function canLeaveForSite(flow: {
-  mode: string;
-  drIssuedAt: Date | string | null;
-}): DeliveryCheck {
+export function canLeaveForSite(
+  flow: {
+    mode: string;
+    drIssuedAt: Date | string | null;
+  },
+  downpayment?: { blocks: boolean; message: string },
+  downpaymentOverride?: string | null,
+): DeliveryCheck {
   const errors: string[] = [];
   if (!flow.drIssuedAt) {
     errors.push(
@@ -160,6 +171,9 @@ export function canLeaveForSite(flow: {
         : "No delivery receipt has been issued. §13.1 makes this blocking: a crew that arrives " +
             "without the document has nothing for the customer to sign and the trip is wasted.",
     );
+  }
+  if (downpayment?.blocks && !downpaymentOverride) {
+    errors.push(downpayment.message);
   }
   return { ok: errors.length === 0, errors, warnings: [] };
 }

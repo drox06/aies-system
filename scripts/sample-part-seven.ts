@@ -301,7 +301,7 @@ async function main() {
       [answerKey("installation", "scope_summary")]:
         "AIES removes the existing orifice plate and spool piece and fits the new meter in its " +
         "place. The customer isolates, drains and re-energises.",
-      [answerKey("installation", "existing_equipment_tags")]: "FT-2041, and the spool at FE-2041",
+      [answerKey("installation", "equipment_tags")]: "FT-2041, and the spool at FE-2041",
       [answerKey("installation", "quantity_points")]: 1,
       [answerKey("installation", "site_access")]:
         "October outage, 06:00–18:00. Permit-to-work from the shift supervisor each morning.",

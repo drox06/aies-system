@@ -7372,3 +7372,246 @@ change; the gap was three feet of UI over an already-built field.
 **Not verified live beyond `tsc --noEmit`/`eslint`**, both clean — the mutation's own existing
 coverage (`invoice.test.ts`) already exercises `recordPaymentService` with and without a `proofFileId`
 implicitly through its optional typing; no new server-side behaviour was added to test.
+
+---
+
+## #194 — A liquidated fuel line at ₱2,500 was reporting itself at ₱250,000 in the project P&L
+
+**2026-09-09.** EA's live walkthrough of AIESPRJ-260001 (behind AIESSO-260033): travel and site
+costs on the P&L read ₱350,000 against a real ₱3,500. The same class of bug as #189/#190's VAT
+double-count, this time on money units rather than tax: `cash-advance-service.ts` states its own
+convention in its header comment — "centavos as integers everywhere inside this file" — but
+`project-pnl-service.ts` read `CashAdvanceLiquidation.lines[].amount` as if it were already pesos,
+inflating every liquidated line by exactly 100x. ₱2,500 fuel plus ₱1,000 site costs read back as
+₱250,000 and ₱100,000.
+
+**The fix reads the same convention every other reader in the file already follows** — field
+expenses two lines above it divide by 100 for the identical reason. One division, at the one place
+liquidation lines enter the P&L; nothing upstream (the liquidation record itself, its own approval
+screens) was wrong.
+
+**Verified**: `project-pnl.test.ts` gained a fixture creating a real account, project, cash advance
+and approved liquidation with a ₱3,500 line and asserting `pnl.actualCost === 3_500`, not `350_000` —
+the exact shape of the bug.
+
+---
+
+## #195 — A requirements question asked twice under two names now answers both at once
+
+**2026-09-09.** AIESSIR-260002: a site inspection requirement form asked the same real-world fact —
+site access, in this case — twice, once per applicable template, and answering one box never touched
+the other. Traced to `answerKey(serviceType, fieldKey)`, which namespaces every answer as
+`"{serviceType}.{fieldKey}"` so nothing is silently shared by default — the right default for facts
+that genuinely differ by service type, wrong for the ones that don't. §4's seven templates share real
+facts about the same site (access, power, hazardous area, equipment tags, documentation) because one
+inquiry can call for supply *and* installation, and the site does not grow a second power supply
+because two templates both ask about it.
+
+**Two functions, not a rendering trick.** `groupSharedFields` collapses the applicable templates'
+fields to one row per key (the strictest applicable template's `required` wins), and
+`sharedAnswerPatch` expands one answer back into every namespaced slot that key touches, so the write
+still lands everywhere a bare rendering fix would have missed. `RequirementsPanel.tsx` renders the
+grouped list and calls the patch on every change; the "still needed" list dedupes the same way. Five
+near-duplicate clusters across the seed templates were unified in wording during the same pass
+(`existing_equipment_tags` renamed to the `equipment_tags` key its siblings already used), since a
+shared key is only correct once its label and help text actually agree.
+
+**Verified**: `requirements.test.ts` gained cases for `groupSharedFields` (collapsing across
+templates, required winning over optional) and `sharedAnswerPatch` (writing every namespaced slot a
+key touches); `RequirementsPanel.tsx`'s field loop and missing-list were rewritten to dedupe by key.
+
+---
+
+## #196 — The delivery lane gets installation's downpayment gate, and the driver's app reads the address override
+
+**2026-09-09.** Two related complaints from the same walkthrough. First: delivery tickets could
+leave for site with no downpayment recorded — `canLeaveForSite` already gated the installation lane
+on it (module 03), but the delivery lane's own `canLeaveForSite` call sites never passed the same
+check, so the same rule existed and simply did not apply to half the tickets it should have.
+Second: a manual delivery address set on the ticket screen never reached the driver's Field app —
+`todaysDropsService` read only the customer's saved site address, so an override written for a
+drop-ship address or a temporary yard was invisible to the one person actually navigating to it.
+
+**The gate is mirrored, not reinvented.** `downpaymentGateForDeliveryTicket` and
+`deliveryDownpaymentOverride` follow the same audit-log-backed override pattern module 03 already
+uses (`overrideDeliveryDownpaymentGateService`, recorded as
+`delivery_downpayment_gate_overridden`); the three `canLeaveForSite` call sites in
+`delivery-rules.ts` now pass it. `DeliveryPanel.tsx` gained the same override banner. The address fix
+is one field: `todaysDropsService`'s select now includes `manualDeliveryAddress`, and address
+resolution prefers it over the customer's saved site — "the manual override wins outright — it
+exists precisely for the run that does not match the customer's saved site."
+
+**Verified**: `mobilization-downpayment-gate.test.ts`'s pattern extended to the delivery lane (gate
+blocks, override clears it, logged); the address fix verified by reading `todaysDropsService`'s
+output directly rather than through the Field app UI, since no walkthrough of the Field app itself
+was available this session.
+
+---
+
+## #197 — Mobilisation readiness narrows to the two money gates; labour cost becomes one entered figure
+
+**2026-09-09 (company decision).** Two changes the company asked for together, both reducing what
+used to be computed or tracked automatically down to what AIES's current operations actually use.
+
+**Mobilisation readiness.** The table shrank from roughly nine checklist items to the two that are
+real, blocking gates — `downpayment` and `cash_advance` — because everything else (methodology,
+materials, crew, PPE, customer contact, tools, gate pass, permits) either moved elsewhere (see #198)
+or was never something the company wanted to block a truck over. Every other row stays computed and
+visible, just no longer `mandatory`, so a technician can still see "materials: not yet issued"
+without the job being stuck behind it. `MethodologyPanel.tsx` and `MaterialPanel.tsx`'s badges
+changed from "Mobilisation blocked" to plain status language ("Not yet approved", "Not yet issued")
+since neither panel blocks mobilisation any more.
+
+**Labour cost.** "Hours spent" (the ticket-level timesheet panel) and Cost Rates (the finance screen
+pricing an hour) were more machinery than AIES's current operations need. Both are replaced by one
+manually entered actual-labour-cost figure per project (`Project.manualLabourCost`), which still
+flows through every downstream P&L computation exactly as the timesheet total used to — the
+computation changed inputs, not shape. `HoursPanel` is unmounted from the ticket page; Cost Rates
+drops off the finance nav. Neither `Timesheet` nor `CostRate` was deleted — both stay intact and
+queryable, only unmounted from the screens that fed the removed computation, kept reversible rather
+than as a scope decision made irreversible by deletion.
+
+**Deliberately low-risk**: implemented as `mandatory: false` flips across ~1,755 lines of existing,
+tested mobilisation-rules code rather than deleting the underlying readiness machinery, to keep the
+blast radius to the flag that actually matters.
+
+**Verified**: `mobilization-rules.test.ts` (14 tests) and `mobilization.test.ts` (8 tests) rewritten
+for the new mandatory-flag behaviour, plus the existing `mobilization-downpayment-gate.test.ts` (3
+tests) — 25 tests, all passing. `project-pnl.test.ts` covers the manual labour cost path (see #194's
+same fixture family). `tsc --noEmit` and `eslint` clean across every touched file.
+
+---
+
+## #198 — The method statement and materials list move to quoting time, read-only on the ticket
+
+**2026-09-09 (company decision).** The company's own framing: method statement and materials belong
+at quoting, not authored cold against a ticket weeks later when the estimator who knew the scope is
+no longer the one looking at it. "If it is ticked or needed in the quoting process, then it will most
+likely be filled during that process. Once filled, then whatever is filled or uploaded should be
+reflected in the operations-ticket so it is no longer a gate since it's already filled."
+
+**Five fields on `Quotation`**: `needsMethodStatement`, `methodStatementFileId`,
+`methodStatementNotes`, `materialsPreparedAtQuoting`, `materialsNotes` — authored in a new
+`PreparationPanel.tsx` on the quotation screen, using the same `<Attachments>` + file-picker idiom
+established for DR signatures and BS external references. `quotationPreparationForTicket` walks
+`Ticket.salesOrderId → SalesOrder.quotationId → Quotation` to surface them read-only on
+`MethodologyPanel.tsx` and `MaterialPanel.tsx` once a sales order exists, rather than copying the
+fields onto the ticket, which would just be a second place for them to drift out of step with the
+document they came from.
+
+**Deliberately scoped to authoring plus read-only display, not automated stock requests.** Materials
+priced as real supply lines already live on the quotation's own line table; `materialsNotes` is
+specifically the free-text list of what the crew needs beyond that. The actual stock request is
+still a manual step, raised after the customer's PO is recorded — so nothing is committed against a
+deal that has not closed — with the ticket panel's own copy saying so explicitly rather than the
+platform inferring a `MaterialRequest` from free text.
+
+**Not yet walked through live** — the company's own next step, not this session's: "let's do your
+recommendation then I will do a walkthrough to experience the flow first hand." `tsc --noEmit` and
+`eslint` are clean; no automated test exists yet for `quotationPreparationForTicket` or the
+`updateHeader` mutation's five new fields, since the walkthrough was expected to come first.
+
+---
+
+## #199 — Confirming a quotation sent, and reaching `quoting`, no longer wait on the job queue
+
+**2026-09-09.** Two symptoms of the same cause. First, EA's report: AIESINQ-260013 read "quoting" on
+its card with nothing to open, for as long as the queue took to drain. Second, and the sharper one:
+recording a customer PO right after sending the quotation could be refused with "‹inquiry› is
+quoting" — a data-looking error that was actually a queue that had not caught up. Both trace to
+`emit()`, which only ever writes to the transactional outbox; nothing about the write path itself is
+synchronous. Production drains via Vercel Cron at once a minute (`vercel.json`); dev drains every 5s.
+A worst case of roughly 60 seconds in production is a small window, but the two people it hit in the
+same conversation are the argument for closing it rather than living with it.
+
+**Same pattern #164 already established for site inspections** — reported here as "the same
+underlying complaint" — call the downstream service function synchronously, in addition to (not
+instead of) still emitting the event, so the audit trail and any other consumer that comes to depend
+on the event stay intact. `confirmQuotationSentService` now dynamically imports and calls
+`transitionInquiryService(..., {to: "quoted", bySystem: true})` after its own transaction commits;
+`transitionInquiryService` reaching `quoting` now dynamically imports and calls
+`createDraftForInquiry` the same way. Both dynamic imports preserve the existing module-boundary rule
+(module 01 and module 02 do not statically depend on each other); both wrap the call in a tolerant
+try/catch, since the target state may legitimately not apply (a later revision already moved the
+inquiry on) and that is not a failure of the request that already committed.
+
+**Idempotent by construction**: `createDraftForInquiry` already returns `created: false` on a second
+call, so the manifest's own event subscriber still firing later on the same event is a harmless
+no-op, not a duplicate draft.
+
+**Verified**: `inquiry-flow.test.ts` gained a case asserting a draft quotation exists immediately
+after `transitionInquiryService` reaches `quoting`, with no subscriber run by hand.
+`send-flow.test.ts` gained a case asserting the inquiry reaches `quoted` immediately after
+`confirmQuotationSentService`, again without touching `registry.eventSubscribers` — the existing
+test in the same file, which manually drives the subscriber, stays as proof the subscriber is still
+a harmless second mover.
+
+---
+
+## #200 — The methodology gate's own status panel finally honours its own override
+
+**2026-09-09.** `overrideMethodologyGateService` writes its decision to the audit log
+(`methodology_gate_overridden`, scoped to the ticket), and `readinessForTicketService` already read
+it back correctly — mobilisation itself unblocked the moment somebody overrode the gate. But
+`methodologyGateForTicket`, the function the panel's own status badge calls, never implemented that
+read-back at all, so the one screen the override button lives on kept reporting itself blocked after
+an override had genuinely taken effect. Two code paths that should have agreed, and did not — found
+by reading both, not by guessing which one was wrong.
+
+**The fix is the same read `readinessForTicketService` already does**, added to
+`methodologyGateForTicket`: when the raw gate blocks, check for a matching override row and, if one
+exists, return `state: "not_required"` (a state the panel's badge ternary already handled — it just
+had nowhere in the code that produced it) with the override's own reason as the message.
+
+**Verified**: `methodology.test.ts`'s existing override test gained the missing assertion — after
+`overrideMethodologyGateService`, `methodologyGateForTicket` now returns `state: "not_required"`,
+`blocks: false`, and the override's own reason as the message, closing exactly the gap this bug lived
+in. All 16 tests in the file pass.
+
+---
+
+## #201 — QA evidence is picked from what was already uploaded, not typed as a file ID
+
+**2026-09-09.** The customer-acceptance QA screen asked for "Evidence file IDs" as free text — a
+field nobody could fill correctly without first finding the file's internal id somewhere else, when
+the file itself was already sitting in the same panel's attachment list.
+
+**Replaced the text field with a checkbox list** of the ticket's own attached files (via the existing
+`<Attachments>` component's list), toggling each file's id into `evidenceFileIds` as it is checked —
+the id is what `QAApproval.evidenceFileIds` already stores and what the final-billing gate's
+`qa_client_evidence` condition already reads (see the `final-billing-gate.test.ts` case for a missing
+evidence array), so no schema or downstream change was needed. Filenames are shown to the person
+checking the box; the id is what gets written, which is more durable than a filename (a re-uploaded
+file with the same name would silently collide) while asking nothing of the person filling the form.
+
+**Not yet covered by a new test** — `QaPanel.tsx` is a client component with no existing test
+harness in this session's suite; `tsc --noEmit` and `eslint` are clean, and the underlying
+`evidenceFileIds` write path is exercised indirectly by `final-billing-gate.test.ts`'s QA fixtures.
+
+---
+
+## #202 — Cash advance liquidation review reopens to KJ and PD, alongside finance
+
+**2026-09-09 (company decision).** `cash_advance.review_liquidation` had already been narrowed twice
+(2026-08-18 to finance alone, 2026-08-19 adding the president back as a fallback for when finance is
+on leave), the second time with the vice-president deliberately excluded — "the VP approves the
+advance in the first place, and the person who authorised the money should not also be the one who
+accepts the receipts for it." The company reopened that exclusion today: KJ (vice-president) and PD
+(admin manager) asked to be added so they can check the physical receipts and settle a liquidation
+themselves, rather than waiting on finance.
+
+**`defaultRoles` on `cash_advance.review_liquidation`** goes from `["finance_officer", "president"]`
+to `["finance_officer", "vice_president", "admin_manager", "president"]` — the manifest's own
+permission-gated UI needed no change, since `cash-advances/[id]/page.tsx` and the two router
+procedures already gate purely on the permission, not on a hardcoded role. This does put the
+vice-president back on both sides of a cash advance (raises it and can now also clear its
+liquidation); the earlier segregation-of-duties reasoning is documented in the manifest's own comment
+alongside today's decision, since a specific, named instruction from the company stands over it
+rather than silently erasing why it existed.
+
+**Verified**: `npx prisma db seed` re-run to push the widened role grant into the database;
+`permissions-are-seeded.test.ts` (which asserts the seeded grants match every manifest's
+`defaultRoles`) passes against the new list. `cash-advance.test.ts`'s own liquidation-review tests
+construct their test users with an explicit permission set rather than deriving it from the
+manifest, so none needed updating; the `cash_advance.view_register` and other Finance-group
+permissions were left untouched.

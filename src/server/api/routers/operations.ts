@@ -94,6 +94,7 @@ import {
   issueDeliveryReceiptService,
   logDeliveryAttemptService,
   mobilizeDeliveryService,
+  overrideDeliveryDownpaymentGateService,
   recordCourierPodService,
   setDeliveryAddressService,
   setDeliveryModeService,
@@ -182,6 +183,7 @@ import {
   listReusableMethodologiesService,
   methodologyGateForTicket,
   overrideMethodologyGateService,
+  quotationPreparationForTicket,
   recordClientDecisionService,
   recordExternalMethodologyService,
   saveMethodologyService,
@@ -748,6 +750,11 @@ export const operationsRouter = router({
   methodologyGate: p("ticket.view")
     .input(z.object({ ticketId: z.string() }))
     .query(({ input }) => methodologyGateForTicket(input.ticketId)),
+
+  /** docs/DECISIONS.md #198: what was prepared at quoting, read-only. */
+  quotationPreparation: p("ticket.view")
+    .input(z.object({ ticketId: z.string() }))
+    .query(({ input }) => quotationPreparationForTicket(input.ticketId)),
 
   overrideMethodologyGate: p("operations.override_methodology_gate")
     .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
@@ -1483,6 +1490,12 @@ export const operationsRouter = router({
   setDeliveryMode: p("delivery.execute")
     .input(z.object({ ticketId: z.string(), mode: z.enum(DELIVERY_MODES) }))
     .mutation(({ ctx, input }) => setDeliveryModeService(actorMeta(ctx), input)),
+
+  /** docs/DECISIONS.md #196's downpayment gate on the delivery lane, mirroring the installation
+   *  lane's `operations.override_downpayment_gate`. */
+  overrideDeliveryDownpaymentGate: p("operations.override_downpayment_gate")
+    .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => overrideDeliveryDownpaymentGateService(actorMeta(ctx), input)),
 
   /** A one-off destination overriding the customer's saved site. Never required. */
   setDeliveryAddress: p("delivery.execute")

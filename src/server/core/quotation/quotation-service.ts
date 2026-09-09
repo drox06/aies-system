@@ -68,7 +68,7 @@ export const QUOTATION_LINE_COST_FIELDS = [
  */
 export function stripQuotationCosts<
   T extends Record<string, unknown> & { lines?: Record<string, unknown>[] },
->(quotation: T, permissions: ReadonlySet<string>): Record<string, unknown> {
+>(quotation: T, permissions: ReadonlySet<string>) {
   const canSeeCost = permissions.has("finance.view_cost");
   const header = stripFieldsUnlessPermitted(quotation, [...QUOTATION_COST_FIELDS], canSeeCost);
 

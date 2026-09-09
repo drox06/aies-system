@@ -204,14 +204,18 @@ afterAll(async () => {
 });
 
 describe("§8's readiness check reads the other sections", () => {
-  it("blocks on the materials question nobody has answered", async () => {
+  /**
+   * docs/DECISIONS.md #197: materials moved to quoting and stopped blocking mobilisation — this
+   * used to assert the opposite (§7's gate blocked readiness); now it asserts the row is still
+   * shown, still reads §7's gate, and simply cannot appear in `blockers` any more.
+   */
+  it("shows the materials question nobody has answered without blocking on it", async () => {
     const dispatcher = await makeUser("operations_manager", ["ticket.dispatch", "ticket.view"]);
     const ticket = await makeTicket(dispatcher);
 
     const readiness = await readinessForTicketService(ticket.id);
-    expect(readiness.ready).toBe(false);
-    // §7's gate, asked here rather than reimplemented.
-    expect(readiness.blockers.map((b) => b.key)).toContain("materials");
+    expect(readiness.blockers.map((b) => b.key)).not.toContain("materials");
+    expect(readiness.items.find((item) => item.key === "materials")!.mandatory).toBe(false);
   });
 
   it("is ready once every mandatory item passes", async () => {
@@ -229,10 +233,26 @@ describe("§8's readiness check reads the other sections", () => {
     expect(readiness.ready).toBe(true);
   });
 
+  /**
+   * docs/DECISIONS.md #197: materials and methodology no longer block, so a bare standalone ticket
+   * (no sales order, so downpayment never applies either) is otherwise ready the moment it exists.
+   * An unreleased cash advance is the one gate left standing that this fixture can put in the way.
+   */
   it("refuses to send a crew that is not ready, and names what is missing", async () => {
+    const lead = await makeUser("technician", ["cash_advance.request"]);
     const dispatcher = await makeUser("operations_manager", ["ticket.dispatch", "ticket.view"]);
-    const ticket = await makeTicket(dispatcher);
+    const ticket = await makeTicket(lead);
     const row = await planned(dispatcher, ticket.id);
+
+    const advance = await requestCashAdvanceService(actorFor(lead), {
+      ticketId: ticket.id,
+      requestedFor: [lead.id],
+      purpose: "Transport for the crew",
+      breakdown: [{ category: "transport", description: "Fares", amount: 1_000_00 }],
+      neededBy: new Date(),
+      submit: true,
+    });
+    advanceIds.push(advance.id);
 
     await expect(departService(actorFor(dispatcher), row.id)).rejects.toThrow(
       /Not ready to mobilise/,

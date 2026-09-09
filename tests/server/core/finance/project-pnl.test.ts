@@ -424,3 +424,79 @@ describe("§5b's cash, out but not yet accounted for", () => {
     expect(pnl.caveats.advancedNotLiquidated).toBe(0);
   }, 60_000);
 });
+
+/**
+ * docs/DECISIONS.md #194. `CashAdvanceLiquidation.lines[].amount` is integer centavos — the same
+ * convention `cash-advance-service.ts` states outright ("Centavos as integers everywhere inside this
+ * file") — but the P&L read it as already-pesos. A ₱2,500 fuel line and a ₱1,000 meal line posted as
+ * ₱250,000 and ₱100,000, a real 100x figure surfaced on a live project during a walkthrough.
+ */
+describe("an approved liquidation posts at its real peso value, not 100x it", () => {
+  const suffix = randomUUID().slice(0, 8);
+  const actor = `liq-${suffix}`;
+
+  const accountIds: string[] = [];
+  const projectIds: string[] = [];
+  const advanceIds: string[] = [];
+
+  afterAll(async () => {
+    await db.cashAdvanceLiquidation.deleteMany({ where: { cashAdvanceId: { in: advanceIds } } });
+    await db.cashAdvance.deleteMany({ where: { id: { in: advanceIds } } });
+    await db.project.deleteMany({ where: { id: { in: projectIds } } });
+    await db.customerAccount.deleteMany({ where: { id: { in: accountIds } } });
+  });
+
+  it("reports the fuel and meal lines at their real pesos, and sums them under travel", async () => {
+    const account = await db.customerAccount.create({
+      data: { code: `LIQ-${randomUUID().slice(0, 12)}`, name: `Liq Co ${suffix}`, ownerId: actor },
+    });
+    accountIds.push(account.id);
+
+    const project = await db.project.create({
+      data: {
+        code: `LIQ-${randomUUID().slice(0, 10)}`,
+        name: `Liquidation-scale project ${suffix}`,
+        accountId: account.id,
+        scopeOfWork: "A job with a real liquidated advance.",
+      },
+    });
+    projectIds.push(project.id);
+
+    const advance = await db.cashAdvance.create({
+      data: {
+        number: `LIQ-CA-${randomUUID().slice(0, 8)}`,
+        projectId: project.id,
+        requestedById: actor,
+        purpose: "Fuel and meals",
+        amountRequested: "3500.00",
+        amountApproved: "3500.00",
+        neededBy: new Date(),
+        status: "released",
+        releasedById: actor,
+        releasedAt: new Date(),
+        liquidatedAt: new Date(),
+      },
+    });
+    advanceIds.push(advance.id);
+
+    await db.cashAdvanceLiquidation.create({
+      data: {
+        cashAdvanceId: advance.id,
+        submittedById: actor,
+        status: "approved",
+        reviewedById: actor,
+        reviewedAt: new Date(),
+        totalSpent: "3500.00",
+        lines: [
+          { date: "2026-09-09", category: "fuel", description: "fuel", amount: 250_000 },
+          { date: "2026-09-09", category: "meals", description: "meal", amount: 100_000 },
+        ] as object[],
+      },
+    });
+
+    const pnl = await projectPnlService(project.id);
+    expect(pnl.actualCost).toBe(3_500);
+    const travel = pnl.byCategory.find((row) => row.category === "travel");
+    expect(travel?.amount).toBe(3_500);
+  }, 60_000);
+});

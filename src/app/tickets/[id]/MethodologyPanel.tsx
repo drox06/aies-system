@@ -41,6 +41,7 @@ export function MethodologyPanel({
   projectId: string | null;
 }) {
   const gate = trpc.operations.methodologyGate.useQuery({ ticketId });
+  const prepared = trpc.operations.quotationPreparation.useQuery({ ticketId });
   const me = trpc.system.whoami.useQuery(undefined, { retry: false });
   const [showForm, setShowForm] = useState(false);
   const [showExternal, setShowExternal] = useState(false);
@@ -79,8 +80,10 @@ export function MethodologyPanel({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold">Method statement</h2>
         <StatusBadge tone={GATE_TONE[data.state] ?? "draft"}>
+          {/* docs/DECISIONS.md #197: no longer a gate, so "blocked" no longer claims mobilisation
+              is waiting on this — it isn't. */}
           {data.state === "blocked"
-            ? "Mobilisation blocked"
+            ? "Not yet approved"
             : data.state === "satisfied"
               ? "Clear"
               : data.state === "not_applicable"
@@ -90,6 +93,30 @@ export function MethodologyPanel({
       </div>
 
       <p className="mt-1 text-sm text-text-muted">{data.message}</p>
+
+      {/*
+        docs/DECISIONS.md #198: what the estimator already prepared at quoting, read-only. Shown
+        whenever the quotation ticked "needs a method statement," regardless of what the ticket's
+        own gate says — this is the reference the technician actually opens.
+      */}
+      {prepared.data?.needsMethodStatement && (
+        <div className="mt-2 rounded-md border border-border bg-surface-2 p-2.5">
+          <p className="text-xs font-medium text-text-muted">
+            Prepared at quoting ({prepared.data.number})
+          </p>
+          {prepared.data.methodStatementNotes && (
+            <p className="mt-1 text-sm whitespace-pre-wrap">{prepared.data.methodStatementNotes}</p>
+          )}
+          {prepared.data.methodStatementFileId && (
+            <a
+              href={`/api/files/${prepared.data.methodStatementFileId}?download=1`}
+              className="mt-1 inline-block text-sm text-blue-600 underline underline-offset-2"
+            >
+              Download the prepared document
+            </a>
+          )}
+        </div>
+      )}
 
       {data.methodology && (
         <p className="mt-2 flex flex-wrap items-baseline gap-2 text-sm">

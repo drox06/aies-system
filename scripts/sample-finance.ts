@@ -291,7 +291,7 @@ async function main() {
       [answerKey("supply", "power_supply")]: "Instrument air 6 barg, 4–20 mA positioner",
       [answerKey("installation", "scope_summary")]:
         "AIES removes both valves and fits the replacements. The customer isolates and purges.",
-      [answerKey("installation", "existing_equipment_tags")]: "CV-1101 and CV-1102",
+      [answerKey("installation", "equipment_tags")]: "CV-1101 and CV-1102",
       [answerKey("installation", "quantity_points")]: 2,
       [answerKey("installation", "site_access")]:
         "November turnaround, 06:00–18:00. Permit each morning from the shift supervisor.",

@@ -209,6 +209,15 @@ model Project {
   budgetCost    Decimal @default(0) @db.Decimal(14, 2)
   actualCost    Decimal @default(0) @db.Decimal(14, 2)
 
+  /// docs/DECISIONS.md #197 (company decision, 2026-09-09): labour cost as one entered figure,
+  /// replacing timesheets × cost rates in the P&L. Both "Hours spent" (the ticket panel) and Cost
+  /// Rates (the finance screen) were more than AIES's current operations need; a single number
+  /// here is what `projectPnlService` now reads for the labour line, and it flows through every
+  /// computation downstream of `actualCost` exactly as the timesheet total used to. Null means
+  /// nobody has entered a figure yet — distinct from zero, which means the project genuinely cost
+  /// nothing in labour.
+  manualLabourCost Decimal? @db.Decimal(14, 2)
+
   progressPct Int     @default(0)
   riskLevel   String  @default("low")
   holdReason  String?

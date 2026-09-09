@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { db } from "@/lib/db";
+import { writeAuditLog } from "@/server/core/audit/audit";
+import type { ActorMeta } from "@/server/core/crm/account-service";
+import { PROJECT_ENTITY_TYPE } from "@/server/core/operations/ticket-rules";
 import {
   projectPnl,
-  rateOn,
-  timesheetCost,
   type CostCategory,
   type CostLine,
 } from "@/server/core/finance/project-pnl-rules";
@@ -58,7 +59,14 @@ const EXPENSE_CATEGORY: Record<string, CostCategory> = {
 export async function projectPnlService(projectId: string) {
   const project = await db.project.findFirst({
     where: { id: projectId, deletedAt: null },
-    select: { id: true, code: true, name: true, accountId: true, status: true },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      accountId: true,
+      status: true,
+      manualLabourCost: true,
+    },
   });
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "That project no longer exists." });
@@ -132,7 +140,10 @@ export async function projectPnlService(projectId: string) {
     for (const raw of lines as { category?: string; amount?: number }[]) {
       costs.push({
         category: FIELD_EXPENSE_CATEGORY[raw.category ?? "other"] ?? "other",
-        amount: Number(raw.amount ?? 0),
+        // Liquidation lines are integer centavos, same rule as everywhere in cash-advance-service.ts
+        // ("Centavos as integers everywhere inside this file"). This read them as already-pesos and
+        // was wrong by 100x on every liquidated line — a ₱2,500 fuel line reported as ₱250,000.
+        amount: Number(raw.amount ?? 0) / 100,
         source: liquidation.cashAdvance.number,
       });
     }
@@ -160,82 +171,21 @@ export async function projectPnlService(projectId: string) {
     });
   }
 
-  // ---- 4. Labour from approved timesheets ----------------------------------------------------------
-  const timesheets = await db.timesheet.findMany({
-    where: {
-      deletedAt: null,
-      status: "approved",
-      OR: [{ projectId: project.id }, { ticketId: { in: ticketIds } }],
-    },
-    select: {
-      userId: true,
-      date: true,
-      regularHours: true,
-      overtimeHours: true,
-      travelHours: true,
-      standbyHours: true,
-    },
-  });
-
-  // `Timesheet` has no relation to `User`, so names are fetched rather than joined. Worth the extra
-  // query: a cost line reading "R. Santos" is one somebody can check, and "cm7x…" is not.
-  const workerNames = new Map(
-    (
-      await db.user.findMany({
-        where: { id: { in: [...new Set(timesheets.map((sheet) => sheet.userId))] } },
-        select: { id: true, name: true },
-      })
-    ).map((user) => [user.id, user.name]),
-  );
-
-  const rates = await db.costRate.findMany({
-    where: { deletedAt: null, userId: { in: [...new Set(timesheets.map((t) => t.userId))] } },
-    select: {
-      userId: true,
-      effectiveFrom: true,
-      hourlyCost: true,
-      overtimeMultiplier: true,
-      travelMultiplier: true,
-      standbyMultiplier: true,
-    },
-  });
-
+  // ---- 4. Labour, entered once -----------------------------------------------------------------
   /*
-    Days worked by somebody with no cost rate on file.
-
-    Counted and reported rather than guessed at. §6 makes this the number management cannot get
-    anywhere else, and an invented rate would put a fabricated figure into exactly that number.
-    Saying "eleven days have no rate" sends somebody to fix the rates; quietly costing them at zero
-    and saying nothing produces a margin that looks better than the job was.
+    docs/DECISIONS.md #197 (company decision, 2026-09-09): one entered figure, replacing timesheets
+    × cost rates. Both "Hours spent" (the ticket panel that recorded hours) and Cost Rates (the
+    finance screen that priced an hour) were more than AIES's current operations need — the company
+    asked for a single actual-labour-cost entry instead, which still flows through every computation
+    downstream of `actualCost` exactly the way the timesheet total used to.
   */
-  let daysWithNoRate = 0;
-
-  for (const sheet of timesheets) {
-    const rate = rateOn(
-      rates.filter((r) => r.userId === sheet.userId),
-      sheet.date,
-    );
-    if (!rate) {
-      daysWithNoRate += 1;
-      continue;
-    }
-    const amount = timesheetCost(
-      {
-        regularHours: Number(sheet.regularHours),
-        overtimeHours: Number(sheet.overtimeHours),
-        travelHours: Number(sheet.travelHours),
-        standbyHours: Number(sheet.standbyHours),
-      },
-      {
-        hourlyCost: Number(rate.hourlyCost),
-        overtimeMultiplier: Number(rate.overtimeMultiplier),
-        travelMultiplier: Number(rate.travelMultiplier),
-        standbyMultiplier: Number(rate.standbyMultiplier),
-      },
-    );
-    if (amount > 0) {
-      costs.push({ category: "labour", amount, source: workerNames.get(sheet.userId) ?? "labour" });
-    }
+  const labourCostEntered = project.manualLabourCost !== null;
+  if (labourCostEntered) {
+    costs.push({
+      category: "labour",
+      amount: Number(project.manualLabourCost),
+      source: "Entered manually",
+    });
   }
 
   // ---- 5. Materials issued from stock -------------------------------------------------------------
@@ -346,7 +296,8 @@ export async function projectPnlService(projectId: string) {
     ...pnl,
     /** What the figure does not know, said out loud rather than folded into it. */
     caveats: {
-      daysWithNoRate,
+      /** True once somebody has entered a labour cost; false means the labour line is simply absent. */
+      labourCostEntered,
       uncostedStockIssues,
       failedQaRounds: failedQa,
       /** True when no sales order was found — the margin is then meaningless, not zero. */
@@ -372,4 +323,52 @@ export async function projectPnlService(projectId: string) {
           .sort((a, b) => a.getTime() - b.getTime())[0] ?? null,
     },
   };
+}
+
+/**
+ * The one figure that replaced timesheets × cost rates (docs/DECISIONS.md #197). `null` clears it —
+ * distinct from `0`, which asserts the labour genuinely cost nothing.
+ */
+export async function setProjectLabourCostService(
+  actor: ActorMeta,
+  input: { projectId: string; amountPesos: number | null },
+) {
+  if (input.amountPesos !== null && input.amountPesos < 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Labour cost cannot be negative." });
+  }
+
+  const project = await db.project.findFirst({
+    where: { id: input.projectId, deletedAt: null },
+    select: { id: true, code: true, manualLabourCost: true },
+  });
+  if (!project) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That project no longer exists." });
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.project.update({
+      where: { id: project.id },
+      data: {
+        manualLabourCost: input.amountPesos === null ? null : String(input.amountPesos),
+        version: { increment: 1 },
+      },
+    });
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "labour_cost_entered",
+      entityType: PROJECT_ENTITY_TYPE,
+      entityId: project.id,
+      summary:
+        input.amountPesos === null
+          ? `Cleared the entered labour cost on ${project.code}.`
+          : `Set ${project.code}'s labour cost to ₱${input.amountPesos.toFixed(2)} ` +
+            `(was ${project.manualLabourCost ? `₱${Number(project.manualLabourCost).toFixed(2)}` : "not entered"}).`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { amountPesos: input.amountPesos };
 }

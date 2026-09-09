@@ -19,6 +19,7 @@ import { CustomerReplyPanel } from "./CustomerReplyPanel";
 import { IssuancePanel } from "./IssuancePanel";
 import { LineEditor, type DraftLine } from "./LineEditor";
 import { MarginPanel } from "./MarginPanel";
+import { PreparationPanel } from "./PreparationPanel";
 import { TermsPanel } from "./TermsPanel";
 import { RevisionPanel } from "./RevisionPanel";
 import { ScopeChangeBanner } from "./ScopeChangeBanner";
@@ -104,6 +105,11 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
     scopeChangeResolvedAt: string | null;
     scopeChangeResolution: string | null;
     scopeChangeResolutionNote: string | null;
+    needsMethodStatement: boolean;
+    methodStatementFileId: string | null;
+    methodStatementNotes: string | null;
+    materialsPreparedAtQuoting: boolean;
+    materialsNotes: string | null;
     lines: {
       // Sent all along; declared now because §3's PO check compares by line number, and a check
       // that matched on array position would misread any quotation whose lines were reordered.
@@ -340,6 +346,18 @@ export default function QuotationPage({ params }: { params: Promise<{ id: string
             validUntil={data.validUntil}
             warrantyTerms={data.warrantyTerms}
             termsAndConditions={data.termsAndConditions ?? []}
+            onSaved={refresh}
+          />
+
+          <PreparationPanel
+            quotationId={data.id}
+            version={data.version}
+            editable={editable}
+            needsMethodStatement={data.needsMethodStatement}
+            methodStatementFileId={data.methodStatementFileId}
+            methodStatementNotes={data.methodStatementNotes}
+            materialsPreparedAtQuoting={data.materialsPreparedAtQuoting}
+            materialsNotes={data.materialsNotes}
             onSaved={refresh}
           />
         </div>

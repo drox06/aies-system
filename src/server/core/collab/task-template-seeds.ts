@@ -71,7 +71,9 @@ export const TASK_TEMPLATE_SEEDS: TaskTemplateSpec[] = [
         description:
           "§4 will not let the job mobilise until the downpayment is in, so this is on the " +
           "critical path rather than after it.",
-        roleKeys: ["finance_officer"],
+        // vice_president alongside finance_officer: KJ holds the company's top finance role, and a
+        // finance-critical task must reach somebody even on a day nobody holds finance_officer.
+        roleKeys: ["finance_officer", "vice_president"],
         assignMode: "least_loaded",
         dueInDays: 1,
       },
@@ -146,7 +148,7 @@ export const TASK_TEMPLATE_SEEDS: TaskTemplateSpec[] = [
         description:
           "Raised with the request rather than after approval, as §2 specifies, so finance can see " +
           "what is coming. The gate itself still refuses to release an advance nobody has approved.",
-        roleKeys: ["finance_officer"],
+        roleKeys: ["finance_officer", "vice_president"],
         assignMode: "least_loaded",
         dueFrom: "neededBy",
       },
@@ -321,7 +323,7 @@ export const TASK_TEMPLATE_SEEDS: TaskTemplateSpec[] = [
         description:
           "The close-out is what unlocks §4's final billing gate. Every day this waits is a day " +
           "the money is not being collected on work that is finished.",
-        roleKeys: ["finance_officer"],
+        roleKeys: ["finance_officer", "vice_president"],
         assignMode: "least_loaded",
         dueInDays: 2,
       },

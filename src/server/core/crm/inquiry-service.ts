@@ -741,6 +741,30 @@ export async function transitionInquiryService(actor: ActorMeta, input: Transiti
   });
 
   await reindexInquiry(result.id);
+
+  /**
+   * §8's `inquiry.quoting_started` → module 02's draft, done here rather than left to the job
+   * queue — the same reasoning as `send-service.ts`'s `quotation.sent` mirror: production drains
+   * the queue once a minute (vercel.json), and a card sitting on "Quoting" with no draft to open
+   * for up to that long read as the pipeline being slow rather than a queue not yet caught up.
+   * Found 2026-09-09 alongside the `quotation.sent` case, same underlying complaint.
+   *
+   * Dynamically imported so module 01 does not statically depend on module 02.
+   * `createDraftForInquiry` is idempotent (`created: false` on a second call), so the manifest
+   * consumer still firing later on the same event is a harmless no-op, not a duplicate draft.
+   */
+  if (result.status === "quoting") {
+    const { createDraftForInquiry } = await import("@/server/core/quotation/quotation-service");
+    try {
+      await createDraftForInquiry({ inquiryId: result.id, actorId: actor.actorId });
+    } catch (error) {
+      console.warn(
+        `[crm] inquiry.quoting_started could not draft a quotation for ${result.number}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
   return result;
 }
 

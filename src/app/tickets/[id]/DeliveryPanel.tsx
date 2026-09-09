@@ -84,6 +84,9 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
   );
 
   const canExecute = (me.data?.permissions ?? []).includes("delivery.execute");
+  const canOverrideDownpayment = (me.data?.permissions ?? []).includes(
+    "operations.override_downpayment_gate",
+  );
   const refresh = () => void flow.refetch();
 
   const start = trpc.operations.startDeliveryFlow.useMutation({ onSuccess: refresh });
@@ -100,8 +103,17 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
       refresh();
     },
   });
+  const overrideDownpayment = trpc.operations.overrideDeliveryDownpaymentGate.useMutation({
+    onSuccess: () => {
+      setOverridingDownpayment(false);
+      setDownpaymentOverrideReasonDraft("");
+      refresh();
+    },
+  });
 
   const [lines, setLines] = useState<DraftLine[] | null>(null);
+  const [overridingDownpayment, setOverridingDownpayment] = useState(false);
+  const [downpaymentOverrideReasonDraft, setDownpaymentOverrideReasonDraft] = useState("");
   const [vehicleRef, setVehicleRef] = useState("");
   const [driverName, setDriverName] = useState("");
   const [externalDrNumber, setExternalDrNumber] = useState("");
@@ -300,6 +312,71 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
           </div>
         )}
       </dl>
+
+      {/*
+        docs/DECISIONS.md #196. Said before anyone tries to mobilise or book a courier, the same
+        place the installation lane's mobilisation readiness says it — not only as a rejected
+        mutation after the fact.
+      */}
+      {data.downpayment.blocks && (
+        <div className="mt-3 rounded-md border-2 border-amber-400 bg-amber-50 p-2.5 text-sm text-amber-900">
+          {data.downpaymentOverrideReason ? (
+            <p>
+              <span className="font-medium">Downpayment overridden:</span>{" "}
+              {data.downpaymentOverrideReason}
+            </p>
+          ) : (
+            <>
+              <p>{data.downpayment.message}</p>
+              {canOverrideDownpayment &&
+                (overridingDownpayment ? (
+                  <div className="mt-2">
+                    <Label htmlFor="dp-override-reason">Why send it anyway</Label>
+                    <Textarea
+                      id="dp-override-reason"
+                      rows={2}
+                      value={downpaymentOverrideReasonDraft}
+                      onChange={(event) => setDownpaymentOverrideReasonDraft(event.target.value)}
+                    />
+                    <div className="mt-1 flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={
+                          overrideDownpayment.isPending ||
+                          downpaymentOverrideReasonDraft.trim().length < 10
+                        }
+                        onClick={() =>
+                          overrideDownpayment.mutate({
+                            ticketId,
+                            reason: downpaymentOverrideReasonDraft.trim(),
+                          })
+                        }
+                      >
+                        Override the gate
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOverridingDownpayment(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setOverridingDownpayment(true)}
+                  >
+                    Send it anyway
+                  </Button>
+                ))}
+            </>
+          )}
+        </div>
+      )}
 
       {/*
         The billing risk, said where it is happening rather than only in a nightly email. The goods
