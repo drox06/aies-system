@@ -7725,3 +7725,50 @@ number coming back), and it drops off the list once released. One pre-existing t
 ("the list is empty before anybody asks") was updated to match the new, intended shape — it now
 asserts `readinessAskedAt` is null beforehand instead of asserting the milestone is absent. All 11
 tests in the file pass; `tsc --noEmit` and `eslint` are clean.
+
+---
+
+## #206 — Two new printable documents: a filled-in checklist, and a service report
+
+**2026-09-10 (company request).** "All the checklists filled in on site should have a PDF output, so
+it can be printed and signed. App created service reports should also have a PDF output, so it can
+also be printed." Neither existed. Both follow the platform's established PDF architecture exactly
+(`@react-pdf/renderer`, generated on demand, never stored — a stored copy would need its own
+invalidation the moment somebody corrected a finding after the fact, the same reasoning the close-out
+pack and site inspection PDFs already give).
+
+**One checklist template covers all eleven seeded keys** (site inspection, mobilisation readiness, QA
+inspection, loop check, toolbox talk, and the rest) — they share one schema (sections of items, one
+answer each per §15), so `ChecklistResponseDocument.tsx` is generic rather than templated per key. It
+prints each item's formatted answer, a failure's cause and action inline (§15's conditional logic,
+the reason a checklist is worth reading), and embeds any photo answers via the same `imageDataUri`
+helper the site inspection report already uses. A draft downloads and prints — same rule
+`MethodStatementDocument` follows — with a DRAFT mark rather than being withheld, since reviewing an
+in-progress checklist on paper before signing it off is the normal case here, not an edge one.
+
+**Service reports are scoped to app-authored ones only.** `ServiceReport.externalDocument` already
+exists and already means exactly this: a report written on the customer's own form and uploaded
+already signed. That upload *is* the document of record — generating a second, AIES-authored PDF for
+it would be a copy of a copy — so `renderServiceReportPdf`/the `/api/service-reports/[id]/pdf` route
+both refuse an external one with a message pointing at the upload instead, and the panel does not
+even offer the link for one. `ServiceReportDocument.tsx` prints work performed, findings,
+recommendations, parts used, equipment covered, both signatures (embedded where captured, a plain
+line where not, with the waiver reason shown if signature was explicitly waived), and any attached
+photos.
+
+**Two company decisions pinned down before writing either document**: mobilisation's own tools/PPE
+checklists stay out of scope — only the eleven `ChecklistResponse` keys, since those are the ones
+with one shared, template-driven schema; and both documents download and print at any status, a
+draft simply marked as one, rather than being withheld until signed off.
+
+**Verified**: `pdf.test.ts` gained two describe blocks. The checklist one fills the seeded
+`site_inspection` template with a failure (cause and action asserted), a `pass_fail_na` answered
+"not applicable", and a real uploaded photo (embedded as a JPEG data URI, same round-trip the site
+inspection test already proves), then separately signs off the seeded `toolbox_talk_jsa` template
+end to end and checks the signer's name prints. The service report one drives a report through
+`saveServiceReportService` → `advanceServiceReportService` to `"signed"` with a real customer
+signature and an attached photo, checks both embed, and separately proves an `externalDocument`
+report is refused with a message naming the upload as the record. All 16 tests in the file pass (one
+transient failure under full-suite concurrent load, traced with a standalone repro to a Supabase
+fetch blip rather than the code — reran clean in isolation and as part of the full suite again);
+`tsc --noEmit` and `eslint` are clean.

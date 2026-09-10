@@ -94,6 +94,22 @@ export function ServiceReportPanel({ ticketId }: { ticketId: string }) {
               </p>
             )}
 
+            {/*
+              So it can be printed and signed. Not offered for a report written on the customer's
+              own form and uploaded already signed — that upload is the document of record, and a
+              second, AIES-generated PDF for it would be a copy of a copy.
+            */}
+            {!row.externalDocument && (
+              <a
+                href={`/api/service-reports/${row.id}/pdf`}
+                className="mt-1 inline-block text-xs underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download PDF
+              </a>
+            )}
+
             {canApprove && row.status !== "approved" && (
               <AdvanceControls
                 id={row.id}

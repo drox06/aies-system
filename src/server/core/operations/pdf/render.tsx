@@ -27,6 +27,21 @@ import {
 } from "../tc-rules";
 import { closeOutChecklistForProjectService } from "../close-out-service";
 import {
+  SERVICE_REPORT_STATUS_LABELS,
+  type PartUsed,
+  type ServiceReportStatus,
+} from "../close-out-rules";
+import {
+  CHECKLIST_RESPONSE_ENTITY_TYPE,
+  ITEM_TYPE_LABELS,
+  readAnswers,
+  readSections,
+  checkResponse,
+  summarise as summariseChecklist,
+  type AnswerValue,
+  type ChecklistItem,
+} from "../checklist-rules";
+import {
   CloseOutPackDocument,
   type CloseOutPackPdfProps,
   type PackIndexEntry,
@@ -47,6 +62,19 @@ import {
   type SiteInspectionPhoto,
   type SiteInspectionReportPdfProps,
 } from "./SiteInspectionReportDocument";
+import {
+  ChecklistResponseDocument,
+  type ChecklistAnswerRow,
+  type ChecklistPhoto,
+  type ChecklistResponsePdfProps,
+  type ChecklistSectionRow,
+} from "./ChecklistResponseDocument";
+import {
+  ServiceReportDocument,
+  type ServiceReportPart,
+  type ServiceReportPdfProps,
+  type ServiceReportPhoto,
+} from "./ServiceReportDocument";
 
 /**
  * Module 04's documents (specs/04-operations-projects.md §8, §10 and §12).
@@ -718,4 +746,300 @@ export async function renderSiteInspectionReportPdf(inspectionId: string): Promi
   return renderToBuffer(
     <SiteInspectionReportDocument {...await buildSiteInspectionReportProps(inspectionId)} />,
   );
+}
+
+// ---- §15's filled-in checklist -----------------------------------------------------------------
+
+function formatChecklistAnswer(item: ChecklistItem, answer: AnswerValue | undefined): string {
+  if (!answer) return "—";
+  if (answer.na) return "Not applicable";
+
+  switch (item.type) {
+    case "pass_fail":
+    case "pass_fail_na":
+      return answer.value === "pass" ? "Pass" : answer.value === "fail" ? "Fail" : "—";
+    case "numeric":
+    case "instrument_reading":
+      return typeof answer.value === "number"
+        ? `${answer.value}${item.unit ? ` ${item.unit}` : ""}`
+        : "—";
+    case "select_multi":
+      return Array.isArray(answer.value) && answer.value.length > 0 ? answer.value.join(", ") : "—";
+    case "select_single":
+    case "text":
+    case "signature":
+      return typeof answer.value === "string" && answer.value.trim().length > 0
+        ? answer.value
+        : "—";
+    case "photo": {
+      const count = answer.photoFileIds?.length ?? 0;
+      return count > 0 ? `${count} photo${count === 1 ? "" : "s"} attached` : "No photo attached";
+    }
+    default:
+      return "—";
+  }
+}
+
+export async function buildChecklistResponseProps(
+  responseId: string,
+): Promise<ChecklistResponsePdfProps> {
+  const response = await db.checklistResponse.findFirst({
+    where: { id: responseId, deletedAt: null },
+  });
+  if (!response) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That checklist no longer exists." });
+  }
+
+  const [template, ticket, project, signatureFile, attachedFiles] = await Promise.all([
+    db.checklistTemplate.findUnique({ where: { id: response.templateId }, select: { name: true } }),
+    // No Prisma relation on `ChecklistResponse` — see the model's own comment on why `ticketId` is a
+    // plain id rather than one — so the linked ticket is looked up by hand.
+    response.ticketId
+      ? db.ticket.findUnique({
+          where: { id: response.ticketId },
+          select: {
+            number: true,
+            account: { select: { name: true } },
+            site: { select: { name: true } },
+          },
+        })
+      : null,
+    response.projectId
+      ? db.project.findUnique({
+          where: { id: response.projectId },
+          select: { code: true, account: { select: { name: true } } },
+        })
+      : null,
+    response.signatureFileId
+      ? db.fileObject.findUnique({
+          where: { id: response.signatureFileId },
+          select: { storageKey: true, webDerivativeKey: true, filename: true, mimeType: true },
+        })
+      : null,
+    db.fileObject.findMany({
+      where: { entityType: CHECKLIST_RESPONSE_ENTITY_TYPE, entityId: responseId, deletedAt: null },
+      select: {
+        id: true,
+        storageKey: true,
+        webDerivativeKey: true,
+        filename: true,
+        mimeType: true,
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  const snapshot =
+    response.snapshot && typeof response.snapshot === "object" && !Array.isArray(response.snapshot)
+      ? (response.snapshot as Record<string, unknown>)
+      : {};
+  const sections = readSections(snapshot.sections);
+  const answers = readAnswers(response.answers);
+  const check = checkResponse(sections, answers);
+
+  const embeddedById = new Map<string, string | null>();
+  await Promise.all(
+    attachedFiles.map(async (file) => {
+      embeddedById.set(file.id, await imageDataUri(file));
+    }),
+  );
+
+  const sectionRows: ChecklistSectionRow[] = sections.map((section) => ({
+    key: section.key,
+    title: section.title,
+    items: section.items.map((item): ChecklistAnswerRow => {
+      const answer = answers[item.key];
+      const photoIds = answer?.photoFileIds ?? [];
+      const photos: ChecklistPhoto[] = photoIds.flatMap((id, index) => {
+        const src = embeddedById.get(id);
+        const file = attachedFiles.find((f) => f.id === id);
+        return src ? [{ src, caption: file?.filename ?? `Photo ${index + 1}` }] : [];
+      });
+
+      return {
+        key: item.key,
+        label: item.label,
+        typeLabel: ITEM_TYPE_LABELS[item.type],
+        answerText: formatChecklistAnswer(item, answer),
+        note: answer?.note ?? null,
+        failed: check.failures.some((f) => f.itemKey === item.key),
+        cause: answer?.cause ?? null,
+        action: answer?.action ?? null,
+        photos,
+      };
+    }),
+  }));
+
+  const linked = ticket
+    ? { label: "Ticket", value: ticket.number, customer: ticket.account.name }
+    : project
+      ? { label: "Project", value: project.code, customer: project.account.name }
+      : { label: null, value: null, customer: null };
+
+  return {
+    company: getCompanyDetails(),
+    logoSrc: await logoDataUri(),
+
+    templateName: template?.name ?? response.templateKey,
+    templateKey: response.templateKey,
+    templateVersion: response.templateVersion,
+    statusLabel: response.status === "complete" ? "Signed off" : "In progress",
+    isFinal: response.status === "complete",
+
+    linkedToLabel: linked.label,
+    linkedToValue: linked.value,
+    customerName: linked.customer,
+    siteName: ticket?.site?.name ?? null,
+
+    startedAt: fmtDate(response.startedAt),
+    completedAt: response.completedAt ? fmtDate(response.completedAt) : null,
+
+    sections: sectionRows,
+    summaryLine: summariseChecklist(check),
+    failuresCount: check.failures.length,
+
+    signedByName: response.signedByName,
+    signedByPosition: response.signedByPosition,
+    signatureSrc: signatureFile ? await imageDataUri(signatureFile) : null,
+
+    generatedAt: fmtDate(new Date()),
+  };
+}
+
+export async function renderChecklistResponsePdf(responseId: string): Promise<Buffer> {
+  return renderToBuffer(
+    <ChecklistResponseDocument {...await buildChecklistResponseProps(responseId)} />,
+  );
+}
+
+// ---- §12's service report -----------------------------------------------------------------------
+
+function readServiceParts(raw: unknown): PartUsed[] {
+  return Array.isArray(raw)
+    ? raw.filter(
+        (entry): entry is PartUsed =>
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as PartUsed).description === "string",
+      )
+    : [];
+}
+
+export async function buildServiceReportProps(reportId: string): Promise<ServiceReportPdfProps> {
+  const report = await db.serviceReport.findFirst({
+    where: { id: reportId, deletedAt: null },
+    include: {
+      ticket: {
+        select: {
+          number: true,
+          account: { select: { name: true } },
+          site: { select: { name: true } },
+        },
+      },
+      project: { select: { code: true } },
+    },
+  });
+  if (!report) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "That service report no longer exists." });
+  }
+  if (report.externalDocument) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "This report was written on the customer's own form and uploaded already signed — that " +
+        "upload is the document of record. Open it from the report's attachments instead.",
+    });
+  }
+
+  const parts = readServiceParts(report.partsUsed);
+
+  const [preparedBy, equipment, customerSigFile, technicianSigFile, photoFiles] = await Promise.all(
+    [
+      db.user.findUnique({ where: { id: report.preparedById }, select: { name: true } }),
+      report.equipmentIds.length
+        ? db.equipment.findMany({
+            where: { id: { in: report.equipmentIds } },
+            select: { description: true, tagNumber: true },
+          })
+        : [],
+      report.customerSignatureFileId
+        ? db.fileObject.findUnique({
+            where: { id: report.customerSignatureFileId },
+            select: { storageKey: true, webDerivativeKey: true, filename: true, mimeType: true },
+          })
+        : null,
+      report.technicianSignatureFileId
+        ? db.fileObject.findUnique({
+            where: { id: report.technicianSignatureFileId },
+            select: { storageKey: true, webDerivativeKey: true, filename: true, mimeType: true },
+          })
+        : null,
+      report.photoFileIds.length
+        ? db.fileObject.findMany({
+            where: { id: { in: report.photoFileIds } },
+            select: { storageKey: true, webDerivativeKey: true, filename: true, mimeType: true },
+          })
+        : [],
+    ],
+  );
+
+  const embeddedPhotos = await Promise.all(
+    photoFiles.map(async (file, index) => {
+      const src = await imageDataUri(file);
+      return src ? { src, caption: file.filename || `Photo ${index + 1}` } : null;
+    }),
+  );
+  const photos = embeddedPhotos.filter((entry): entry is ServiceReportPhoto => entry !== null);
+
+  return {
+    company: getCompanyDetails(),
+    logoSrc: await logoDataUri(),
+
+    number: report.number,
+    statusLabel:
+      SERVICE_REPORT_STATUS_LABELS[report.status as ServiceReportStatus] ?? report.status,
+    isDraft: report.status === "draft",
+
+    ticketNumber: report.ticket.number,
+    projectCode: report.project?.code ?? null,
+    customerName: report.ticket.account.name,
+    siteName: report.ticket.site?.name ?? null,
+
+    startedAt: report.startedAt ? fmtDate(report.startedAt) : null,
+    finishedAt: report.finishedAt ? fmtDate(report.finishedAt) : null,
+    travelTimeMin: report.travelTimeMin,
+    standbyTimeMin: report.standbyTimeMin,
+
+    workPerformed: report.workPerformed,
+    findings: report.findings,
+    recommendations: report.recommendations,
+
+    parts: parts.map((part): ServiceReportPart => ({
+      description: part.description,
+      partNumber: part.partNumber ?? null,
+      quantity: String(part.quantity),
+      unit: part.unit ?? null,
+      fromStock: part.fromStock ?? false,
+    })),
+    equipment,
+
+    followUpRequired: report.followUpRequired,
+    followUpNotes: report.followUpNotes,
+
+    photos,
+    omittedImageCount: photoFiles.length - photos.length,
+
+    customerSignatureSrc: customerSigFile ? await imageDataUri(customerSigFile) : null,
+    signerName: report.customerName,
+    signerPosition: report.customerPosition,
+    signatureWaiverReason: report.signatureWaiverReason,
+    technicianSignatureSrc: technicianSigFile ? await imageDataUri(technicianSigFile) : null,
+    preparedByName: preparedBy?.name ?? null,
+
+    generatedAt: fmtDate(new Date()),
+  };
+}
+
+export async function renderServiceReportPdf(reportId: string): Promise<Buffer> {
+  return renderToBuffer(<ServiceReportDocument {...await buildServiceReportProps(reportId)} />);
 }

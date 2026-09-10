@@ -2,14 +2,18 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import {
+  buildChecklistResponseProps,
   buildCloseOutPackProps,
   buildDailyProgressProps,
   buildMethodStatementProps,
+  buildServiceReportProps,
   buildSiteInspectionReportProps,
   buildTcCertificateProps,
+  renderChecklistResponsePdf,
   renderCloseOutPackPdf,
   renderDailyProgressPdf,
   renderMethodStatementPdf,
+  renderServiceReportPdf,
   renderSiteInspectionReportPdf,
   renderTcCertificatePdf,
 } from "@/server/core/operations/pdf/render";
@@ -17,7 +21,18 @@ import {
   createMethodologyService,
   saveMethodologyService,
 } from "@/server/core/operations/methodology-service";
-import { upsertCloseOutService } from "@/server/core/operations/close-out-service";
+import {
+  advanceServiceReportService,
+  saveServiceReportService,
+  upsertCloseOutService,
+} from "@/server/core/operations/close-out-service";
+import {
+  completeResponseService,
+  saveAnswersService,
+  startResponseService,
+} from "@/server/core/operations/checklist-service";
+import { CHECKLIST_RESPONSE_ENTITY_TYPE } from "@/server/core/operations/checklist-rules";
+import { SERVICE_REPORT_ENTITY_TYPE } from "@/server/core/operations/close-out-rules";
 import { SITE_INSPECTION_ENTITY_TYPE } from "@/server/core/operations/site-inspection-rules";
 import { createStandaloneTicketService } from "@/server/core/operations/ticket-service";
 import { uploadFile } from "@/server/core/storage/storage";
@@ -42,6 +57,8 @@ const progressIds: string[] = [];
 const userIds: string[] = [];
 const methodologyIds: string[] = [];
 const inspectionIds: string[] = [];
+const checklistResponseIds: string[] = [];
+const serviceReportIds: string[] = [];
 const fileIds: string[] = [];
 const storageKeys: string[] = [];
 
@@ -101,6 +118,11 @@ async function makeFixture(user: AuthedUser) {
 afterAll(async () => {
   await db.auditLog.deleteMany({ where: { entityId: { in: inspectionIds } } });
   await db.siteInspection.deleteMany({ where: { id: { in: inspectionIds } } });
+  await db.auditLog.deleteMany({
+    where: { entityId: { in: [...checklistResponseIds, ...serviceReportIds] } },
+  });
+  await db.checklistResponse.deleteMany({ where: { id: { in: checklistResponseIds } } });
+  await db.serviceReport.deleteMany({ where: { id: { in: serviceReportIds } } });
   await db.fileObject.deleteMany({ where: { id: { in: fileIds } } });
   for (const key of storageKeys) {
     await supabaseStorageDriver.remove(key).catch(() => {});
@@ -609,4 +631,244 @@ describe("§6.2's method statement", () => {
     const pdf = await renderMethodStatementPdf(method.id);
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
   });
+});
+
+// A minimal, real, decodable PNG — sharp needs bytes it can actually resize, not a stub.
+const REAL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
+/**
+ * §15's filled-in checklist, added at the company's request: "all the checklists filled in on site
+ * should have a PDF output, so it can be printed and signed." One document template covers all
+ * eleven seeded checklist keys — they share one schema (sections of items, one answer each) — so
+ * this exercises it against the seeded `site_inspection` key (a realistic mix of pass/fail,
+ * pass/fail/na and photo items) and the seeded `toolbox_talk_jsa` key (simple enough to sign off
+ * cleanly in one test).
+ */
+describe("§15's filled-in checklist", () => {
+  it("shows a failure's cause and action, marks N/A, and embeds a photo answer", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const response = await startResponseService(actorFor(user), {
+      templateKey: "site_inspection",
+      ticketId: ticket.id,
+    });
+    checklistResponseIds.push(response.id);
+
+    const file = await uploadFile({
+      entityType: CHECKLIST_RESPONSE_ENTITY_TYPE,
+      entityId: response.id,
+      uploaderId: user.id,
+      filename: "site-access.png",
+      mimeType: "image/png",
+      buffer: REAL_PNG,
+    });
+    fileIds.push(file.id);
+    storageKeys.push(file.storageKey);
+    if (file.webDerivativeKey) storageKeys.push(file.webDerivativeKey);
+
+    await saveAnswersService(actorFor(user), {
+      responseId: response.id,
+      answers: {
+        site_reachable: { value: "fail", cause: "Gate padlocked", action: "Called the caretaker" },
+        working_at_height: { na: true },
+        power_available: { value: "pass" },
+        site_photos: { photoFileIds: [file.id] },
+      },
+    });
+
+    const props = await buildChecklistResponseProps(response.id);
+
+    const access = props.sections.find((s) => s.key === "access")!;
+    const reachable = access.items.find((i) => i.key === "site_reachable")!;
+    expect(reachable.answerText).toBe("Fail");
+    expect(reachable.failed).toBe(true);
+    expect(reachable.cause).toBe("Gate padlocked");
+    expect(reachable.action).toBe("Called the caretaker");
+
+    const height = access.items.find((i) => i.key === "working_at_height")!;
+    expect(height.answerText).toBe("Not applicable");
+    expect(height.failed).toBe(false);
+
+    const photoItem = access.items.find((i) => i.key === "site_photos")!;
+    expect(photoItem.answerText).toBe("1 photo attached");
+    expect(photoItem.photos).toHaveLength(1);
+    // sharp resizes every image/* upload to a JPEG derivative — this is that photo, round-tripped.
+    expect(photoItem.photos[0]!.src.startsWith("data:image/jpeg;base64,")).toBe(true);
+
+    expect(props.isFinal).toBe(false);
+    expect(props.statusLabel).toBe("In progress");
+    expect(props.failuresCount).toBe(1);
+    expect(props.linkedToLabel).toBe("Ticket");
+    expect(props.linkedToValue).toBe(ticket.number);
+    expect(props.templateName).toBe("Site inspection");
+
+    const pdf = await renderChecklistResponsePdf(response.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    // A page with a real embedded photo is not a few hundred bytes.
+    expect(pdf.length).toBeGreaterThan(3000);
+  }, 60_000);
+
+  it("prints who signed off a completed checklist", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const response = await startResponseService(actorFor(user), {
+      templateKey: "toolbox_talk_jsa",
+      ticketId: ticket.id,
+    });
+    checklistResponseIds.push(response.id);
+
+    await saveAnswersService(actorFor(user), {
+      responseId: response.id,
+      answers: {
+        hazards_identified: { value: "Working at height, pinch points on the winch." },
+        controls_agreed: { value: "pass" },
+        emergency_route: { value: "pass" },
+        attendees: { value: "J. Cruz, R. Santos" },
+        crew_signature: { value: "J. Cruz" },
+      },
+    });
+    await completeResponseService(actorFor(user), {
+      responseId: response.id,
+      signedByName: "J. Cruz",
+      signedByPosition: "Crew lead",
+    });
+
+    const props = await buildChecklistResponseProps(response.id);
+    expect(props.isFinal).toBe(true);
+    expect(props.statusLabel).toBe("Signed off");
+    expect(props.summaryLine).toBe("All 5 passed");
+    expect(props.failuresCount).toBe(0);
+    expect(props.signedByName).toBe("J. Cruz");
+    expect(props.signedByPosition).toBe("Crew lead");
+    expect(props.completedAt).not.toBeNull();
+
+    const pdf = await renderChecklistResponsePdf(response.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  }, 60_000);
+});
+
+/**
+ * §12's service report, added alongside the checklist PDF at the same request: "app created service
+ * reports should also have a PDF output, so it can also be printed."
+ */
+describe("§12's service report", () => {
+  it("carries the whole report and embeds the customer's signature and photos", async () => {
+    const user = await makeUser();
+    const { project, ticket } = await makeFixture(user);
+
+    const report = await saveServiceReportService(actorFor(user), {
+      ticketId: ticket.id,
+      workPerformed: "Replaced the flow transmitter and recalibrated the loop.",
+      findings: "Original unit had a corroded terminal block.",
+      recommendations: "Re-inspect in six months given the site's humidity.",
+      partsUsed: [
+        { description: "Flow transmitter FT-100", quantity: 1, unit: "pc", fromStock: true },
+      ],
+      startedAt: new Date("2026-09-10T08:00:00.000Z"),
+      finishedAt: new Date("2026-09-10T11:30:00.000Z"),
+      travelTimeMin: 45,
+      standbyTimeMin: 0,
+      followUpRequired: true,
+      followUpNotes: "Order a spare terminal block for next time.",
+    });
+    serviceReportIds.push(report.id);
+
+    const signatureFile = await uploadFile({
+      entityType: SERVICE_REPORT_ENTITY_TYPE,
+      entityId: report.id,
+      uploaderId: user.id,
+      filename: "customer-signature.png",
+      mimeType: "image/png",
+      buffer: REAL_PNG,
+    });
+    fileIds.push(signatureFile.id);
+    storageKeys.push(signatureFile.storageKey);
+    if (signatureFile.webDerivativeKey) storageKeys.push(signatureFile.webDerivativeKey);
+
+    await advanceServiceReportService(actorFor(user), {
+      id: report.id,
+      target: "signed",
+      customerSignatureFileId: signatureFile.id,
+      customerName: "Plant Engineer",
+      customerPosition: "Maintenance Manager",
+    });
+
+    const photoFile = await uploadFile({
+      entityType: SERVICE_REPORT_ENTITY_TYPE,
+      entityId: report.id,
+      uploaderId: user.id,
+      filename: "corroded-terminal.png",
+      mimeType: "image/png",
+      buffer: REAL_PNG,
+    });
+    fileIds.push(photoFile.id);
+    storageKeys.push(photoFile.storageKey);
+    if (photoFile.webDerivativeKey) storageKeys.push(photoFile.webDerivativeKey);
+    await db.serviceReport.update({
+      where: { id: report.id },
+      data: { photoFileIds: [photoFile.id] },
+    });
+
+    const props = await buildServiceReportProps(report.id);
+
+    expect(props.number).toBe(report.number);
+    expect(props.workPerformed).toContain("Replaced the flow transmitter");
+    expect(props.parts).toHaveLength(1);
+    expect(props.parts[0]!.description).toBe("Flow transmitter FT-100");
+    expect(props.customerName).toBeTruthy();
+    expect(props.projectCode).toBe(project.code);
+    expect(props.ticketNumber).toBe(ticket.number);
+    expect(props.followUpRequired).toBe(true);
+    expect(props.followUpNotes).toContain("terminal block");
+
+    expect(props.isDraft).toBe(false);
+    expect(props.statusLabel).toBe("Signed by the customer");
+    expect(props.signerName).toBe("Plant Engineer");
+    expect(props.signerPosition).toBe("Maintenance Manager");
+    expect(props.customerSignatureSrc?.startsWith("data:image/jpeg;base64,")).toBe(true);
+
+    expect(props.photos).toHaveLength(1);
+    expect(props.photos[0]!.src.startsWith("data:image/jpeg;base64,")).toBe(true);
+
+    const pdf = await renderServiceReportPdf(report.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+    expect(pdf.length).toBeGreaterThan(3000);
+  }, 60_000);
+
+  it("marks a draft, and refuses an externally-authored report", async () => {
+    const user = await makeUser();
+    const { ticket } = await makeFixture(user);
+
+    const draft = await saveServiceReportService(actorFor(user), {
+      ticketId: ticket.id,
+      workPerformed: "Preliminary visit — full write-up to follow.",
+    });
+    serviceReportIds.push(draft.id);
+
+    const draftProps = await buildServiceReportProps(draft.id);
+    expect(draftProps.isDraft).toBe(true);
+    expect(draftProps.statusLabel).toBe("Draft");
+    const pdf = await renderServiceReportPdf(draft.id);
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+
+    const external = await db.serviceReport.create({
+      data: {
+        number: `AIESSR-PDF${randomUUID().slice(0, 5)}`,
+        ticketId: ticket.id,
+        workPerformed: "Written on the customer's own job sheet.",
+        externalDocument: true,
+        preparedById: user.id,
+      },
+    });
+    serviceReportIds.push(external.id);
+
+    // Its uploaded form is the document of record — generating a second, AIES-authored PDF for it
+    // would be a copy of a copy, not the report.
+    await expect(buildServiceReportProps(external.id)).rejects.toThrow(/document of record/);
+  }, 60_000);
 });

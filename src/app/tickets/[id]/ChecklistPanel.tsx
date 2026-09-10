@@ -127,6 +127,15 @@ export function ChecklistPanel({ ticketId }: { ticketId: string }) {
                   </>
                 )}
               </p>
+              {/* So it can be printed and signed — a draft downloads too, marked as one. */}
+              <a
+                href={`/api/checklists/${row.id}/pdf`}
+                className="mt-1 inline-block text-xs underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download PDF
+              </a>
 
               {confirmingDiscard === row.id && (
                 <div className="mt-2 rounded-md border-2 border-amber-400 bg-amber-50 p-3">
