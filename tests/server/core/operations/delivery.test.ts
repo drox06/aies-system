@@ -10,6 +10,7 @@ import {
   issueDeliveryReceiptService,
   logDeliveryAttemptService,
   mobilizeDeliveryService,
+  overrideDeliveryGoodsReceivedGateService,
   recordCourierPodService,
   setDeliveryModeService,
   startDeliveryFlowService,
@@ -296,6 +297,75 @@ describe("§13.1's gate: no DR, no movement", () => {
         externalRefFileId: "",
       }),
     ).rejects.toThrow(/external delivery receipt/);
+  });
+});
+
+describe("docs/DECISIONS.md #204: the goods-received gate", () => {
+  it("does not block a goods-only order that never raised a supplier PO", async () => {
+    // makeSalesOrder's fixture never raises one — #204's own fix to `createSalesOrderFromPoService`
+    // is what makes this "not_required" rather than a stale "pending" from creation.
+    const { ticket, order } = await makeDeliveryFlow();
+    const fresh = await db.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(fresh.procurementStatus).toBe("not_required");
+
+    await issueFor(ticket.id, order.id);
+    await expect(
+      mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("blocks movement while supplier goods are still outstanding, and clears once received", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    await issueFor(ticket.id, order.id);
+    await db.salesOrder.update({ where: { id: order.id }, data: { procurementStatus: "ordered" } });
+
+    await expect(
+      mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" }),
+    ).rejects.toThrow(/waiting on the supplier/i);
+
+    const flow = await getDeliveryFlowService(ticket.id);
+    expect(flow?.goodsReceived.blocks).toBe(true);
+
+    await db.salesOrder.update({
+      where: { id: order.id },
+      data: { procurementStatus: "received" },
+    });
+    await expect(
+      mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("lets the override actually open the check, and refuses one with nothing to override", async () => {
+    const { ticket, order } = await makeDeliveryFlow();
+    await issueFor(ticket.id, order.id);
+    await db.salesOrder.update({
+      where: { id: order.id },
+      data: { procurementStatus: "partially_received" },
+    });
+
+    await expect(
+      overrideDeliveryGoodsReceivedGateService(actor, { ticketId: ticket.id, reason: "short" }),
+    ).rejects.toThrow(/reason somebody can read/);
+
+    await overrideDeliveryGoodsReceivedGateService(actor, {
+      ticketId: ticket.id,
+      reason: "Customer needs the flowmeter on site now; the fittings can follow next week.",
+    });
+
+    await expect(
+      mobilizeDeliveryService(actor, { ticketId: ticket.id, driverName: "Boy" }),
+    ).resolves.toBeTruthy();
+
+    await db.salesOrder.update({
+      where: { id: order.id },
+      data: { procurementStatus: "received" },
+    });
+    await expect(
+      overrideDeliveryGoodsReceivedGateService(actor, {
+        ticketId: ticket.id,
+        reason: "Trying again for no reason.",
+      }),
+    ).rejects.toThrow(/nothing to override/);
   });
 });
 

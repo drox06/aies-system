@@ -13,10 +13,13 @@ import { trpc } from "@/lib/trpc/client";
  *
  * `BillingPanel` covers the same milestones from finance's side, but that panel sits entirely behind
  * `finance.view` and returns nothing to anyone without it — an operations manager opening this same
- * page sees no billing plan at all. This is a separate panel for exactly that reason: it renders only
- * what finance has actually asked about (`billingReadinessForOrder` is scoped to milestones with an
- * open ask), so an order nobody has asked about shows nothing here, the same restraint `BillingPanel`
- * takes with `NoSchedule`.
+ * page sees no billing plan at all. This is a separate panel for exactly that reason.
+ *
+ * docs/DECISIONS.md #205 widened `billingReadinessForOrder` from "only what finance asked about" to
+ * every pending manual milestone on the order — so this now shows two things, not one: milestones
+ * finance is actively asking about, and milestones nobody has asked about yet that Operations can
+ * flag as done on its own. An order with no pending manual milestone at all still shows nothing, the
+ * same restraint `BillingPanel` takes with `NoSchedule`.
  */
 export function BillingReadinessPanel({ salesOrderId }: { salesOrderId: string }) {
   const utils = trpc.useUtils();
@@ -36,35 +39,100 @@ export function BillingReadinessPanel({ salesOrderId }: { salesOrderId: string }
   // Absent for anybody without `project.manage`, same reasoning `BillingPanel` uses for finance.view.
   if (readiness.error || readiness.isPending || readiness.data.length === 0) return null;
 
+  const asked = readiness.data.filter((m) => m.readinessAskedAt);
+  const notAsked = readiness.data.filter((m) => !m.readinessAskedAt);
+
   return (
     <Card className="mt-4 p-4">
-      <h2 className="text-sm font-semibold">Finance is asking</h2>
-      <p className="mt-0.5 text-xs text-text-muted">
-        Whether this work is done enough to bill for. Answer from here rather than making finance
-        chase you for it.
-      </p>
+      {asked.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold">Finance is asking</h2>
+          <p className="mt-0.5 text-xs text-text-muted">
+            Whether this work is done enough to bill for. Answer from here rather than making
+            finance chase you for it.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {asked.map((milestone) => (
+              <li key={milestone.id} className="rounded-md border border-border p-2.5">
+                <p className="text-sm font-medium">{milestone.label}</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Asked <DateCell value={milestone.readinessAskedAt!} withTime />
+                  {milestone.readinessRepliedAt &&
+                    new Date(milestone.readinessRepliedAt) >=
+                      new Date(milestone.readinessAskedAt!) && (
+                      <>
+                        {" "}
+                        — last said not ready: {milestone.readinessPercentComplete}% done, expected{" "}
+                        <DateCell value={milestone.readinessEstimatedDate!} />.
+                        {milestone.readinessNotes && <> {milestone.readinessNotes}</>}
+                      </>
+                    )}
+                </p>
+                <ReplyReadiness
+                  milestoneId={milestone.id}
+                  label={milestone.label}
+                  onDone={onDone}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      <ul className="mt-2 space-y-2">
-        {readiness.data.map((milestone) => (
-          <li key={milestone.id} className="rounded-md border border-border p-2.5">
-            <p className="text-sm font-medium">{milestone.label}</p>
-            <p className="mt-0.5 text-xs text-text-muted">
-              Asked <DateCell value={milestone.readinessAskedAt!} withTime />
-              {milestone.readinessRepliedAt &&
-                new Date(milestone.readinessRepliedAt) >= new Date(milestone.readinessAskedAt!) && (
-                  <>
-                    {" "}
-                    — last said not ready: {milestone.readinessPercentComplete}% done, expected{" "}
-                    <DateCell value={milestone.readinessEstimatedDate!} />.
-                    {milestone.readinessNotes && <> {milestone.readinessNotes}</>}
-                  </>
-                )}
-            </p>
-            <ReplyReadiness milestoneId={milestone.id} label={milestone.label} onDone={onDone} />
-          </li>
-        ))}
-      </ul>
+      {notAsked.length > 0 && (
+        <div className={asked.length > 0 ? "mt-4 border-t border-border pt-4" : undefined}>
+          <h2 className="text-sm font-semibold">You can tell finance</h2>
+          <p className="mt-0.5 text-xs text-text-muted">
+            Nobody has asked about these yet — flag one as soon as it&rsquo;s done rather than
+            waiting to be asked.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {notAsked.map((milestone) => (
+              <li key={milestone.id} className="rounded-md border border-border p-2.5">
+                <p className="text-sm font-medium">{milestone.label}</p>
+                <DeclareReadiness
+                  milestoneId={milestone.id}
+                  label={milestone.label}
+                  onDone={onDone}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
+  );
+}
+
+/** docs/DECISIONS.md #205 — the unprompted half. No "not yet" here: if it isn't done, there is
+ *  nothing to say yet, the same reason a pending milestone shows nothing until asked. */
+function DeclareReadiness({
+  milestoneId,
+  label,
+  onDone,
+}: {
+  milestoneId: string;
+  label: string;
+  onDone: () => void;
+}) {
+  const declare = trpc.finance.declareMilestoneReady.useMutation({
+    onSuccess: () => {
+      toastSuccess(`Told finance ${label} is ready to bill.`);
+      onDone();
+    },
+    onError: toastError,
+  });
+
+  return (
+    <div className="mt-1.5">
+      <Button
+        size="sm"
+        disabled={declare.isPending}
+        onClick={() => declare.mutate({ milestoneId })}
+      >
+        {declare.isPending ? "Sending…" : "We can bill this"}
+      </Button>
+    </div>
   );
 }
 

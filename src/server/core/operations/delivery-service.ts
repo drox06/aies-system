@@ -10,7 +10,7 @@ import { allocateNumber } from "@/server/core/numbering/numbering";
 import { registerFileAccessChecker } from "@/server/core/storage/access";
 import { formatAddress } from "@/lib/address";
 import { BUSINESS_DAY_MS, businessMsBetween } from "@/server/core/calendar/business-days";
-import { downpaymentGate } from "@/server/core/order/supplier-po-rules";
+import { downpaymentGate, goodsReceivedGate } from "@/server/core/order/supplier-po-rules";
 import { TICKET_ENTITY_TYPE } from "./ticket-rules";
 import {
   DELIVERY_FLOW_ENTITY_TYPE,
@@ -158,6 +158,83 @@ export async function overrideDeliveryDownpaymentGateService(
       entityType: TICKET_ENTITY_TYPE,
       entityId: ticket.id,
       summary: `Cleared ${ticket.number} to leave for site before the customer's downpayment arrived — ${input.reason.trim()}`,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+      requestId: actor.requestId,
+    });
+  });
+
+  return { overridden: true as const };
+}
+
+/**
+ * docs/DECISIONS.md #204. Same shape as `downpaymentGateForDeliveryTicket`, reading
+ * `procurementStatus` instead of `financeStatus` — the column `goodsReceivedGate` already expects.
+ * A standalone delivery ticket with no sales order is exempt the same way.
+ */
+async function goodsReceivedGateForDeliveryTicket(ticketId: string) {
+  const ticket = await db.ticket.findFirst({
+    where: { id: ticketId, deletedAt: null },
+    select: { salesOrder: { select: { procurementStatus: true } } },
+  });
+  if (!ticket?.salesOrder) {
+    return { blocks: false, message: "" };
+  }
+  return goodsReceivedGate({ procurementStatus: ticket.salesOrder.procurementStatus });
+}
+
+/** The override `overrideDeliveryGoodsReceivedGateService` wrote, if any — read from the audit log
+ *  the same way every other gate override in this build is. */
+async function deliveryGoodsReceivedOverride(ticketId: string): Promise<string | null> {
+  const row = await db.auditLog.findFirst({
+    where: {
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticketId,
+      action: "delivery_goods_received_gate_overridden",
+    },
+    orderBy: { at: "desc" },
+    select: { summary: true },
+  });
+  return row?.summary ?? null;
+}
+
+/**
+ * docs/DECISIONS.md #204's override, mirroring `overrideDeliveryDownpaymentGateService` exactly —
+ * its own function and its own audit action, same reasoning as that one gives for being separate
+ * from the mobilisation lane's override.
+ */
+export async function overrideDeliveryGoodsReceivedGateService(
+  actor: ActorMeta,
+  input: { ticketId: string; reason: string },
+) {
+  if (input.reason.trim().length < 10) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "An override needs a reason somebody can read months later.",
+    });
+  }
+
+  const gate = await goodsReceivedGateForDeliveryTicket(input.ticketId);
+  if (!gate.blocks) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Nothing is blocking this ticket, so there is nothing to override.",
+    });
+  }
+
+  const ticket = await db.ticket.findFirstOrThrow({
+    where: { id: input.ticketId },
+    select: { id: true, number: true },
+  });
+
+  await db.$transaction(async (tx) => {
+    await writeAuditLog(tx, {
+      actorId: actor.actorId,
+      actorLabel: actor.actorLabel,
+      action: "delivery_goods_received_gate_overridden",
+      entityType: TICKET_ENTITY_TYPE,
+      entityId: ticket.id,
+      summary: `Cleared ${ticket.number} to leave for site before the supplier's goods were marked received — ${input.reason.trim()}`,
       ip: actor.ip,
       userAgent: actor.userAgent,
       requestId: actor.requestId,
@@ -370,11 +447,20 @@ export async function mobilizeDeliveryService(
 ) {
   const flow = await loadFlow(input.ticketId);
 
-  const [downpayment, downpaymentOverride] = await Promise.all([
-    downpaymentGateForDeliveryTicket(input.ticketId),
-    deliveryDownpaymentOverride(input.ticketId),
-  ]);
-  const gate = canLeaveForSite(flow, downpayment, downpaymentOverride);
+  const [downpayment, downpaymentOverride, goodsReceived, goodsReceivedOverride] =
+    await Promise.all([
+      downpaymentGateForDeliveryTicket(input.ticketId),
+      deliveryDownpaymentOverride(input.ticketId),
+      goodsReceivedGateForDeliveryTicket(input.ticketId),
+      deliveryGoodsReceivedOverride(input.ticketId),
+    ]);
+  const gate = canLeaveForSite(
+    flow,
+    downpayment,
+    downpaymentOverride,
+    goodsReceived,
+    goodsReceivedOverride,
+  );
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
   }
@@ -426,11 +512,20 @@ export async function logDeliveryAttemptService(actor: ActorMeta, input: LogAtte
     throw new TRPCError({ code: "BAD_REQUEST", message: "This delivery is already complete." });
   }
 
-  const [downpayment, downpaymentOverride] = await Promise.all([
-    downpaymentGateForDeliveryTicket(input.ticketId),
-    deliveryDownpaymentOverride(input.ticketId),
-  ]);
-  const gate = canLeaveForSite(flow, downpayment, downpaymentOverride);
+  const [downpayment, downpaymentOverride, goodsReceived, goodsReceivedOverride] =
+    await Promise.all([
+      downpaymentGateForDeliveryTicket(input.ticketId),
+      deliveryDownpaymentOverride(input.ticketId),
+      goodsReceivedGateForDeliveryTicket(input.ticketId),
+      deliveryGoodsReceivedOverride(input.ticketId),
+    ]);
+  const gate = canLeaveForSite(
+    flow,
+    downpayment,
+    downpaymentOverride,
+    goodsReceived,
+    goodsReceivedOverride,
+  );
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
   }
@@ -565,11 +660,20 @@ export async function bookCourierService(
     });
   }
 
-  const [downpayment, downpaymentOverride] = await Promise.all([
-    downpaymentGateForDeliveryTicket(input.ticketId),
-    deliveryDownpaymentOverride(input.ticketId),
-  ]);
-  const gate = canLeaveForSite(flow, downpayment, downpaymentOverride);
+  const [downpayment, downpaymentOverride, goodsReceived, goodsReceivedOverride] =
+    await Promise.all([
+      downpaymentGateForDeliveryTicket(input.ticketId),
+      deliveryDownpaymentOverride(input.ticketId),
+      goodsReceivedGateForDeliveryTicket(input.ticketId),
+      deliveryGoodsReceivedOverride(input.ticketId),
+    ]);
+  const gate = canLeaveForSite(
+    flow,
+    downpayment,
+    downpaymentOverride,
+    goodsReceived,
+    goodsReceivedOverride,
+  );
   if (!gate.ok) {
     throw new TRPCError({ code: "BAD_REQUEST", message: gate.errors.join(" ") });
   }
@@ -1055,10 +1159,13 @@ export async function getDeliveryFlowService(ticketId: string) {
   const resolvedAddress =
     flow.manualDeliveryAddress?.trim() || formatAddress(flow.ticket.site?.address);
 
-  const [downpayment, downpaymentOverrideReason] = await Promise.all([
-    downpaymentGateForDeliveryTicket(ticketId),
-    deliveryDownpaymentOverride(ticketId),
-  ]);
+  const [downpayment, downpaymentOverrideReason, goodsReceived, goodsReceivedOverrideReason] =
+    await Promise.all([
+      downpaymentGateForDeliveryTicket(ticketId),
+      deliveryDownpaymentOverride(ticketId),
+      goodsReceivedGateForDeliveryTicket(ticketId),
+      deliveryGoodsReceivedOverride(ticketId),
+    ]);
 
   return {
     ...flow,
@@ -1069,6 +1176,8 @@ export async function getDeliveryFlowService(ticketId: string) {
     mapsUrl: googleMapsUrl(resolvedAddress),
     downpayment,
     downpaymentOverrideReason,
+    goodsReceived,
+    goodsReceivedOverrideReason,
   };
 }
 

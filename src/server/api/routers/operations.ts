@@ -95,6 +95,7 @@ import {
   logDeliveryAttemptService,
   mobilizeDeliveryService,
   overrideDeliveryDownpaymentGateService,
+  overrideDeliveryGoodsReceivedGateService,
   recordCourierPodService,
   setDeliveryAddressService,
   setDeliveryModeService,
@@ -1496,6 +1497,11 @@ export const operationsRouter = router({
   overrideDeliveryDownpaymentGate: p("operations.override_downpayment_gate")
     .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
     .mutation(({ ctx, input }) => overrideDeliveryDownpaymentGateService(actorMeta(ctx), input)),
+
+  /** docs/DECISIONS.md #204's goods-received gate on the delivery lane. */
+  overrideDeliveryGoodsReceivedGate: p("operations.override_goods_received_gate")
+    .input(z.object({ ticketId: z.string(), reason: z.string().min(10).max(1000) }))
+    .mutation(({ ctx, input }) => overrideDeliveryGoodsReceivedGateService(actorMeta(ctx), input)),
 
   /** A one-off destination overriding the customer's saved site. Never required. */
   setDeliveryAddress: p("delivery.execute")

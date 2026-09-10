@@ -326,7 +326,18 @@ export async function createSalesOrderFromPoService(
         downpaymentPct: downpaymentPct.toString(),
         downpaymentAmount: downpaymentAmount.toFixed(2),
         status: "open",
-        procurementStatus: "pending",
+        /*
+          docs/DECISIONS.md #204. `procurementStatusFrom` (goods-receipt-rules.ts) already says
+          zero live supplier POs is `"not_required"`, not `"pending"` — but this column was
+          hardcoded to `"pending"` here regardless, so an order that never needed a supplier at all
+          sat on "Pending" forever: nothing ever recomputes it except a goods receipt being
+          accepted, which a stock-only order never gets. Harmless while the column was purely
+          informational; found only once #204 gated the delivery lane on it, which would have
+          blocked every goods-only delivery ticket on an order nobody ever raised a supplier PO
+          against. `createSupplierPosFromSalesOrderService` already flips this to `"pending"` the
+          moment a real draft PO exists — that write is untouched, this is only the starting value.
+        */
+        procurementStatus: "not_required",
         // No downpayment agreed means nothing to wait for. Starting at `awaiting_downpayment` on
         // those orders would put a gate indicator on every one of them for a condition nobody set.
         financeStatus: downpaymentPct > 0 ? "awaiting_downpayment" : "not_required",

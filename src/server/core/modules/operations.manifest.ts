@@ -383,6 +383,15 @@ export const operationsManifest = defineManifest({
       // customer paid" are different sentences to have to justify, and each gate answers for its own.
       defaultRoles: ["president", "vice_president"],
     },
+    {
+      key: "operations.override_goods_received_gate",
+      label: "Send a delivery before the supplier's goods are marked received",
+      group: "Operations",
+      // docs/DECISIONS.md #204. Its own key for the same reason #186 gave the downpayment override
+      // one instead of reusing procurement's — a different sentence to have to justify, and each
+      // gate answers for its own.
+      defaultRoles: ["president", "vice_president"],
+    },
   ],
 
   /**

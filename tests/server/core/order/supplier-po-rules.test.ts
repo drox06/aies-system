@@ -3,6 +3,7 @@ import {
   allocateLandedCost,
   daysLate,
   downpaymentGate,
+  goodsReceivedGate,
   isSupplierPoEditable,
   supplierApprovalGate,
   supplierPoTotal,
@@ -176,6 +177,29 @@ describe("§4's downpayment gate", () => {
       financeStatus: "awaiting_downpayment",
       downpaymentPct: 0,
     });
+    expect(gate.blocks).toBe(false);
+  });
+});
+
+describe("docs/DECISIONS.md #204's goods-received gate", () => {
+  it("does not block an order that never needed a supplier", () => {
+    const gate = goodsReceivedGate({ procurementStatus: "not_required" });
+    expect(gate.state).toBe("not_required");
+    expect(gate.blocks).toBe(false);
+  });
+
+  it("blocks while anything ordered from a supplier is still outstanding", () => {
+    for (const procurementStatus of ["pending", "ordered", "partially_received"]) {
+      const gate = goodsReceivedGate({ procurementStatus });
+      expect(gate.state, procurementStatus).toBe("blocked");
+      expect(gate.blocks, procurementStatus).toBe(true);
+      expect(gate.message).toMatch(/waiting on the supplier/i);
+    }
+  });
+
+  it("clears once everything ordered has arrived", () => {
+    const gate = goodsReceivedGate({ procurementStatus: "received" });
+    expect(gate.state).toBe("satisfied");
     expect(gate.blocks).toBe(false);
   });
 });

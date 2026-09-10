@@ -87,6 +87,9 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
   const canOverrideDownpayment = (me.data?.permissions ?? []).includes(
     "operations.override_downpayment_gate",
   );
+  const canOverrideGoodsReceived = (me.data?.permissions ?? []).includes(
+    "operations.override_goods_received_gate",
+  );
   const refresh = () => void flow.refetch();
 
   const start = trpc.operations.startDeliveryFlow.useMutation({ onSuccess: refresh });
@@ -110,10 +113,19 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
       refresh();
     },
   });
+  const overrideGoodsReceived = trpc.operations.overrideDeliveryGoodsReceivedGate.useMutation({
+    onSuccess: () => {
+      setOverridingGoodsReceived(false);
+      setGoodsReceivedOverrideReasonDraft("");
+      refresh();
+    },
+  });
 
   const [lines, setLines] = useState<DraftLine[] | null>(null);
   const [overridingDownpayment, setOverridingDownpayment] = useState(false);
   const [downpaymentOverrideReasonDraft, setDownpaymentOverrideReasonDraft] = useState("");
+  const [overridingGoodsReceived, setOverridingGoodsReceived] = useState(false);
+  const [goodsReceivedOverrideReasonDraft, setGoodsReceivedOverrideReasonDraft] = useState("");
   const [vehicleRef, setVehicleRef] = useState("");
   const [driverName, setDriverName] = useState("");
   const [externalDrNumber, setExternalDrNumber] = useState("");
@@ -369,6 +381,67 @@ export function DeliveryPanel({ ticketId, ticketType }: { ticketId: string; tick
                     size="sm"
                     className="mt-2"
                     onClick={() => setOverridingDownpayment(true)}
+                  >
+                    Send it anyway
+                  </Button>
+                ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* docs/DECISIONS.md #204, same placement as the downpayment gate above. */}
+      {data.goodsReceived.blocks && (
+        <div className="mt-3 rounded-md border-2 border-amber-400 bg-amber-50 p-2.5 text-sm text-amber-900">
+          {data.goodsReceivedOverrideReason ? (
+            <p>
+              <span className="font-medium">Goods-received gate overridden:</span>{" "}
+              {data.goodsReceivedOverrideReason}
+            </p>
+          ) : (
+            <>
+              <p>{data.goodsReceived.message}</p>
+              {canOverrideGoodsReceived &&
+                (overridingGoodsReceived ? (
+                  <div className="mt-2">
+                    <Label htmlFor="gr-override-reason">Why send it anyway</Label>
+                    <Textarea
+                      id="gr-override-reason"
+                      rows={2}
+                      value={goodsReceivedOverrideReasonDraft}
+                      onChange={(event) => setGoodsReceivedOverrideReasonDraft(event.target.value)}
+                    />
+                    <div className="mt-1 flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={
+                          overrideGoodsReceived.isPending ||
+                          goodsReceivedOverrideReasonDraft.trim().length < 10
+                        }
+                        onClick={() =>
+                          overrideGoodsReceived.mutate({
+                            ticketId,
+                            reason: goodsReceivedOverrideReasonDraft.trim(),
+                          })
+                        }
+                      >
+                        Override the gate
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOverridingGoodsReceived(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setOverridingGoodsReceived(true)}
                   >
                     Send it anyway
                   </Button>

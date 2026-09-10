@@ -36,6 +36,7 @@ import {
   billableMilestonesService,
   billingReadinessForOrderService,
   cancelMilestoneService,
+  declareMilestoneReadyService,
   generateScheduleService,
   getScheduleService,
   recordCustomerBillingReplyService,
@@ -159,6 +160,14 @@ export const financeRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => replyMilestoneReadinessService(actorMeta(ctx), input)),
+
+  /**
+   * docs/DECISIONS.md #205 — the other half of the same permission's job: Operations declaring a
+   * milestone ready on its own initiative, not only in reply to finance's ask.
+   */
+  declareMilestoneReady: p("project.manage")
+    .input(z.object({ milestoneId: z.string() }))
+    .mutation(({ ctx, input }) => declareMilestoneReadyService(actorMeta(ctx), input)),
 
   /**
    * The read side for operations — `BillingPanel` shows finance the same fields, but that screen

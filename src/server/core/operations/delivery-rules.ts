@@ -153,6 +153,10 @@ export interface DeliveryCheck {
  * readiness. Gated the same place the installation lane gates it: on *movement* (mobilising the
  * crew, booking the courier, logging an attempt), not on issuing the DR — the paperwork can still be
  * prepared ahead of the money arriving, same as an installation ticket's methodology can be.
+ *
+ * docs/DECISIONS.md #204 adds `goodsReceived` the same way, one field over: a delivery ticket could
+ * also leave before the goods it was meant to deliver had actually come in from the supplier. Same
+ * placement — on movement, not on issuing the DR — for the same reason.
  */
 export function canLeaveForSite(
   flow: {
@@ -161,6 +165,8 @@ export function canLeaveForSite(
   },
   downpayment?: { blocks: boolean; message: string },
   downpaymentOverride?: string | null,
+  goodsReceived?: { blocks: boolean; message: string },
+  goodsReceivedOverride?: string | null,
 ): DeliveryCheck {
   const errors: string[] = [];
   if (!flow.drIssuedAt) {
@@ -174,6 +180,9 @@ export function canLeaveForSite(
   }
   if (downpayment?.blocks && !downpaymentOverride) {
     errors.push(downpayment.message);
+  }
+  if (goodsReceived?.blocks && !goodsReceivedOverride) {
+    errors.push(goodsReceived.message);
   }
   return { ok: errors.length === 0, errors, warnings: [] };
 }

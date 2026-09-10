@@ -272,7 +272,9 @@ describe("raising the sales order", () => {
     // §3: "If any line requires execution, `executionStatus` starts at `pending`."
     expect(order.executionStatus).toBe("pending");
     expect(order.status).toBe("open");
-    expect(order.procurementStatus).toBe("pending");
+    // docs/DECISIONS.md #204: no supplier PO exists yet, so this starts "not_required" — the same
+    // fact `procurementStatusFrom([])` would report — not "pending" for a decision nobody has made.
+    expect(order.procurementStatus).toBe("not_required");
     // Nothing bought, nothing delivered — the obligation is the full ordered quantity.
     expect(order.lines[0]!.qtyOrdered.toString()).toBe(order.lines[0]!.quantity.toString());
     expect(order.lines[0]!.qtyReceived.toString()).toBe("0");

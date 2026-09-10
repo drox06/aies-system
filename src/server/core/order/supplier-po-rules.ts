@@ -135,6 +135,58 @@ export function downpaymentGate(order: {
   };
 }
 
+// ---- the delivery lane's own gate: has what was ordered actually arrived -----------------------
+
+export type GoodsReceivedGateState = "not_required" | "satisfied" | "blocked";
+
+export interface GoodsReceivedGate {
+  state: GoodsReceivedGateState;
+  /** True when a delivery ticket may not leave for site without an override. */
+  blocks: boolean;
+  message: string;
+}
+
+/**
+ * Reported live against a real supply-and-install order, 2026-09-10: nothing stopped a delivery
+ * ticket from leaving for site before the goods it was meant to deliver had come in from the
+ * supplier. `SalesOrder.procurementStatus` is already the maintained answer to "has everything that
+ * needed a supplier actually arrived" — `procurementStatusFrom` (goods-receipt-rules.ts) derives it
+ * from every live SupplierPO on the order, moved only by procurement's own evidence — so this reads
+ * that column rather than joining SupplierPO/GoodsReceipt directly, the same choice `downpaymentGate`
+ * makes for `financeStatus`.
+ *
+ * `not_required` is its own state, not folded into `satisfied`, for the same reason `downpaymentGate`
+ * keeps the two apart: an order with nothing to buy (stock lines only) has not "received everything"
+ * — there was never anything to receive — and collapsing the two would make a goods-only ticket read
+ * as if procurement had done something on it.
+ */
+export function goodsReceivedGate(order: { procurementStatus: string }): GoodsReceivedGate {
+  if (order.procurementStatus === "not_required") {
+    return {
+      state: "not_required",
+      blocks: false,
+      message: "Nothing on this order needed a supplier, so delivery is not waiting on one.",
+    };
+  }
+
+  if (order.procurementStatus === "received") {
+    return {
+      state: "satisfied",
+      blocks: false,
+      message: "Everything ordered from suppliers has arrived. Clear to deliver.",
+    };
+  }
+
+  // pending, ordered, partially_received — something is still on order or only partly in.
+  return {
+    state: "blocked",
+    blocks: true,
+    message:
+      "Waiting on the supplier's goods to arrive before this can go out — or a President or " +
+      "Vice President override, with a reason.",
+  };
+}
+
 // ---- clause 8.4 ---------------------------------------------------------------------------------
 
 export interface SupplierApprovalGate {

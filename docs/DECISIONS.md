@@ -7649,3 +7649,79 @@ statement (amount, VAT, payment status) needed touching, since the money itself 
 is `"downpayment"` and every other trigger is `"progress"`. The UI wiring itself (`RaiseStatement.tsx`
 reading its new `trigger` prop) has no test harness in this suite, same as `QaPanel.tsx` (#201) and
 `PreparationPanel.tsx` (#198) — `tsc --noEmit` and `eslint` are clean.
+
+---
+
+## #204 — Delivery now waits on the supplier's goods, and a stale "Pending" status is fixed underneath it
+
+**2026-09-10.** EA laid out the intended 30/70 flow start to finish: downpayment billed and gates
+everything, its receipt unblocks raising a supplier order, the supplier's goods arriving unblocks
+delivery, delivery unblocks installation. Checking the code against each step found delivery's own
+gap: nothing stopped a delivery ticket from leaving for site before the goods it was meant to deliver
+had actually arrived from the supplier — `canLeaveForSite` checked the delivery receipt and #196's
+downpayment gate, nothing about procurement.
+
+**`goodsReceivedGate`**, added beside `downpaymentGate` in `supplier-po-rules.ts`, reads
+`SalesOrder.procurementStatus` — the column `procurementStatusFrom` (goods-receipt-rules.ts) already
+maintains from every live SupplierPO on the order — the same choice `downpaymentGate` makes for
+`financeStatus` rather than joining SupplierPO/GoodsReceipt directly. Wired into `canLeaveForSite` as
+a fourth and fifth parameter alongside the downpayment pair, gated at the same three call sites
+(mobilising, booking a courier, logging an attempt) plus `getDeliveryFlowService`'s read side. Its own
+override — `operations.override_goods_received_gate`, president/VP only — is its own permission for
+the same reason #186 gave the downpayment override one instead of reusing procurement's: a different
+sentence to have to justify.
+
+**A second, pre-existing bug had to be fixed underneath it, or the new gate would have blocked every
+order that never needed a supplier.** `createSalesOrderFromPoService` hardcoded `procurementStatus:
+"pending"` at creation regardless of what the order's lines actually were — while
+`procurementStatusFrom` itself says zero live supplier POs is `"not_required"`, not `"pending"`.
+Harmless while the column was purely a display badge (a goods-only order just sat on "Pending"
+forever, since nothing ever recomputes it except a goods receipt being accepted, which a stock-only
+order never gets); it would have been a real regression the moment `goodsReceivedGate` started
+reading it — every delivery ticket on every order, including ones that never touched a supplier,
+would have blocked forever. Changed to start `"not_required"`, matching the sibling `executionStatus`
+line right next to it (`anyExecution ? "pending" : "not_required"`) and matching what
+`procurementStatusFrom([])` would already say. `createSupplierPosFromSalesOrderService` already flips
+it to `"pending"` the instant a real draft PO exists — that write was untouched.
+
+**Verified**: `supplier-po-rules.test.ts` gained three cases for `goodsReceivedGate` directly (not
+required, blocked across `pending`/`ordered`/`partially_received`, satisfied once `received`).
+`delivery.test.ts` gained three end-to-end cases: a goods-only order (confirming the creation-default
+fix) is not gated at all, an order with outstanding supplier goods blocks mobilising and clears once
+`procurementStatus` reaches `"received"`, and the override opens the check and refuses a second one
+once nothing is left to override. `sales-order.test.ts`'s existing assertion on the creation default
+updated to match; every other suite touching `procurementStatus` (`supplier-po.test.ts`,
+`goods-receipt.test.ts`, `goods-receipt-rules.test.ts`, `ticket.test.ts`) re-run and unaffected — 151
+tests across all seven files pass.
+
+---
+
+## #205 — Operations can tell finance a milestone is ready to bill without being asked first
+
+**2026-09-10.** The last piece of EA's walkthrough: during installation, KJ can ask "can we bill
+this?" and Operations replies — already built, #185 — but Operations had no way to go first. If the
+work finished before finance thought to ask, there was nothing to press; `replyMilestoneReadiness`
+explicitly refused with "nobody at finance has asked about this yet," and
+`billingReadinessForOrderService`'s own comment said so on purpose: "operations answers a question
+here, it does not go looking for one nobody has raised yet." The company's instruction today is that
+this restraint went too far.
+
+**`declareMilestoneReadyService`** is the new, deliberately separate door — it deferred straight to
+`releaseMilestoneService`, the same function an "accomplished" reply already calls, so anything true
+of a release (the race guard, the notification to finance, `autoRaiseOnRelease` where a term sets it)
+is true here too. `replyMilestoneReadinessService` itself was not touched — it still refuses a reply
+with no matching ask, deliberately, since that is a different door with a different shape ("answer
+what was asked" vs. "say something nobody asked"), not a loosening of the same one.
+`billingReadinessForOrderService` widened from milestones finance has asked about to every pending
+`manual` milestone on the order, asked or not; `readinessAskedAt` riding along on each row is what
+lets the screen (and anyone reading a milestone's history afterwards) tell "asked" and "volunteered"
+apart. `BillingReadinessPanel.tsx` now renders two sections — "Finance is asking" for the ones with an
+open ask, "You can tell finance" for the ones without — rather than one list with one button.
+
+**Verified**: `billing-milestone-readiness.test.ts` gained a new describe block — the milestone
+appears on operations' list before any ask exists, `declareMilestoneReadyService` releases it exactly
+as an accomplished reply would (including the `autoRaiseOnRelease` path, proven by a real statement
+number coming back), and it drops off the list once released. One pre-existing test's assertion
+("the list is empty before anybody asks") was updated to match the new, intended shape — it now
+asserts `readinessAskedAt` is null beforehand instead of asserting the milestone is absent. All 11
+tests in the file pass; `tsc --noEmit` and `eslint` are clean.

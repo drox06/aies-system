@@ -779,6 +779,24 @@ export async function replyMilestoneReadinessService(
 }
 
 /**
+ * Operations declaring readiness without being asked first.
+ *
+ * `billingReadinessForOrderService`'s own comment used to read "operations answers a question here,
+ * it does not go looking for one nobody has raised yet" — the company's own instruction, 2026-09-10,
+ * is that that restraint went too far: the work can finish before finance thinks to ask, and
+ * Operations should be able to say so on its own rather than waiting to be prompted. Delegates
+ * straight to `releaseMilestoneService`, same as an "accomplished" reply does — releasing *is* what
+ * "we can bill this" means, whichever side started the conversation. `readinessAskedAt` staying null
+ * is what tells anyone reading the milestone's history afterwards that this one was volunteered.
+ */
+export async function declareMilestoneReadyService(
+  actor: ActorMeta,
+  input: { milestoneId: string },
+) {
+  return releaseMilestoneService(actor, { milestoneId: input.milestoneId });
+}
+
+/**
  * The subscriber side: an event arrives naming a record, and whichever schedules it touches advance.
  *
  * Takes the sales order ids rather than resolving them, because how an event maps to an order is the
@@ -861,8 +879,13 @@ export async function getScheduleService(salesOrderId: string) {
  * `BillingPanel` already shows finance the same fields — this exists because operations cannot see
  * that panel at all (it sits behind `finance.view`, which `project.manage` does not imply, on
  * purpose: §19 keeps contract value off a technician's screen, and a milestone's amount is exactly
- * that). Scoped to milestones finance has actually asked about — operations answers a question here,
- * it does not go looking for one nobody has raised yet.
+ * that).
+ *
+ * Every pending `manual` milestone on the order, asked about or not — docs/DECISIONS.md #205
+ * widened this from "only what finance asked about": the earlier restraint ("operations answers a
+ * question here, it does not go looking for one nobody has raised yet") meant Operations had no way
+ * to say a job was done before finance thought to ask. `readinessAskedAt` rides along so the screen
+ * can still tell the two cases apart — asked, or volunteered.
  */
 export async function billingReadinessForOrderService(salesOrderId: string) {
   const milestones = await db.billingMilestone.findMany({
@@ -871,7 +894,6 @@ export async function billingReadinessForOrderService(salesOrderId: string) {
       deletedAt: null,
       status: "pending",
       trigger: "manual",
-      readinessAskedAt: { not: null },
     },
     orderBy: { sequence: "asc" },
   });

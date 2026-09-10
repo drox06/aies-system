@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   askMilestoneReadinessService,
   billingReadinessForOrderService,
+  declareMilestoneReadyService,
   generateScheduleService,
   getScheduleService,
   replyMilestoneReadinessService,
@@ -13,15 +14,17 @@ import {
  * docs/DECISIONS.md #185 — the finance/operations "are we ready to bill this?" exchange terms 4
  * through 6 need, since their balances are `manual` on purpose rather than wired to an automatic
  * trigger (EA's own words: "the installation balance when operations confirms the work is actually
- * done").
+ * done"). docs/DECISIONS.md #205 adds the exchange's other direction: Operations volunteering
+ * readiness before finance thinks to ask.
  *
  * What only a real run settles:
  *
- *  1. **The exchange has a direction.** Operations cannot answer a question finance never asked —
- *     otherwise a milestone could be released with nobody at finance having chosen the moment.
+ *  1. **`replyMilestoneReadinessService` still has a direction.** Operations cannot *reply* to a
+ *     question finance never asked through that specific function — `declareMilestoneReadyService`
+ *     is the deliberate, separate door for going first, not a loosening of this one.
  *  2. **"We can bill this" is exactly a release, not a second mechanism that happens to agree with
- *     one.** It goes through `releaseMilestoneService` directly, so anything true of a release (the
- *     race guard, the notification to finance) is true here too.
+ *     one.** Both the reply path and the declare path go through `releaseMilestoneService` directly,
+ *     so anything true of a release (the race guard, the notification to finance) is true of either.
  *  3. **term 3 is not part of this exchange.** `autoRaiseOnRelease` releases on finance's own
  *     say-so; asking operations about it would be asking the wrong department.
  */
@@ -121,6 +124,15 @@ async function makeOrder(totalPesos: string, paymentTermsId: string) {
 }
 
 afterAll(async () => {
+  // docs/DECISIONS.md #205's own test is the first in this file to actually trip
+  // `autoRaiseOnRelease`, so it's the first to leave a real BillingStatement behind.
+  const statements = await db.billingStatement.findMany({
+    where: { salesOrderId: { in: orderIds } },
+    select: { id: true },
+  });
+  const statementIds = statements.map((s) => s.id);
+  await db.billingStatementLine.deleteMany({ where: { statementId: { in: statementIds } } });
+  await db.billingStatement.deleteMany({ where: { id: { in: statementIds } } });
   await db.billingMilestone.deleteMany({ where: { salesOrderId: { in: orderIds } } });
   await db.billingSchedule.deleteMany({ where: { salesOrderId: { in: orderIds } } });
   await db.auditLog.deleteMany({ where: { entityId: { in: [...scheduleIds, ...orderIds] } } });
@@ -182,7 +194,11 @@ describe("finance asking whether a milestone is ready to bill", () => {
     const schedule = await getScheduleService(order.id);
     const milestoneId = schedule!.milestones[0]!.id;
 
-    expect(await billingReadinessForOrderService(order.id)).toEqual([]);
+    // docs/DECISIONS.md #205: the milestone is already on the list, unasked — that is the point of
+    // widening this query. What the ask actually changes is `readinessAskedAt`.
+    const before = await billingReadinessForOrderService(order.id);
+    expect(before).toHaveLength(1);
+    expect(before[0]!.readinessAskedAt).toBeNull();
 
     await askMilestoneReadinessService(actor, { milestoneId });
 
@@ -306,4 +322,62 @@ describe("operations answering the ask", () => {
     expect(released.statement).toBeNull();
     expect((await getScheduleService(order.id))!.milestones[0]!.status).toBe("ready_to_bill");
   }, 40000);
+});
+
+describe("docs/DECISIONS.md #205: operations declaring readiness without being asked", () => {
+  it("shows up on operations' list before finance has asked anything", async () => {
+    const term = await makeTerm([{ label: "Installation balance", pct: "100", trigger: "manual" }]);
+    const order = await makeOrder("10000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+    const schedule = await getScheduleService(order.id);
+
+    const readiness = await billingReadinessForOrderService(order.id);
+    expect(readiness).toHaveLength(1);
+    expect(readiness[0]!.id).toBe(schedule!.milestones[0]!.id);
+    expect(readiness[0]!.readinessAskedAt).toBeNull();
+  });
+
+  it("releases the milestone exactly like an accomplished reply would, unprompted", async () => {
+    const term = await makeTerm([{ label: "Installation balance", pct: "100", trigger: "manual" }]);
+    const order = await makeOrder("50000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+    const schedule = await getScheduleService(order.id);
+    const milestoneId = schedule!.milestones[0]!.id;
+
+    const declared = (await declareMilestoneReadyService(ops, { milestoneId })) as {
+      statement: unknown;
+    };
+    expect(declared.statement).toBeNull();
+
+    const after = await getScheduleService(order.id);
+    expect(after!.milestones[0]!.status).toBe("ready_to_bill");
+    expect(after!.milestones[0]!.readinessAskedAt).toBeNull();
+
+    // Released — drops off the list either way, the same as an answered ask does.
+    expect(await billingReadinessForOrderService(order.id)).toEqual([]);
+  });
+
+  /**
+   * `declareMilestoneReadyService` is a thin call onto `releaseMilestoneService` — this proves the
+   * delegation is real rather than a parallel implementation that could drift from it, by checking
+   * for a behaviour `declareMilestoneReadyService` itself does nothing to produce: `autoRaiseOnRelease`
+   * issuing a statement in the same act.
+   */
+  it("auto-raises a statement too, exactly as a manual release would", async () => {
+    const term = await makeTerm([
+      { label: "Full payment", pct: "100", trigger: "manual", autoRaiseOnRelease: true },
+    ]);
+    const order = await makeOrder("10000.00", term.id);
+    const result = await generateScheduleService(actor, { salesOrderId: order.id });
+    scheduleIds.push(result.scheduleId);
+    const schedule = await getScheduleService(order.id);
+
+    const declared = (await declareMilestoneReadyService(ops, {
+      milestoneId: schedule!.milestones[0]!.id,
+    })) as { statement: { id: string; number: string } | null };
+    expect(declared.statement).not.toBeNull();
+    expect(declared.statement!.number).toMatch(/^AIESBS-/);
+  });
 });
